@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: offerlens-postgres
+    environment:
+      POSTGRES_USER: offerlens
+      POSTGRES_PASSWORD: offerlens_dev_password
+      POSTGRES_DB: offerlens_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U offerlens"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: offerlens-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Backend API (optional - for full stack development)
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: offerlens-api
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: postgresql://offerlens:offerlens_dev_password@postgres:5432/offerlens_dev
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: dev-secret-key
+      CORS_ORIGIN: http://localhost:5173
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./src:/app/src
+      - ./package.json:/app/package.json
+    command: npm run dev
+
+volumes:
+  postgres_data:
+  redis_data:

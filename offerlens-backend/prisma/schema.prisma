@@ -1,0 +1,103 @@
+// Prisma schema for OfferLens backend
+// This defines the database structure for the application
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Salary Benchmarks - Market salary data by role, experience, and location
+model SalaryBenchmark {
+  id              String   @id @default(uuid())
+  role            String
+  experienceLevel String   @map("experience_level")
+  city            String
+  minSalary       Decimal  @map("min_salary") @db.Decimal(10, 2)
+  avgSalary       Decimal  @map("avg_salary") @db.Decimal(10, 2)
+  maxSalary       Decimal  @map("max_salary") @db.Decimal(10, 2)
+  effectiveDate   DateTime @default(now()) @map("effective_date") @db.Date
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@unique([role, experienceLevel, city, effectiveDate])
+  @@index([role, experienceLevel, city])
+  @@map("salary_benchmarks")
+}
+
+// Red Flag Rules - Pattern matching rules for detecting problematic clauses
+model RedFlagRule {
+  id          String   @id @default(uuid())
+  ruleId      String   @unique @map("rule_id")
+  severity    String   // 'high', 'medium', 'low'
+  title       String
+  description String   @db.Text
+  keywords    String[] // Array of keywords to match
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([active])
+  @@map("red_flag_rules")
+}
+
+// Feature Requests - User-submitted suggestions and feedback
+model FeatureRequest {
+  id          String                 @id @default(uuid())
+  type        String                 // 'role', 'feature', 'issue'
+  title       String
+  description String                 @db.Text
+  userEmail   String?                @map("user_email")
+  status      String                 @default("submitted") // 'submitted', 'under_review', 'planned', 'in_progress', 'completed', 'declined'
+  votes       Int                    @default(0)
+  adminNote   String?                @map("admin_note") @db.Text
+  createdAt   DateTime               @default(now()) @map("created_at")
+  updatedAt   DateTime               @updatedAt @map("updated_at")
+  
+  // Relations
+  voteRecords FeatureRequestVote[]
+
+  @@index([status, createdAt(sort: Desc)])
+  @@map("feature_requests")
+}
+
+// Feature Request Votes - Track votes by IP to prevent duplicates
+model FeatureRequestVote {
+  id               String         @id @default(uuid())
+  featureRequestId String         @map("feature_request_id")
+  ipAddress        String         @map("ip_address")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  
+  // Relations
+  featureRequest   FeatureRequest @relation(fields: [featureRequestId], references: [id], onDelete: Cascade)
+
+  @@unique([featureRequestId, ipAddress])
+  @@map("feature_request_votes")
+}
+
+// Analytics Events - Anonymized usage tracking
+model AnalyticsEvent {
+  id            String   @id @default(uuid())
+  eventType     String   @map("event_type")
+  metadata      Json?    // Flexible JSON field for event-specific data
+  ipAddressHash String?  @map("ip_address_hash") // Hashed for privacy
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([eventType, createdAt(sort: Desc)])
+  @@map("analytics_events")
+}
+
+// Admin Users - Authentication for admin operations
+model AdminUser {
+  id           String    @id @default(uuid())
+  username     String    @unique
+  passwordHash String    @map("password_hash")
+  role         String    @default("admin") // 'admin', 'super_admin'
+  createdAt    DateTime  @default(now()) @map("created_at")
+  lastLogin    DateTime? @map("last_login")
+
+  @@map("admin_users")
+}
