@@ -163,21 +163,37 @@ export const sanitizeObject = <T extends Record<string, any>>(obj: T, sanitizer:
 /**
  * Check if input contains potential XSS patterns
  * Returns true if suspicious patterns are detected
+ * Note: This is tuned to avoid false positives from legitimate text content
  */
 export const containsXss = (input: string): boolean => {
   if (typeof input !== 'string') {
     return false;
   }
 
+  // More specific patterns that indicate actual XSS attempts
+  // Avoid flagging legitimate text that mentions these terms
   const xssPatterns = [
-    /<script/i,
-    /javascript:/i,
-    /on\w+\s*=/i, // Event handlers
-    /<iframe/i,
-    /<object/i,
-    /<embed/i,
-    /data:text\/html/i,
-    /vbscript:/i,
+    // Script tags with actual content or attributes
+    /<script[^>]*>[\s\S]*?<\/script>/i,
+    /<script[^>]+src/i,
+    
+    // JavaScript protocol in attributes
+    /javascript:\s*[^;\s]/i,
+    
+    // Event handlers with actual code (not just the word "onclick" in text)
+    /on\w+\s*=\s*["'][^"']*["']/i,
+    /on\w+\s*=\s*[^\s>]+/i,
+    
+    // Dangerous tags with attributes
+    /<iframe[^>]+src/i,
+    /<object[^>]+data/i,
+    /<embed[^>]+src/i,
+    
+    // Data URLs with HTML content
+    /data:text\/html[,;]/i,
+    
+    // VBScript protocol
+    /vbscript:\s*[^;\s]/i,
   ];
 
   return xssPatterns.some((pattern) => pattern.test(input));
@@ -186,21 +202,36 @@ export const containsXss = (input: string): boolean => {
 /**
  * Check if input contains potential SQL injection patterns
  * Returns true if suspicious patterns are detected
+ * Note: This is tuned to avoid false positives from legitimate text content
  */
 export const containsSqlInjection = (input: string): boolean => {
   if (typeof input !== 'string') {
     return false;
   }
 
+  // More specific patterns that indicate actual SQL injection attempts
+  // Avoid flagging legitimate text that happens to contain SQL keywords
   const sqlPatterns = [
-    /(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|EXECUTE|UNION|DECLARE)\b.*\b(FROM|INTO|WHERE|SET)\b)/i,
-    /--/,
-    /;.*(\b(SELECT|INSERT|UPDATE|DELETE|DROP)\b)/i,
-    /\/\*.*\*\//,
-    /\bOR\b.*=.*\bOR\b/i,
-    /\bAND\b.*=.*\bAND\b/i,
-    /'\s*(OR|AND)\s*'?\d/i,
-    /'\s*=\s*'/,
+    // SQL injection with quotes and operators (classic injection)
+    /'\s*(OR|AND)\s+'\d+'\s*=\s*'\d+/i,
+    /'\s*(OR|AND)\s+\d+\s*=\s*\d+/i,
+    /'\s*OR\s+'?1'?\s*=\s*'?1/i,
+    
+    // Union-based injection
+    /UNION\s+(ALL\s+)?SELECT/i,
+    
+    // Comment-based injection (SQL comments used to bypass logic)
+    /--\s*$/m,  // SQL comment at end of line
+    /\/\*.*\*\/.*(\bSELECT\b|\bINSERT\b|\bUPDATE\b|\bDELETE\b)/i,
+    
+    // Stacked queries (semicolon followed by SQL command)
+    /;\s*(\bDROP\b|\bDELETE\b|\bINSERT\b|\bUPDATE\b|\bCREATE\b)/i,
+    
+    // Time-based blind injection
+    /\b(SLEEP|WAITFOR|DELAY)\s*\(/i,
+    
+    // Boolean-based blind injection with quotes
+    /'\s*=\s*'\s*(OR|AND)/i,
   ];
 
   return sqlPatterns.some((pattern) => pattern.test(input));
