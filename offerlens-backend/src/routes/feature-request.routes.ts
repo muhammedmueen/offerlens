@@ -6,7 +6,7 @@ import {
   voteFeatureRequest,
 } from '../controllers/feature-request.controller';
 import { validate } from '../middleware/validation';
-import { rateLimiter } from '../middleware/rateLimiter';
+// import { rateLimiter } from '../middleware/rateLimiter'; // COMMENTED OUT
 import {
   featureRequestSchema,
   featureRequestQuerySchema,

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { analyzeOffer } from '../controllers/analysis.controller';
 import { validate } from '../middleware/validation';
-import { rateLimiter } from '../middleware/rateLimiter';
+// import { rateLimiter } from '../middleware/rateLimiter'; // COMMENTED OUT
 import { analyzeRequestSchema } from '../schemas';
 
 const router = Router();
