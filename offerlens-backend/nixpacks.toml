@@ -1,3 +1,7 @@
+# Force Railway to use Nixpacks instead of Dockerfile
+[build]
+builder = "NIXPACKS"
+
 [phases.setup]
 nixPkgs = ['nodejs_20']
 
