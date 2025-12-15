@@ -38,8 +38,8 @@ apiClient.interceptors.request.use(
   }
 );
 
-// Retry configuration
-const MAX_RETRIES = 3;
+// Retry configuration - disabled to prevent rate limiting
+const MAX_RETRIES = 0; // No retries to avoid rate limiting
 const RETRY_DELAY = 1000; // 1 second
 
 // Helper function to delay execution
@@ -47,14 +47,15 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Helper function to determine if error is retryable
 const isRetryableError = (error: AxiosError): boolean => {
+  // Only retry on network errors (no response from server)
+  // Do NOT retry on server errors (5xx) or rate limits (429) to prevent rate limiting
   if (!error.response) {
-    // Network errors are retryable
+    // Network errors (connection issues, timeouts)
     return true;
   }
   
-  // Retry on 5xx server errors and 429 rate limit
-  const status = error.response.status;
-  return status >= 500 || status === 429;
+  // Do not retry any server responses
+  return false;
 };
 
 // Response interceptor with retry logic
@@ -95,17 +96,8 @@ apiClient.interceptors.response.use(
       // Request made but no response
       console.error('[API Error] No response received', error.request);
       
-      // Retry network errors
-      if (config._retryCount < MAX_RETRIES) {
-        config._retryCount++;
-        
-        const retryDelay = RETRY_DELAY * Math.pow(2, config._retryCount - 1);
-        
-        console.log(`[API Retry] Network error, attempt ${config._retryCount}/${MAX_RETRIES} after ${retryDelay}ms`);
-        
-        await delay(retryDelay);
-        return apiClient(config);
-      }
+      // No retries to prevent rate limiting
+      // User can manually retry if needed
     } else {
       // Error setting up request
       console.error('[API Error]', error.message);

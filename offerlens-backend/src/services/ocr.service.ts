@@ -14,22 +14,38 @@ export class OCRService {
    * @returns Extracted text
    */
   async extractFromPDF(buffer: Buffer): Promise<string> {
+    let parser: any = null;
     try {
       logger.info('Starting PDF text extraction');
       
-      // Use require for pdf-parse due to module compatibility
-      const pdfParse = require('pdf-parse');
-      const data = await pdfParse(buffer);
+      // Import PDFParse class from pdf-parse
+      // @ts-ignore - pdf-parse has complex module exports
+      const { PDFParse } = await import('pdf-parse');
       
-      if (!data.text || data.text.trim().length === 0) {
+      // Create parser with buffer as data source
+      parser = new PDFParse({ data: buffer });
+      
+      // Extract text from PDF
+      const result = await parser.getText();
+      
+      if (!result.text || result.text.trim().length === 0) {
         throw new Error('No text content found in PDF');
       }
       
-      logger.info(`PDF text extraction successful, extracted ${data.text.length} characters`);
-      return data.text;
+      logger.info(`PDF text extraction successful, extracted ${result.text.length} characters`);
+      return result.text;
     } catch (error) {
       logger.error('PDF text extraction failed', { error });
       throw new Error(`Failed to extract text from PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      // Clean up parser resources
+      if (parser && typeof parser.destroy === 'function') {
+        try {
+          await parser.destroy();
+        } catch (cleanupError) {
+          logger.warn('Failed to cleanup PDF parser', { cleanupError });
+        }
+      }
     }
   }
 
