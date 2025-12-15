@@ -5,7 +5,6 @@
 
 import { CircuitBreaker, createCircuitBreaker } from './circuitBreaker';
 import { withRetry, RetryOptions } from './retry';
-import logger from './logger';
 
 export interface ExternalServiceOptions {
   name: string;
@@ -23,10 +22,8 @@ export interface ExternalServiceOptions {
 export class ExternalServiceClient {
   private circuitBreaker: CircuitBreaker;
   private retryOptions: RetryOptions;
-  private name: string;
 
   constructor(options: ExternalServiceOptions) {
-    this.name = options.name;
     this.circuitBreaker = createCircuitBreaker({
       name: options.name,
       ...options.circuitBreakerOptions,
