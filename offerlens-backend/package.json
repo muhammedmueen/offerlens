@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc && tsc prisma/seed.ts --outDir dist/prisma --esModuleInterop --resolveJsonModule",
-    "start": "node dist/index.js",
+    "start": "npm run prisma:migrate:deploy && npm run prisma:seed && node dist/index.js",
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix",
     "format": "prettier --write \"src/**/*.ts\"",
