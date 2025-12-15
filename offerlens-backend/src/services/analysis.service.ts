@@ -251,8 +251,36 @@ class AnalysisService {
   /**
    * Get salary benchmark from cache or database
    */
+  /**
+   * Normalize experience to match database format
+   */
+  private normalizeExperience(experience: string): string {
+    const exp = parseInt(experience);
+    if (isNaN(exp)) return experience; // Return as-is if not a number
+    
+    if (exp <= 1) return '0-1 years';
+    if (exp <= 3) return '1-3 years';
+    if (exp <= 5) return '3-5 years';
+    if (exp <= 8) return '5-8 years';
+    return '8+ years';
+  }
+
+  /**
+   * Normalize role to match database format (title case)
+   */
+  private normalizeRole(role: string): string {
+    return role
+      .split(' ')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ');
+  }
+
   private async getSalaryBenchmark(role: string, experience: string, city: string) {
-    const cacheKey = `salary:${role}:${experience}:${city}`;
+    // Normalize inputs
+    const normalizedRole = this.normalizeRole(role);
+    const normalizedExperience = this.normalizeExperience(experience);
+    
+    const cacheKey = `salary:${normalizedRole}:${normalizedExperience}:${city}`;
 
     // Try cache first
     const cached = await cacheService.get<any>(cacheKey);
@@ -264,8 +292,8 @@ class AnalysisService {
     // Fetch from database - get most recent benchmark
     const benchmark = await prisma.salaryBenchmark.findFirst({
       where: {
-        role,
-        experienceLevel: experience,
+        role: normalizedRole,
+        experienceLevel: normalizedExperience,
         city,
       },
       orderBy: {
@@ -277,6 +305,12 @@ class AnalysisService {
       // Cache for future requests
       await cacheService.set(cacheKey, benchmark, this.CACHE_TTL);
       logger.debug('Salary benchmark retrieved from database and cached');
+    } else {
+      logger.warn('No salary benchmark found', {
+        role: normalizedRole,
+        experience: normalizedExperience,
+        city,
+      });
     }
 
     return benchmark;
