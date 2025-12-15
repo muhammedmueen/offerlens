@@ -28,7 +28,7 @@ const router = Router();
  */
 router.post(
   '/feature-requests',
-  rateLimiter({ windowMs: 3600000, maxRequests: 5 }), // 5 requests per hour
+  // rateLimiter({ windowMs: 3600000, maxRequests: 5 }), // 5 requests per hour - COMMENTED OUT
   validate(featureRequestSchema, 'body'),
   createFeatureRequest
 );
@@ -41,7 +41,7 @@ router.post(
  */
 router.get(
   '/feature-requests',
-  rateLimiter({ windowMs: 60000, maxRequests: 30 }), // 30 requests per minute
+  // rateLimiter({ windowMs: 60000, maxRequests: 30 }), // 30 requests per minute - COMMENTED OUT
   validate(featureRequestQuerySchema, 'query'),
   listFeatureRequests
 );
@@ -54,7 +54,7 @@ router.get(
  */
 router.get(
   '/feature-requests/:id',
-  rateLimiter({ windowMs: 60000, maxRequests: 30 }), // 30 requests per minute
+  // rateLimiter({ windowMs: 60000, maxRequests: 30 }), // 30 requests per minute - COMMENTED OUT
   validate(uuidParamSchema, 'params'),
   getFeatureRequest
 );
@@ -67,7 +67,7 @@ router.get(
  */
 router.post(
   '/feature-requests/:id/vote',
-  rateLimiter({ windowMs: 3600000, maxRequests: 10 }), // 10 requests per hour
+  // rateLimiter({ windowMs: 3600000, maxRequests: 10 }), // 10 requests per hour - COMMENTED OUT
   validate(uuidParamSchema, 'params'),
   voteFeatureRequest
 );

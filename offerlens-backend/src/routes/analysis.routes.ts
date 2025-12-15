@@ -20,7 +20,7 @@ const router = Router();
  */
 router.post(
   '/analyze',
-  rateLimiter({ windowMs: 60000, maxRequests: 10 }), // 10 requests per minute
+  // rateLimiter({ windowMs: 60000, maxRequests: 10 }), // 10 requests per minute - COMMENTED OUT
   validate(analyzeRequestSchema, 'body'),
   analyzeOffer
 );
