@@ -52,6 +52,7 @@ const delay = (ms: number): Promise<void> =>
 /**
  * Determine if an error is retryable
  * Network errors and 5xx server errors are retryable
+ * BUT: Don't retry POST/PUT/DELETE requests to avoid duplicate operations
  */
 const isRetryableError = (error: AxiosError): boolean => {
   if (!error.response) {
@@ -60,7 +61,16 @@ const isRetryableError = (error: AxiosError): boolean => {
   }
   
   const status = error.response.status;
-  // Retry on 5xx server errors and 429 rate limit
+  const method = error.config?.method?.toUpperCase();
+  
+  // Don't retry POST/PUT/DELETE requests with 5xx errors
+  // to avoid duplicate form submissions or data modifications
+  if (method === 'POST' || method === 'PUT' || method === 'DELETE') {
+    // Only retry on 429 (rate limit) for write operations
+    return status === 429;
+  }
+  
+  // Retry on 5xx server errors and 429 rate limit for GET requests
   return status >= 500 || status === 429;
 };
 

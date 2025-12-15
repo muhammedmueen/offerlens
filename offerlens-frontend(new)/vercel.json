@@ -41,7 +41,7 @@
       ]
     },
     {
-      "source": "/(.*).(?:jpg|jpeg|png|gif|webp|avif|svg)",
+      "source": "/:path*\\.(jpg|jpeg|png|gif|webp|avif|svg)",
       "headers": [
         {
           "key": "Cache-Control",
@@ -50,7 +50,7 @@
       ]
     },
     {
-      "source": "/(.*).(?:js|css)",
+      "source": "/:path*\\.(js|css)",
       "headers": [
         {
           "key": "Cache-Control",
@@ -66,9 +66,5 @@
       "permanent": true
     }
   ],
-  "rewrites": [],
-  "env": {
-    "NEXT_PUBLIC_API_URL": "@next_public_api_url",
-    "NEXT_PUBLIC_ENABLE_ANALYTICS": "@next_public_enable_analytics"
-  }
+  "rewrites": []
 }
