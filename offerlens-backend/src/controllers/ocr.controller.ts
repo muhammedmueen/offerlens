@@ -77,13 +77,11 @@ export const extractText = async (req: Request, res: Response): Promise<void> =>
       const result = await ocrService.extractFromImage(buffer);
       
       if (!result.success) {
-        res.status(422).json({
-          error: {
-            code: 'EXTRACTION_FAILED',
-            message: result.error || 'Failed to extract text from image',
-            timestamp: new Date().toISOString(),
-            requestId
-          }
+        res.status(200).json({
+          text: '',
+          confidence: 0,
+          success: false,
+          error: result.error || 'Failed to extract text from image'
         });
         return;
       }
@@ -107,13 +105,11 @@ export const extractText = async (req: Request, res: Response): Promise<void> =>
 
     // Check if extraction yielded any text
     if (!text || text.trim().length === 0) {
-      res.status(422).json({
-        error: {
-          code: 'NO_TEXT_FOUND',
-          message: 'No text content found in the uploaded file',
-          timestamp: new Date().toISOString(),
-          requestId
-        }
+      res.status(200).json({
+        text: '',
+        confidence: 0,
+        success: false,
+        error: 'No text content found in the uploaded file'
       });
       return;
     }
@@ -127,6 +123,7 @@ export const extractText = async (req: Request, res: Response): Promise<void> =>
     res.status(200).json({
       text,
       confidence,
+      success: true,
       metadata: {
         filename: originalname,
         fileType: mimetype,
@@ -136,13 +133,11 @@ export const extractText = async (req: Request, res: Response): Promise<void> =>
   } catch (error) {
     logger.error('Text extraction failed', { error });
     
-    res.status(500).json({
-      error: {
-        code: 'EXTRACTION_ERROR',
-        message: error instanceof Error ? error.message : 'Failed to extract text from file',
-        timestamp: new Date().toISOString(),
-        requestId
-      }
+    res.status(200).json({
+      text: '',
+      confidence: 0,
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to extract text from file'
     });
   }
 };
