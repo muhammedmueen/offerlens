@@ -1,4 +1,4 @@
-import axios, { AxiosError, AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
+import axios, { AxiosError, AxiosInstance, AxiosResponse } from 'axios';
 
 /**
  * API Client Service
@@ -38,8 +38,8 @@ apiClient.interceptors.request.use(
   }
 );
 
-// Retry configuration - disabled to prevent rate limiting
-const MAX_RETRIES = 0; // No retries to avoid rate limiting
+// Retry configuration - only for network errors
+const MAX_RETRIES = 1; // Only 1 retry for network errors
 const RETRY_DELAY = 1000; // 1 second
 
 // Helper function to delay execution
@@ -47,14 +47,18 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Helper function to determine if error is retryable
 const isRetryableError = (error: AxiosError): boolean => {
-  // Only retry on network errors (no response from server)
-  // Do NOT retry on server errors (5xx) or rate limits (429) to prevent rate limiting
+  // ONLY retry on network errors (no response from server at all)
+  // This means connection issues, timeouts, DNS failures, etc.
+  // 
+  // Do NOT retry on ANY HTTP error responses (400, 500, etc.)
+  // If we got a response from the server, even if it's an error, don't retry
   if (!error.response) {
-    // Network errors (connection issues, timeouts)
+    // Network errors (connection issues, timeouts, DNS failures)
     return true;
   }
   
-  // Do not retry any server responses
+  // Do not retry any HTTP responses (including 4xx, 5xx errors)
+  // The server responded, so it's not a network issue
   return false;
 };
 
@@ -77,27 +81,26 @@ apiClient.interceptors.response.use(
     
     // Handle errors
     if (error.response) {
-      // Server responded with error status
+      // Server responded with error status (4xx, 5xx, etc.)
+      // DO NOT RETRY - the server is responding, just with an error
       console.error('[API Error]', error.response.status, error.response.data);
+    } else if (error.request) {
+      // Request made but no response received (network error)
+      // This is the ONLY case where we retry
+      console.error('[API Error] No response received - network error', error.message);
       
-      // Check if we should retry
+      // Check if we should retry (only for network errors)
       if (isRetryableError(error) && config._retryCount < MAX_RETRIES) {
         config._retryCount++;
         
         // Calculate delay with exponential backoff
         const retryDelay = RETRY_DELAY * Math.pow(2, config._retryCount - 1);
         
-        console.log(`[API Retry] Attempt ${config._retryCount}/${MAX_RETRIES} after ${retryDelay}ms`);
+        console.log(`[API Retry] Network error - Attempt ${config._retryCount}/${MAX_RETRIES} after ${retryDelay}ms`);
         
         await delay(retryDelay);
         return apiClient(config);
       }
-    } else if (error.request) {
-      // Request made but no response
-      console.error('[API Error] No response received', error.request);
-      
-      // No retries to prevent rate limiting
-      // User can manually retry if needed
     } else {
       // Error setting up request
       console.error('[API Error]', error.message);
