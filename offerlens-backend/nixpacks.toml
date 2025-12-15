@@ -13,4 +13,4 @@ cmds = ['npm ci']
 cmds = ['npm run prisma:generate', 'npm run build']
 
 [start]
-cmd = 'npm run prisma:migrate:deploy && npm start'
+cmd = 'npm run prisma:migrate:deploy && npm run prisma:seed && npm start'
