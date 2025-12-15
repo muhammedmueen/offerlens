@@ -49,11 +49,22 @@ export function OfferProvider({ children }: { children: ReactNode }) {
   };
 
   const analyzeOfferData = async (data: OfferData) => {
+    console.log("🔵 [OfferContext] analyzeOfferData called with data:", {
+      role: data.role,
+      experience: data.experience,
+      city: data.city,
+      ctc: data.ctc,
+      hasOfferText: !!data.offerText,
+      offerTextLength: data.offerText.length,
+    });
+
     setIsAnalyzing(true);
     setAnalysisError(null);
     setOfferDataState(data);
 
     try {
+      console.log("🔵 [OfferContext] Calling backend API...");
+      
       // Call backend API to analyze offer
       const result = await analyzeOffer({
         offerText: data.offerText,
@@ -63,32 +74,54 @@ export function OfferProvider({ children }: { children: ReactNode }) {
         city: data.city,
       });
 
+      console.log("✅ [OfferContext] Backend API returned successfully:", {
+        hasResult: !!result,
+        hasRedFlags: !!result?.redFlags,
+        redFlagsCount: result?.redFlags?.length,
+        hasSalaryComparison: !!result?.salaryComparison,
+      });
+
       // Store analysis result with offer data
       setAnalysisResult({
         ...result,
         offerData: data,
       });
+
+      console.log("✅ [OfferContext] Analysis result stored in state");
     } catch (error) {
-      console.error('Analysis error:', error);
+      console.error('🔴 [OfferContext] Analysis error:', error);
+      
+      let errorMessage = 'An unexpected error occurred during analysis. Please try again.';
       
       if (error instanceof ApiError) {
+        console.log("🔴 [OfferContext] ApiError details:", {
+          statusCode: error.statusCode,
+          message: error.message,
+        });
+        
         // Check if it's a network error (backend down)
         if (error.statusCode === 0) {
-          setAnalysisError('Unable to connect to the server. The service may be temporarily unavailable. Please try again in a few moments.');
+          errorMessage = 'Unable to connect to the server. The service may be temporarily unavailable. Please try again in a few moments.';
         } else if (error.statusCode === 429) {
-          setAnalysisError('Too many requests. Please wait a moment and try again.');
+          errorMessage = 'Too many requests. Please wait a moment and try again.';
         } else if (error.statusCode && error.statusCode >= 500) {
-          setAnalysisError('The server is experiencing issues. Please try again in a few moments.');
+          errorMessage = 'The server is experiencing issues. Please try again in a few moments.';
         } else {
-          setAnalysisError(error.message);
+          errorMessage = error.message;
         }
-      } else {
-        setAnalysisError('An unexpected error occurred during analysis. Please try again.');
       }
+      
+      setAnalysisError(errorMessage);
       
       // Clear analysis result on error
       setAnalysisResult(null);
+      
+      console.log("🔴 [OfferContext] Throwing error to caller");
+      
+      // Re-throw the error so the caller can handle it
+      throw new Error(errorMessage);
     } finally {
+      console.log("🔵 [OfferContext] Setting isAnalyzing to false");
       setIsAnalyzing(false);
     }
   };

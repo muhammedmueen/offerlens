@@ -247,10 +247,29 @@ function handleApiError(error: unknown): never {
  * POST /api/v1/analyze
  */
 export async function analyzeOffer(data: AnalyzeRequest): Promise<AnalyzeResponse> {
+  console.log("🔵 [API] analyzeOffer called with:", {
+    role: data.role,
+    experience: data.experience,
+    city: data.city,
+    ctc: data.ctc,
+    offerTextLength: data.offerText.length,
+  });
+
   try {
+    console.log("🔵 [API] Making POST request to /analyze...");
     const response = await apiClient.post<AnalyzeResponse>('/analyze', data);
+    
+    console.log("✅ [API] Response received:", {
+      status: response.status,
+      hasData: !!response.data,
+      redFlagsCount: response.data?.redFlags?.length,
+      hasSalaryComparison: !!response.data?.salaryComparison,
+      analysisId: response.data?.analysisId,
+    });
+    
     return response.data;
   } catch (error) {
+    console.error("🔴 [API] Error in analyzeOffer:", error);
     handleApiError(error);
   }
 }

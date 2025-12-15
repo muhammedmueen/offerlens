@@ -13,7 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 export default function Upload() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { analyzeOfferData, isAnalyzing, analysisError } = useOffer();
+  const { analyzeOfferData, isAnalyzing, analysisError, analysisResult } = useOffer();
   const { toast } = useToast();
 
   const [offerText, setOfferText] = useState("");
@@ -59,9 +59,19 @@ export default function Upload() {
     });
   };
 
-  const handleAnalyze = async () => {
+  const handleAnalyze = async (e?: React.MouseEvent<HTMLButtonElement>) => {
+    console.log("🔵 handleAnalyze called");
+    
+    // Prevent default form submission if event exists
+    if (e) {
+      console.log("🔵 Preventing default event behavior");
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
     // Validation
     if (!offerText.trim()) {
+      console.log("🔴 Validation failed: Missing offer text");
       toast({
         variant: "destructive",
         title: "Missing offer text",
@@ -71,6 +81,7 @@ export default function Upload() {
     }
 
     if (!role) {
+      console.log("🔴 Validation failed: Missing role");
       toast({
         variant: "destructive",
         title: "Select role",
@@ -80,6 +91,7 @@ export default function Upload() {
     }
 
     if (!experience) {
+      console.log("🔴 Validation failed: Missing experience");
       toast({
         variant: "destructive",
         title: "Select experience",
@@ -89,6 +101,7 @@ export default function Upload() {
     }
 
     if (!city) {
+      console.log("🔴 Validation failed: Missing city");
       toast({
         variant: "destructive",
         title: "Select city",
@@ -98,6 +111,7 @@ export default function Upload() {
     }
 
     if (!ctc || parseFloat(ctc) <= 0) {
+      console.log("🔴 Validation failed: Invalid CTC");
       toast({
         variant: "destructive",
         title: "Enter CTC",
@@ -106,28 +120,35 @@ export default function Upload() {
       return;
     }
 
-    // Call backend API to analyze offer
-    await analyzeOfferData({
-      offerText: offerText.trim(),
-      role,
-      experience,
-      city,
-      ctc: parseFloat(ctc),
-      fileName,
-    });
+    console.log("✅ Validation passed, starting analysis...");
 
-    // Check for errors
-    if (analysisError) {
+    try {
+      // Call backend API to analyze offer
+      console.log("🔵 Calling analyzeOfferData...");
+      await analyzeOfferData({
+        offerText: offerText.trim(),
+        role,
+        experience,
+        city,
+        ctc: parseFloat(ctc),
+        fileName,
+      });
+
+      console.log("✅ Analysis successful, navigating to results...");
+      
+      // Navigate to results on success (only if no error was thrown)
+      navigate("/results");
+    } catch (error) {
+      // Error is already handled in the context and set in analysisError state
+      console.error("🔴 Analysis failed:", error);
+      
+      // Just show a toast notification here
       toast({
         variant: "destructive",
         title: "Analysis failed",
-        description: analysisError,
+        description: analysisError || "An error occurred during analysis. Please try again.",
       });
-      return;
     }
-
-    // Navigate to results on success
-    navigate("/results");
   };
 
   return (
