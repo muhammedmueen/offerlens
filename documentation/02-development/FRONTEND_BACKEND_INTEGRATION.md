@@ -36,7 +36,7 @@ The OfferLens application uses a client-server architecture:
 
 ### Location
 
-The API client is located at `offerlens-frontend/src/lib/api.ts`
+The API client is located at `offerlens-frontend(new)/lib/api/client.ts`
 
 ### Configuration
 
@@ -259,7 +259,7 @@ app.use(cors(corsOptions));
 
 2. **Start frontend:**
    ```bash
-   cd offerlens-frontend
+   cd offerlens-frontend(new)
    npm run dev
    ```
 
@@ -443,7 +443,7 @@ api.interceptors.response.use(
 
 ### Frontend Implementation
 
-Located in `offerlens-frontend/src/components/FileUpload.tsx`:
+Located in `offerlens-frontend(new)/components/FileUpload.tsx`:
 
 ```typescript
 const handleFileUpload = async (file: File) => {
@@ -825,7 +825,7 @@ describe('POST /api/v1/analyze', () => {
 
 2. **Run frontend tests:**
    ```bash
-   cd offerlens-frontend
+   cd offerlens-frontend(new)
    npm test
    ```
 

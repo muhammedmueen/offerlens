@@ -94,8 +94,6 @@ offerlens/
 │   ├── lib/                    # Utilities and API client
 │   └── package.json
 │
-├── offerlens-frontend/         # Legacy Vite frontend (deprecated)
-│
 └── documentation/              # All project documentation
     ├── 01-getting-started/
     ├── 02-development/
