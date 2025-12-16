@@ -41,6 +41,14 @@ const mockOffer: AnalyzeResponse = {
   ],
 };
 
+const mockOfferDetails = {
+  role: 'Software Engineer',
+  experience: '3 years',
+  city: 'Bangalore',
+  ctc: 15,
+  offerText: 'Sample offer letter text',
+};
+
 describe('OfferContext', () => {
   describe('useOffer hook', () => {
     it('should throw error when used outside provider', () => {
@@ -60,6 +68,7 @@ describe('OfferContext', () => {
       });
 
       expect(result.current.currentOffer).toBeNull();
+      expect(result.current.offerDetails).toBeNull();
       expect(result.current.isAnalyzing).toBe(false);
       expect(result.current.error).toBeNull();
     });
@@ -70,10 +79,11 @@ describe('OfferContext', () => {
       });
 
       act(() => {
-        result.current.setOffer(mockOffer);
+        result.current.setOffer(mockOffer, mockOfferDetails);
       });
 
       expect(result.current.currentOffer).toEqual(mockOffer);
+      expect(result.current.offerDetails).toEqual(mockOfferDetails);
       expect(result.current.isAnalyzing).toBe(false);
       expect(result.current.error).toBeNull();
     });
@@ -129,11 +139,12 @@ describe('OfferContext', () => {
 
       // Set some data first
       act(() => {
-        result.current.setOffer(mockOffer);
+        result.current.setOffer(mockOffer, mockOfferDetails);
         result.current.setError('Test error');
       });
 
       expect(result.current.currentOffer).toEqual(mockOffer);
+      expect(result.current.offerDetails).toEqual(mockOfferDetails);
       expect(result.current.error).toBe('Test error');
 
       // Clear everything
@@ -142,6 +153,7 @@ describe('OfferContext', () => {
       });
 
       expect(result.current.currentOffer).toBeNull();
+      expect(result.current.offerDetails).toBeNull();
       expect(result.current.isAnalyzing).toBe(false);
       expect(result.current.error).toBeNull();
     });
@@ -152,16 +164,18 @@ describe('OfferContext', () => {
       });
 
       act(() => {
-        result.current.setOffer(mockOffer);
+        result.current.setOffer(mockOffer, mockOfferDetails);
       });
 
       expect(result.current.currentOffer).toEqual(mockOffer);
+      expect(result.current.offerDetails).toEqual(mockOfferDetails);
 
       // Re-render
       rerender();
 
       // State should persist
       expect(result.current.currentOffer).toEqual(mockOffer);
+      expect(result.current.offerDetails).toEqual(mockOfferDetails);
     });
   });
 });

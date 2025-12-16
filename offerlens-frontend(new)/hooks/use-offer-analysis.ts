@@ -37,10 +37,16 @@ export function useOfferAnalysis() {
       setAnalyzing(true);
     },
     
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       // Store offer data in context
       // Requirement 4.1: Store uploaded offer data in state
-      setOffer(data);
+      setOffer(data, {
+        role: variables.role,
+        experience: variables.experience,
+        city: variables.city,
+        ctc: variables.ctc,
+        offerText: variables.offerText,
+      });
       
       // Navigate to results page
       // Requirement 2.5: Successful upload navigates to results

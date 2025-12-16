@@ -25,45 +25,35 @@ const steps = [{ label: "Upload" }, { label: "Details" }, { label: "Analyze" }]
  */
 export function ResultsContent() {
   const router = useRouter()
-  const { currentOffer, clearOffer } = useOffer()
+  const { currentOffer, offerDetails, clearOffer } = useOffer()
 
   // Redirect to upload if no offer data
   useEffect(() => {
-    if (!currentOffer) {
+    if (!currentOffer || !offerDetails) {
       router.push("/upload")
     }
-  }, [currentOffer, router])
+  }, [currentOffer, offerDetails, router])
 
   // Track conversion when results are displayed
   // Requirement 17.2: Track conversion event
   useEffect(() => {
-    if (currentOffer) {
+    if (currentOffer && currentOffer.redFlags && currentOffer.negotiationSuggestions) {
       trackConversion({
         redFlagsCount: currentOffer.redFlags.length,
-        salaryComparison: currentOffer.salaryComparison.comparison,
+        salaryComparison: currentOffer.salaryComparison?.comparison || 'unknown',
         hasNegotiationTips: currentOffer.negotiationSuggestions.length > 0,
       })
     }
   }, [currentOffer])
 
   // Don't render if no data
-  if (!currentOffer) {
+  if (!currentOffer || !offerDetails) {
     return null
   }
 
   const handleAnalyzeAnother = () => {
     clearOffer()
     router.push("/upload")
-  }
-
-  // For now, we'll use placeholder data for offer details
-  // In a real implementation, this would come from the upload form or API
-  const offerDetails = {
-    role: "Software Engineer",
-    experience: "3 years",
-    city: "Bangalore",
-    ctc: 15, // LPA
-    offerText: "" // This would come from the extracted text
   }
 
   return (
@@ -137,13 +127,13 @@ export function ResultsContent() {
             city={offerDetails.city}
             ctc={offerDetails.ctc}
           />
-          <RedFlagsCard redFlags={currentOffer.redFlags} />
+          <RedFlagsCard redFlags={currentOffer.redFlags || []} />
           <SalaryComparisonCard 
             salaryComparison={currentOffer.salaryComparison}
             offeredSalary={offerDetails.ctc * 100000} // Convert LPA to annual
           />
           <TakeHomeCard takeHome={currentOffer.takeHome} />
-          <NegotiationBlueprintCard suggestions={currentOffer.negotiationSuggestions} />
+          <NegotiationBlueprintCard suggestions={currentOffer.negotiationSuggestions || []} />
         </div>
 
         {/* Analyze Another Button */}

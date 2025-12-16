@@ -11,11 +11,24 @@ import React, { createContext, useContext, useState, useCallback, type ReactNode
 import type { AnalyzeResponse } from '@/lib/api';
 
 /**
+ * Offer Details Interface
+ * Stores the original offer input data
+ */
+export interface OfferDetails {
+  role: string;
+  experience: string;
+  city: string;
+  ctc: number;
+  offerText: string;
+}
+
+/**
  * Offer State Interface
  * Requirement 4.1: Store uploaded offer data in state
  */
 export interface OfferState {
   currentOffer: AnalyzeResponse | null;
+  offerDetails: OfferDetails | null;
   isAnalyzing: boolean;
   error: string | null;
 }
@@ -25,7 +38,7 @@ export interface OfferState {
  * Requirement 4.5: Multiple components access shared state
  */
 export interface OfferContextValue extends OfferState {
-  setOffer: (offer: AnalyzeResponse) => void;
+  setOffer: (offer: AnalyzeResponse, details: OfferDetails) => void;
   clearOffer: () => void;
   setAnalyzing: (analyzing: boolean) => void;
   setError: (error: string | null) => void;
@@ -53,6 +66,7 @@ export interface OfferProviderProps {
 export function OfferProvider({ children }: OfferProviderProps) {
   // State management
   const [currentOffer, setCurrentOffer] = useState<AnalyzeResponse | null>(null);
+  const [offerDetails, setOfferDetails] = useState<OfferDetails | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [error, setErrorState] = useState<string | null>(null);
 
@@ -60,8 +74,9 @@ export function OfferProvider({ children }: OfferProviderProps) {
    * Set the current offer data
    * Requirement 4.1: Store uploaded offer data in state
    */
-  const setOffer = useCallback((offer: AnalyzeResponse) => {
+  const setOffer = useCallback((offer: AnalyzeResponse, details: OfferDetails) => {
     setCurrentOffer(offer);
+    setOfferDetails(details);
     setIsAnalyzing(false);
     setErrorState(null);
   }, []);
@@ -72,6 +87,7 @@ export function OfferProvider({ children }: OfferProviderProps) {
    */
   const clearOffer = useCallback(() => {
     setCurrentOffer(null);
+    setOfferDetails(null);
     setIsAnalyzing(false);
     setErrorState(null);
   }, []);
@@ -98,6 +114,7 @@ export function OfferProvider({ children }: OfferProviderProps) {
   // Context value
   const value: OfferContextValue = {
     currentOffer,
+    offerDetails,
     isAnalyzing,
     error,
     setOffer,

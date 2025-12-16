@@ -13,11 +13,13 @@ import { FloatingCard } from "@/components/ui/floating-card"
 import { UploadDropzone } from "@/components/ui/upload-dropzone"
 import { cn } from "@/lib/utils"
 import { trackFileUpload } from "@/lib/analytics"
+import { useOffer } from "@/context/OfferContext"
 
 const steps = [{ label: "Upload" }, { label: "Details" }, { label: "Analyze" }]
 
 export function UploadForm() {
   const router = useRouter()
+  const { setOffer } = useOffer()
   const [currentStep, setCurrentStep] = useState(0)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
@@ -102,17 +104,28 @@ export function UploadForm() {
       // Import API function dynamically
       const { analyzeOffer } = await import("@/lib/api/endpoints")
       
+      // Parse CTC value
+      const ctcValue = parseFloat(offerDetails.ctc)
+      
       // Call analysis API
       const result = await analyzeOffer({
         offerText,
         role: offerDetails.role,
         experience: offerDetails.experience,
-        ctc: parseFloat(offerDetails.ctc),
+        ctc: ctcValue,
         city: offerDetails.location,
       })
 
-      // Store result in context (will be implemented)
-      // For now, navigate to results with data in state
+      // Store result and original details in context
+      // Requirement 4.1: Store uploaded offer data in state
+      setOffer(result, {
+        role: offerDetails.role,
+        experience: offerDetails.experience,
+        city: offerDetails.location,
+        ctc: ctcValue,
+        offerText,
+      })
+      
       // Requirement 2.5: Navigate to results on success
       router.push("/results")
     } catch (error) {

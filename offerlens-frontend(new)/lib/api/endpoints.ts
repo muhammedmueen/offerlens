@@ -28,7 +28,8 @@ import type {
  * @returns Analysis results including red flags, salary comparison, and negotiation tips
  */
 export async function analyzeOffer(data: AnalyzeRequest): Promise<AnalyzeResponse> {
-  return apiClient.post<AnalyzeResponse>('/analyze', data);
+  const response = await apiClient.post<{ success: boolean; data: AnalyzeResponse }>('/analyze', data);
+  return response.data;
 }
 
 /**
@@ -73,7 +74,8 @@ export async function extractText(
 export async function createFeatureRequest(
   data: FeatureRequestCreate
 ): Promise<FeatureRequest> {
-  return apiClient.post<FeatureRequest>('/feature-requests', data);
+  const response = await apiClient.post<{ success: boolean; data: FeatureRequest }>('/feature-requests', data);
+  return response.data;
 }
 
 /**
@@ -89,7 +91,11 @@ export async function listFeatureRequests(params?: {
   page?: number;
   limit?: number;
 }): Promise<FeatureRequestListResponse> {
-  return apiClient.get<FeatureRequestListResponse>('/feature-requests', { params });
+  const response = await apiClient.get<{ success: boolean; data: FeatureRequestListResponse['data']; pagination: FeatureRequestListResponse['pagination'] }>('/feature-requests', { params });
+  return {
+    data: response.data,
+    pagination: response.pagination,
+  };
 }
 
 /**
@@ -100,7 +106,8 @@ export async function listFeatureRequests(params?: {
  * @returns Feature request details
  */
 export async function getFeatureRequest(id: string): Promise<FeatureRequest> {
-  return apiClient.get<FeatureRequest>(`/feature-requests/${id}`);
+  const response = await apiClient.get<{ success: boolean; data: FeatureRequest }>(`/feature-requests/${id}`);
+  return response.data;
 }
 
 /**
@@ -120,8 +127,8 @@ export async function voteFeatureRequest(id: string): Promise<void> {
  * @returns List of available job roles
  */
 export async function getRoles(): Promise<string[]> {
-  const response = await apiClient.get<MetadataResponse>('/roles');
-  return response.roles || [];
+  const response = await apiClient.get<{ success: boolean; data: string[] }>('/roles');
+  return response.data || [];
 }
 
 /**
@@ -131,8 +138,8 @@ export async function getRoles(): Promise<string[]> {
  * @returns List of experience levels
  */
 export async function getExperienceLevels(): Promise<string[]> {
-  const response = await apiClient.get<MetadataResponse>('/experience-levels');
-  return response.experienceLevels || [];
+  const response = await apiClient.get<{ success: boolean; data: string[] }>('/experience-levels');
+  return response.data || [];
 }
 
 /**
@@ -142,8 +149,8 @@ export async function getExperienceLevels(): Promise<string[]> {
  * @returns List of cities
  */
 export async function getCities(): Promise<string[]> {
-  const response = await apiClient.get<MetadataResponse>('/cities');
-  return response.cities || [];
+  const response = await apiClient.get<{ success: boolean; data: string[] }>('/cities');
+  return response.data || [];
 }
 
 /**
