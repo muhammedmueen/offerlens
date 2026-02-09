@@ -1,13 +1,16 @@
 // Prisma schema for OfferLens backend
 // This defines the database structure for the application
 
-generator client {
-  provider = "prisma-client-js"
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
 }
 
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+// Enable pgvector extension for semantic search
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 // Salary Benchmarks - Market salary data by role, experience, and location
@@ -100,4 +103,79 @@ model AdminUser {
   lastLogin    DateTime? @map("last_login")
 
   @@map("admin_users")
+}
+
+// --- NEW MODELS FOR V2 ---
+
+// Users - Stores user email for negotiation script delivery and follow-up
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  offers Offer[]
+
+  @@map("users")
+}
+
+// Offers - Core entity representing an uploaded offer letter
+model Offer {
+  id              String   @id @default(uuid())
+  userId          String?  @map("user_id")
+  status          String   @default("pending") // 'pending', 'processing', 'completed', 'failed'
+  fileUrl         String?  @map("file_url")
+  extractedData   Json?    @map("extracted_data") // Extracted fields: base, equity, etc.
+  userCorrections Json?    @map("user_corrections") // RLHF: Diffs for fine-tuning
+  redFlagsResult  Json?    @map("red_flags_result") // Array of detected flags
+  marketComparison Json?   @map("market_comparison") // Percentile, gap, etc.
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt(sort: Desc)])
+  @@map("offers")
+}
+
+// SalarySubmission - Write-only anonymized salary data (Cold Start Data Lake)
+model SalarySubmission {
+  id              String   @id @default(uuid())
+  role            String
+  normalizedRole  String?  @map("normalized_role") // After role mapping
+  experienceYears Int?     @map("experience_years")
+  location        String
+  baseSalary      Decimal? @map("base_salary") @db.Decimal(12, 2)
+  equity          String?  // Free text: "10,000 RSUs over 4 years"
+  signOnBonus     Decimal? @map("sign_on_bonus") @db.Decimal(12, 2)
+  companyTier     String?  @map("company_tier") // 'startup', 'mid', 'enterprise', 'faang'
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([role, location])
+  @@map("salary_submissions")
+}
+
+// RedFlagVector - Preloaded "bad clause" embeddings for semantic search (Golden Set)
+model RedFlagVector {
+  id          String   @id @default(uuid())
+  category    String   // 'non_compete', 'ip_assignment', 'clawback', etc.
+  severity    String   // 'high', 'medium', 'low'
+  sampleText  String   @map("sample_text") @db.Text // The actual bad clause example
+  embedding   Unsupported("vector(1536)") // OpenAI ada-002 embedding dimension
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("red_flag_vectors")
+}
+
+// NegotiationScript - Pre-written talking points for different leverage scenarios
+model NegotiationScript {
+  id          String   @id @default(uuid())
+  scenario    String   @unique // 'underpaid', 'competing_offer', 'relocation', etc.
+  title       String
+  scriptBody  String   @map("script_body") @db.Text // Markdown template with placeholders
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("negotiation_scripts")
 }

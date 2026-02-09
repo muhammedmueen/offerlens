@@ -5,6 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "dev:worker": "tsx watch src/lib/worker.ts",
     "build": "tsc && tsc prisma/seed.ts --outDir dist/prisma --esModuleInterop --resolveJsonModule",
     "start": "npm run prisma:migrate:deploy && npm run prisma:seed && node dist/index.js",
     "lint": "eslint . --ext .ts",
@@ -22,7 +23,8 @@
     "db:init": "bash scripts/init-db.sh",
     "db:reset": "prisma migrate reset --force",
     "db:verify": "tsx scripts/verify-db.ts",
-    "cache:test": "tsx scripts/test-cache.ts"
+    "cache:test": "tsx scripts/test-cache.ts",
+    "seed:redflag": "tsx scripts/seed-red-flags.ts"
   },
   "keywords": [
     "offerlens",
@@ -35,6 +37,7 @@
   "dependencies": {
     "@prisma/client": "^5.7.1",
     "bcrypt": "^5.1.1",
+    "bullmq": "^5.1.0",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
@@ -42,7 +45,9 @@
     "ioredis": "^5.3.2",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
+    "openai": "^4.28.0",
     "pdf-parse": "^2.4.5",
+    "resend": "^3.2.0",
     "sharp": "^0.34.5",
     "tesseract.js": "^6.0.1",
     "tsx": "^4.7.0",

@@ -5,6 +5,7 @@ import featureRequestRoutes from './feature-request.routes';
 import adminRoutes from './admin.routes';
 import healthRoutes from './health.routes';
 import metadataRoutes from './metadata.routes';
+import offerRoutes from './offer.routes';
 
 const router = Router();
 
@@ -15,6 +16,9 @@ const router = Router();
 
 // Health check routes
 router.use('/', healthRoutes);
+
+// Offer routes (async upload & analysis)
+router.use('/offers', offerRoutes);
 
 // Analysis routes
 router.use('/', analysisRoutes);
@@ -32,3 +36,4 @@ router.use('/', adminRoutes);
 router.use('/', metadataRoutes);
 
 export default router;
+
