@@ -46,7 +46,7 @@ const DEFAULT_CONFIG: ApiClientConfig = {
 /**
  * Helper function to delay execution (for retry logic)
  */
-const delay = (ms: number): Promise<void> => 
+const delay = (ms: number): Promise<void> =>
   new Promise(resolve => setTimeout(resolve, ms));
 
 /**
@@ -59,17 +59,17 @@ const isRetryableError = (error: AxiosError): boolean => {
     // Network errors (no response received) are retryable
     return true;
   }
-  
+
   const status = error.response.status;
   const method = error.config?.method?.toUpperCase();
-  
+
   // Don't retry POST/PUT/DELETE requests with 5xx errors
   // to avoid duplicate form submissions or data modifications
   if (method === 'POST' || method === 'PUT' || method === 'DELETE') {
     // Only retry on 429 (rate limit) for write operations
     return status === 429;
   }
-  
+
   // Retry on 5xx server errors and 429 rate limit for GET requests
   return status >= 500 || status === 429;
 };
@@ -87,10 +87,10 @@ const parseErrorMessage = (error: AxiosError): string => {
   const data = error.response.data as any;
 
   // Extract error message from various response formats
-  const errorMessage = 
-    data?.error?.message || 
-    data?.message || 
-    data?.error || 
+  const errorMessage =
+    data?.error?.message ||
+    data?.message ||
+    data?.error ||
     'An unexpected error occurred';
 
   // Provide context based on status code
@@ -126,7 +126,7 @@ export class ApiClient {
 
   constructor(config: Partial<ApiClientConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
-    
+
     // Create Axios instance with base configuration
     // Requirement 1.1: Use configured backend URL from environment variables
     this.axios = axios.create({
@@ -249,7 +249,7 @@ export class ApiClient {
     // Non-Axios error
     const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
     const errorToLog = error instanceof Error ? error : new Error(errorMessage);
-    
+
     logAPIError(
       errorToLog,
       endpoint || 'unknown',
@@ -278,7 +278,7 @@ export class ApiClient {
         return await fn();
       } catch (error) {
         lastError = error as Error;
-        
+
         if (i < attempts - 1) {
           const retryDelay = this.config.retryDelay * Math.pow(2, i);
           await delay(retryDelay);
@@ -334,6 +334,18 @@ export class ApiClient {
       return response.data;
     } catch (error) {
       throw this.handleError(error, url, 'DELETE');
+    }
+  }
+
+  /**
+   * PATCH request
+   */
+  async patch<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
+    try {
+      const response = await this.axios.patch<T>(url, data, config);
+      return response.data;
+    } catch (error) {
+      throw this.handleError(error, url, 'PATCH');
     }
   }
 

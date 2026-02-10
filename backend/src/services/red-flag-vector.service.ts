@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+import { getAIProvider } from "../lib/ai-provider";
 import { PrismaClient } from "@prisma/client";
 import { logger } from "../utils/logger";
 
@@ -25,26 +25,17 @@ export interface RedFlagMatch {
  * 1. Chunk offer text into paragraphs
  * 2. Generate embedding for each chunk
  * 3. Query pgvector for similar "bad clauses" (cosine similarity > 0.80)
- * 4. Only send suspicious paragraphs to Claude for final verdict (cost optimization)
+ * 4. Only send suspicious paragraphs to LLM for final verdict (cost optimization)
+ * 
+ * Uses AI provider abstraction (supports Google AI, OpenAI)
  */
 export class RedFlagVectorService {
-    private openai: OpenAI | null = null;
-
-    constructor() {
-        if (process.env.OPENAI_API_KEY) {
-            this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-        }
-    }
+    private aiProvider = getAIProvider();
 
     /**
      * Main detection method using vector search
      */
     async detectRedFlags(offerText: string): Promise<RedFlagMatch[]> {
-        if (!this.openai) {
-            logger.warn("[RedFlagVector] OpenAI not configured, falling back to keyword matching");
-            return [];
-        }
-
         logger.info("[RedFlagVector] Starting vector-based detection");
 
         // Step 1: Chunk text into paragraphs
@@ -108,18 +99,11 @@ export class RedFlagVectorService {
     }
 
     /**
-     * Generate embedding using OpenAI ada-002
+     * Generate embedding using AI provider
      */
     private async generateEmbedding(text: string): Promise<number[] | null> {
-        if (!this.openai) return null;
-
         try {
-            const response = await this.openai.embeddings.create({
-                model: "text-embedding-ada-002",
-                input: text.slice(0, 8000), // Limit to 8k chars
-            });
-
-            return response.data[0]?.embedding || null;
+            return await this.aiProvider.generateEmbedding(text);
         } catch (error) {
             logger.error("[RedFlagVector] Embedding generation failed", { error });
             return null;
@@ -170,11 +154,9 @@ export class RedFlagVectorService {
     }
 
     /**
-     * Verify matches with Claude Sonnet (targeted, cost-effective)
+     * Verify matches with LLM (targeted, cost-effective)
      */
     private async verifyWithLLM(matches: RedFlagMatch[]): Promise<void> {
-        if (!this.openai) return;
-
         for (const match of matches) {
             const prompt = `Analyze this clause from a job offer letter. Is it a genuine concern or false alarm?
 
@@ -189,15 +171,12 @@ Return JSON with:
 }`;
 
             try {
-                const response = await this.openai.chat.completions.create({
-                    model: "gpt-4o-mini", // Cheaper than Claude for verification
-                    messages: [{ role: "user", content: prompt }],
-                    response_format: { type: "json_object" },
-                    max_tokens: 150,
+                const content = await this.aiProvider.generateCompletion(prompt, {
+                    maxTokens: 150,
                     temperature: 0,
+                    json: true,
                 });
 
-                const content = response.choices[0]?.message?.content;
                 if (content) {
                     match.llmVerdict = JSON.parse(content);
                 }
@@ -213,10 +192,7 @@ Return JSON with:
      * This should be run once to populate the golden set
      */
     async seedBadClauses(): Promise<void> {
-        if (!this.openai) {
-            logger.error("[RedFlagVector] Cannot seed: OpenAI not configured");
-            return;
-        }
+        logger.info("[RedFlagVector] Starting to seed bad clauses");
 
         // Known bad clause patterns
         const badClauses = [

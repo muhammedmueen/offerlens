@@ -31,5 +31,7 @@ const upload = multer({
 router.post("/", upload.single("file"), (req, res) => offerController.uploadOffer(req, res));
 router.get("/:id", (req, res) => offerController.getOffer(req, res));
 router.patch("/:id/corrections", (req, res) => offerController.submitCorrections(req, res));
+router.post("/:id/analyze", (req, res) => offerController.reanalyzeOffer(req, res));
+router.post("/:id/negotiate", (req, res) => offerController.negotiateOffer(req, res));
 
 export default router;

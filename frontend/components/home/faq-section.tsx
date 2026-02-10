@@ -63,7 +63,7 @@ export function FAQSection() {
         >
           <Accordion type="single" collapsible className="w-full">
             {faqs.map((faq, index) => (
-              <AccordionItem key={index} value={`item-${index}`}>
+              <AccordionItem key={index} value={`item-${index}`} id={`faq-item-${index}`}>
                 <AccordionTrigger className="text-left text-fluid-base hover:no-underline">
                   {faq.question}
                 </AccordionTrigger>

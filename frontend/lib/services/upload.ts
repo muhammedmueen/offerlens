@@ -35,9 +35,6 @@ const SUPPORTED_FILE_TYPES = [
   'image/jpg',
   'image/png',
   'image/webp',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'text/plain',
 ];
 
 /**
@@ -104,7 +101,7 @@ export async function uploadOfferLetter(
       // Requirement 2.6: Display error message on failure
       const errorMessage = response.error || 'Failed to extract text from file';
       const error = new Error(errorMessage);
-      
+
       // Log upload error
       logError(error, {
         component: 'Upload Service',
@@ -115,7 +112,7 @@ export async function uploadOfferLetter(
           fileType: file.type,
         },
       });
-      
+
       throw error;
     }
 
@@ -138,7 +135,7 @@ export async function uploadOfferLetter(
       }
       throw error;
     }
-    
+
     const unexpectedError = new Error('An unexpected error occurred during file upload');
     logError(unexpectedError, {
       component: 'Upload Service',
@@ -148,7 +145,7 @@ export async function uploadOfferLetter(
         originalError: String(error),
       },
     });
-    
+
     throw unexpectedError;
   }
 }
@@ -161,12 +158,12 @@ export async function uploadOfferLetter(
  */
 export function getFileTypeDisplay(file: File): string {
   const type = file.type;
-  
+
   if (type === 'application/pdf') return 'PDF';
   if (type.startsWith('image/')) return 'Image';
   if (type.includes('word')) return 'Word Document';
   if (type === 'text/plain') return 'Text File';
-  
+
   return 'Document';
 }
 

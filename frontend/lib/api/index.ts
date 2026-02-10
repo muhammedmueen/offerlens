@@ -21,11 +21,8 @@ export type {
   FeatureRequest,
   FeatureRequestListResponse,
   MetadataResponse,
-  HealthResponse,
   UploadProgress,
   UploadOptions,
-  ForumPost,
-  ForumPostListResponse,
 } from './types';
 
 // Export all endpoint functions
@@ -40,6 +37,9 @@ export {
   getExperienceLevels,
   getCities,
   checkHealth,
-  listForumPosts,
-  getForumPost,
+  uploadOffer,
+  getOffer,
+  submitCorrections,
+  negotiateOffer,
+  reanalyzeOffer,
 } from './endpoints';

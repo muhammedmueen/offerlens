@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+import { getAIProvider } from "../lib/ai-provider";
 import { logger } from "../utils/logger";
 
 // Extracted offer data structure
@@ -29,15 +29,11 @@ interface ExtractionResult {
  * Extraction Service - Hybrid approach
  * 1. First pass: Regex/Pattern matching (free, fast)
  * 2. Second pass: LLM for missing fields only (cost-optimized)
+ * 
+ * Uses AI provider abstraction (supports OpenAI, Google AI)
  */
 export class ExtractionService {
-    private openai: OpenAI | null = null;
-
-    constructor() {
-        if (process.env.OPENAI_API_KEY) {
-            this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-        }
-    }
+    private aiProvider = getAIProvider();
 
     /**
      * Main extraction method - Hybrid approach
@@ -65,9 +61,9 @@ export class ExtractionService {
         }
 
         // Step 2: LLM fallback for missing critical fields
-        if (this.openai) {
-            logger.info("[Extraction] Using LLM for missing fields");
-            const llmResult = await this.extractWithLLM(rawText, missingFields);
+        logger.info("[Extraction] Using LLM for missing fields");
+        const llmResult = await this.extractWithLLM(rawText, missingFields);
+        if (Object.keys(llmResult).length > 0) {
             const merged = { ...regexResult, ...llmResult, rawText, extractionConfidence: 0.95 };
             return {
                 data: merged,
@@ -182,10 +178,9 @@ export class ExtractionService {
 
     /**
      * LLM extraction for missing fields only - Cost optimized
+     * Uses AI provider abstraction (supports Google AI, OpenAI)
      */
     private async extractWithLLM(text: string, missingFields: string[]): Promise<Partial<ExtractedOfferData>> {
-        if (!this.openai) return {};
-
         const prompt = `Extract the following fields from this job offer letter. Return JSON only.
     
 Fields to extract: ${missingFields.join(", ")}
@@ -196,15 +191,12 @@ ${text.slice(0, 4000)}
 Return a JSON object with only the requested fields. Use null for fields not found.`;
 
         try {
-            const response = await this.openai.chat.completions.create({
-                model: "gpt-3.5-turbo", // Cheaper model for extraction
-                messages: [{ role: "user", content: prompt }],
-                response_format: { type: "json_object" },
-                max_tokens: 500,
+            const content = await this.aiProvider.generateCompletion(prompt, {
+                maxTokens: 500,
                 temperature: 0,
+                json: true,
             });
 
-            const content = response.choices[0]?.message?.content;
             if (content) {
                 const parsed = JSON.parse(content);
                 logger.info("[Extraction] LLM extraction successful");

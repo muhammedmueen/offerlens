@@ -5,7 +5,7 @@
  */
 
 /**
- * Analyze Offer Request
+ * Analyze Offer Request (Legacy/Synchronous)
  */
 export interface AnalyzeRequest {
   offerText: string;
@@ -21,9 +21,11 @@ export interface AnalyzeRequest {
 export interface DetectedRedFlag {
   id: string;
   severity: 'high' | 'medium' | 'low';
-  title: string;
-  description: string;
-  excerpt?: string;
+  title?: string;
+  description?: string;
+  category: string;
+  matchedText: string;
+  explanation?: string;
 }
 
 /**
@@ -33,6 +35,7 @@ export interface SalaryRange {
   min: number;
   avg: number;
   max: number;
+  currency: string;
 }
 
 /**
@@ -40,9 +43,10 @@ export interface SalaryRange {
  */
 export interface SalaryComparison {
   range: SalaryRange;
-  comparison: 'below' | 'aligned' | 'above';
+  percentile: number;
   difference: number;
   message: string;
+  marketData?: any;
 }
 
 /**
@@ -57,14 +61,52 @@ export interface NegotiationSuggestion {
 }
 
 /**
- * Analyze Offer Response
+ * Analyze Offer Response (Legacy/Synchronous)
  */
 export interface AnalyzeResponse {
   redFlags: DetectedRedFlag[];
   salaryComparison: SalaryComparison;
-  takeHome: number;
+  takeHome?: number;
   negotiationSuggestions: NegotiationSuggestion[];
-  analysisId: string;
+  analysisId?: string;
+}
+
+/**
+ * Offer Status (Async Flow)
+ */
+export type OfferStatus = 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+
+/**
+ * Offer Response (Async Flow)
+ */
+export interface OfferResponse {
+  id: string;
+  status: OfferStatus;
+  extractedData?: ExtractedOfferData;
+  analysis?: AnalyzeResponse; // For legacy structure compatibility if needed
+  redFlagsResult?: any[]; // From backend prisma model
+  marketComparison?: any; // From backend prisma model
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Extracted Offer Data
+ */
+export interface ExtractedOfferData {
+  companyName?: string;
+  jobTitle?: string;
+  baseSalary?: number;
+  currency?: string;
+  equity?: string;
+  signOnBonus?: number;
+  startDate?: string;
+  location?: string;
+  probationPeriod?: string;
+  noticePeriod?: string;
+  ptoPolicy?: string;
+  extractionConfidence: number;
+  rawText?: string;
 }
 
 /**
@@ -138,6 +180,7 @@ export interface UploadProgress {
   loaded: number;
   total: number;
   percentage: number;
+  status?: OfferStatus;
 }
 
 /**

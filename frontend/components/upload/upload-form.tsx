@@ -14,17 +14,28 @@ import { UploadDropzone } from "@/components/ui/upload-dropzone"
 import { cn } from "@/lib/utils"
 import { trackFileUpload } from "@/lib/analytics"
 import { useOffer } from "@/context/OfferContext"
+import { useOfferUpload } from "@/hooks/use-offer-upload"
+import { useEffect } from "react"
 
 const steps = [{ label: "Upload" }, { label: "Details" }, { label: "Analyze" }]
 
 export function UploadForm() {
   const router = useRouter()
-  const { setOffer } = useOffer()
+  const { setOffer: setContextOffer } = useOffer()
+
+  // Use new async upload hook
+  const {
+    upload,
+    offer: asyncOffer,
+    status: uploadStatus,
+    progress: hookProgress,
+    error: hookError,
+    reset: resetUpload
+  } = useOfferUpload()
+
   const [currentStep, setCurrentStep] = useState(0)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
-  const [isUploading, setIsUploading] = useState(false)
-  const [uploadProgress, setUploadProgress] = useState(0)
-  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [validationError, setValidationError] = useState<string | null>(null)
 
   // Form state
   const [file, setFile] = useState<File | null>(null)
@@ -37,54 +48,57 @@ export function UploadForm() {
     ctc: "",
   })
 
+  // Sync extracted data from async upload to form
+  useEffect(() => {
+    if (asyncOffer?.extractedData) {
+      const { jobTitle, location, baseSalary, rawText } = asyncOffer.extractedData;
+
+      setOfferDetails(prev => ({
+        ...prev,
+        role: (jobTitle as string) || prev.role,
+        location: (location as string) || prev.location,
+        ctc: baseSalary ? String(baseSalary) : prev.ctc,
+      }));
+
+      if (rawText) {
+        setExtractedText(rawText as string);
+      }
+    }
+  }, [asyncOffer]);
+
   const hasContent = file || pastedText.trim().length > 0
   const hasDetails = offerDetails.role && offerDetails.experience && offerDetails.location && offerDetails.ctc
-
   const canProceed = currentStep === 0 ? hasContent : currentStep === 1 ? hasDetails : true
+
+  // Derived states for UI
+  const isUploading = uploadStatus === 'QUEUED' || uploadStatus === 'PROCESSING' || uploadStatus === 'UPLOADING';
+  // Use hook error or 'analysis error' or validation error
+  const displayError = validationError || (hookError ? hookError.message : null);
 
   // Requirement 2.4: Handle file upload with progress tracking
   const handleFileSelect = async (selectedFile: File | null) => {
     setFile(selectedFile)
-    setUploadError(null)
-    
+    resetUpload() // Clear previous state
+    setValidationError(null)
+
     if (!selectedFile) {
       setExtractedText("")
-      setUploadProgress(0)
       return
     }
 
-    // Start upload process
-    setIsUploading(true)
-    setUploadProgress(0)
-
     try {
-      const { uploadOfferLetter } = await import("@/lib/services/upload")
-      
-      // Requirement 2.4: Display upload progress
-      const response = await uploadOfferLetter(selectedFile, {
-        onProgress: (progress) => {
-          setUploadProgress(progress.percentage)
-        },
-      })
+      // Use async upload hook
+      await upload(selectedFile);
 
-      // Store extracted text
-      setExtractedText(response.text)
-      setUploadProgress(100)
-
-      // Track successful file upload
+      // Track successful file upload start
       trackFileUpload({
         fileType: selectedFile.type,
         fileSize: selectedFile.size,
         fileName: selectedFile.name,
       })
     } catch (error) {
-      // Requirement 2.6: Display error message and allow retry
-      const errorMessage = error instanceof Error ? error.message : "Failed to upload file"
-      setUploadError(errorMessage)
-      setFile(null)
-      setExtractedText("")
-    } finally {
-      setIsUploading(false)
+      // Error handled by hook state
+      console.error("Upload failed", error);
     }
   }
 
@@ -96,42 +110,98 @@ export function UploadForm() {
 
   const handleAnalyze = async () => {
     setIsAnalyzing(true)
-    
+
     try {
-      // Use extracted text from file or pasted text
-      const offerText = extractedText || pastedText
+      let offerId: string | undefined;
 
-      // Import API function dynamically
-      const { analyzeOffer } = await import("@/lib/api/endpoints")
-      
-      // Parse CTC value
-      const ctcValue = parseFloat(offerDetails.ctc)
-      
-      // Call analysis API
-      const result = await analyzeOffer({
-        offerText,
-        role: offerDetails.role,
-        experience: offerDetails.experience,
-        ctc: ctcValue,
-        city: offerDetails.location,
-      })
+      // Branch: If we have an async offer ID (from file upload), use reanalyze
+      if (asyncOffer?.id && file) {
+        const { reanalyzeOffer } = await import("@/lib/api");
 
-      // Store result and original details in context
-      // Requirement 4.1: Store uploaded offer data in state
-      setOffer(result, {
-        role: offerDetails.role,
-        experience: offerDetails.experience,
-        city: offerDetails.location,
-        ctc: ctcValue,
-        offerText,
-      })
-      
+        const ctcValue = parseFloat(offerDetails.ctc) || 0;
+
+        const result = await reanalyzeOffer(asyncOffer.id, {
+          role: offerDetails.role,
+          experience: offerDetails.experience,
+          location: offerDetails.location,
+          ctc: ctcValue,
+          offerText: extractedText || pastedText, // Use updated text if edited
+        });
+
+        offerId = result.id;
+
+        // Map OfferResponse to AnalyzeResponse for Context
+        const mappedAnalysis: any = {
+          id: result.id,
+          redFlags: result.redFlagsResult || [],
+          salaryComparison: result.marketComparison || { comparison: "unknown", gap: 0, percentile: 0 },
+          negotiationSuggestions: [],
+          analysisId: result.id
+        };
+
+        // INTERIM SOLUTION:
+        // Use legacy analyze for immediate feedback, even if weuploaded file.
+        // BUT we lose Negotiation ID linking.
+        // UNLESS we pass the ID we already have.
+
+        const { analyzeOffer } = await import("@/lib/api/endpoints");
+        const legacyResult = await analyzeOffer({
+          offerText: extractedText || pastedText,
+          role: offerDetails.role,
+          experience: offerDetails.experience,
+          ctc: ctcValue,
+          city: offerDetails.location,
+        });
+
+        // Merge ID from async upload so Negotiation works
+        const finalResult = {
+          ...legacyResult,
+          id: asyncOffer.id, // Inject persistent ID
+        };
+
+        setContextOffer(finalResult, {
+          role: offerDetails.role,
+          experience: offerDetails.experience,
+          city: offerDetails.location,
+          ctc: ctcValue,
+          offerText: extractedText || pastedText,
+        })
+
+      } else {
+        // Fallback for Paste Text (Legacy)
+        const { analyzeOffer } = await import("@/lib/api/endpoints")
+        const ctcValue = parseFloat(offerDetails.ctc)
+
+        const result = await analyzeOffer({
+          offerText: extractedText || pastedText,
+          role: offerDetails.role,
+          experience: offerDetails.experience,
+          ctc: ctcValue,
+          city: offerDetails.location,
+        })
+
+        offerId = (result as any).id || (result as any).analysisId;
+
+        setContextOffer(result, {
+          role: offerDetails.role,
+          experience: offerDetails.experience,
+          city: offerDetails.location,
+          ctc: ctcValue,
+          offerText: extractedText || pastedText,
+        })
+      }
+
       // Requirement 2.5: Navigate to results on success
-      router.push("/results")
+      if (offerId) {
+        router.push(`/results?id=${offerId}`)
+      } else {
+        router.push("/results")
+      }
+
     } catch (error) {
       // Requirement 2.6: Handle analysis errors
-      const errorMessage = error instanceof Error ? error.message : "Failed to analyze offer"
-      setUploadError(errorMessage)
+      // If error is from hook, it might be separate
+      console.error(error);
     } finally {
       setIsAnalyzing(false)
     }
@@ -201,13 +271,13 @@ export function UploadForm() {
             >
               {/* Upload Card */}
               <FloatingCard title="Upload File">
-                <UploadDropzone 
-                  onFileSelect={handleFileSelect} 
-                  onError={setUploadError}
+                <UploadDropzone
+                  onFileSelect={handleFileSelect}
+                  onError={setValidationError}
                   disabled={isAnalyzing}
                   isUploading={isUploading}
                 />
-                
+
                 {/* Requirement 2.4: Display upload progress */}
                 {isUploading && (
                   <motion.div
@@ -216,14 +286,19 @@ export function UploadForm() {
                     className="mt-4"
                   >
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm text-muted-foreground">Uploading...</span>
-                      <span className="text-sm font-medium">{uploadProgress}%</span>
+                      {/* Show status text */}
+                      <span className="text-sm text-muted-foreground">
+                        {uploadStatus === 'QUEUED' ? 'Queued...' :
+                          uploadStatus === 'UPLOADING' ? 'Uploading...' :
+                            uploadStatus === 'PROCESSING' ? 'Analyzing...' : 'Processing...'}
+                      </span>
+                      <span className="text-sm font-medium">{hookProgress}%</span>
                     </div>
                     <div className="h-2 bg-secondary rounded-full overflow-hidden">
                       <motion.div
                         className="h-full bg-primary"
                         initial={{ width: 0 }}
-                        animate={{ width: `${uploadProgress}%` }}
+                        animate={{ width: `${hookProgress}%` }}
                         transition={{ duration: 0.3 }}
                       />
                     </div>
@@ -231,19 +306,20 @@ export function UploadForm() {
                 )}
 
                 {/* Requirement 2.6: Display upload errors with retry option */}
-                {uploadError && (
+                {displayError && (
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     className="mt-4 p-3 rounded-lg bg-destructive/10 border border-destructive/20"
                   >
-                    <p className="text-sm text-destructive">{uploadError}</p>
+                    <p className="text-sm text-destructive">{displayError}</p>
                     <Button
                       variant="outline"
                       size="sm"
                       className="mt-2"
                       onClick={() => {
-                        setUploadError(null)
+                        resetUpload()
+                        setValidationError(null)
                         setFile(null)
                       }}
                     >
@@ -399,9 +475,9 @@ export function UploadForm() {
           className="mt-6 sm:mt-8 flex flex-col sm:flex-row gap-3"
         >
           {currentStep > 0 && (
-            <Button 
-              variant="outline" 
-              onClick={() => setCurrentStep(currentStep - 1)} 
+            <Button
+              variant="outline"
+              onClick={() => setCurrentStep(currentStep - 1)}
               className="flex-1 touch-target min-h-[48px] sm:min-h-[44px]"
             >
               Back
@@ -409,17 +485,17 @@ export function UploadForm() {
           )}
 
           {currentStep < 2 ? (
-            <Button 
-              onClick={handleNext} 
-              disabled={!canProceed || isUploading} 
+            <Button
+              onClick={handleNext}
+              disabled={!canProceed || isUploading}
               className="flex-1 touch-target min-h-[48px] sm:min-h-[44px]"
             >
               Continue
             </Button>
           ) : (
-            <Button 
-              onClick={handleAnalyze} 
-              disabled={isAnalyzing || isUploading} 
+            <Button
+              onClick={handleAnalyze}
+              disabled={isAnalyzing || isUploading}
               className="flex-1 gap-2 touch-target min-h-[48px] sm:min-h-[44px]"
             >
               {isAnalyzing ? (

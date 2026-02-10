@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { motion } from "framer-motion"
@@ -12,7 +12,10 @@ import { RedFlagsCard } from "@/components/results/red-flags-card"
 import { SalaryComparisonCard } from "@/components/results/salary-comparison-card"
 import { TakeHomeCard } from "@/components/results/take-home-card"
 import { NegotiationBlueprintCard } from "@/components/results/negotiation-blueprint-card"
+import { EmailGatedContent } from "@/components/negotiation/EmailGatedContent"
 import { useOffer } from "@/context/OfferContext"
+import { useSearchParams } from "next/navigation"
+import { getOffer } from "@/lib/api"
 import { trackConversion } from "@/lib/analytics"
 
 const steps = [{ label: "Upload" }, { label: "Details" }, { label: "Analyze" }]
@@ -25,26 +28,86 @@ const steps = [{ label: "Upload" }, { label: "Details" }, { label: "Analyze" }]
  */
 export function ResultsContent() {
   const router = useRouter()
-  const { currentOffer, offerDetails, clearOffer } = useOffer()
+  const searchParams = useSearchParams()
+  const id = searchParams.get('id')
 
-  // Redirect to upload if no offer data
+  const { currentOffer, offerDetails, clearOffer, setOffer } = useOffer()
+  const [isLoading, setIsLoading] = useState(false)
+
+  // Redirect to upload if no offer data and no ID parameter
   useEffect(() => {
-    if (!currentOffer || !offerDetails) {
+    // If we have data, do nothing
+    if (currentOffer && offerDetails) return;
+
+    // If we have an ID but no data, fetch it
+    if (id) {
+      setIsLoading(true);
+      getOffer(id).then(offer => {
+        // Map OfferResponse to Context format
+        if (offer.extractedData && offer.marketComparison) {
+          const mappedAnalysis: any = {
+            id: offer.id,
+            redFlags: offer.redFlagsResult || [],
+            salaryComparison: offer.marketComparison,
+            // TODO: negotiationSuggestions are not in OfferResponse yet (stored in DB?)
+            // Currently they are generated on the fly in legacy analyze.
+            // For persistent offers, we might need to fetch them or generate them?
+            // The reanalyze endpoint generated them in the worker?
+            // Worker does DETECT_RED_FLAGS and LOOKUP_MARKET_DATA.
+            // It does NOT generate suggestions? 
+            // Suggestions are usually derived from red flags in frontend or backend.
+            // Let's check RedFlagsCard, it takes redFlags.
+            // NegotiationBlueprintCard takes suggestions. Only legacy analyze returns them?
+            // If so, hydration might check simple mapping or empty array.
+            negotiationSuggestions: [],
+            analysisId: offer.id
+          };
+
+          const mappedDetails = {
+            role: offer.extractedData.jobTitle || 'Unknown Role',
+            experience: '', // Not in extractedData?
+            city: offer.extractedData.location || 'Unknown Location',
+            ctc: offer.extractedData.baseSalary || 0,
+            offerText: offer.extractedData.rawText || ''
+          };
+
+          setOffer(mappedAnalysis, mappedDetails);
+        } else {
+          // Analysis incomplete?
+        }
+      }).catch(err => {
+        console.error(err);
+        // router.push("/upload"); // Optional: redirect on fail
+      }).finally(() => setIsLoading(false));
+    } else {
+      // No data, no ID -> redirect
       router.push("/upload")
     }
-  }, [currentOffer, offerDetails, router])
+  }, [currentOffer, offerDetails, router, id, setOffer])
 
   // Track conversion when results are displayed
   // Requirement 17.2: Track conversion event
   useEffect(() => {
-    if (currentOffer && currentOffer.redFlags && currentOffer.negotiationSuggestions) {
+    if (currentOffer && currentOffer.redFlags) {
       trackConversion({
         redFlagsCount: currentOffer.redFlags.length,
-        salaryComparison: currentOffer.salaryComparison?.comparison || 'unknown',
-        hasNegotiationTips: currentOffer.negotiationSuggestions.length > 0,
+        salaryComparison: currentOffer.salaryComparison?.message || 'unknown',
+        hasNegotiationTips: (currentOffer.negotiationSuggestions?.length || 0) > 0,
       })
     }
   }, [currentOffer])
+
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+          <p className="text-muted-foreground">Loading analysis...</p>
+        </div>
+      </div>
+    )
+  }
 
   // Don't render if no data
   if (!currentOffer || !offerDetails) {
@@ -55,6 +118,7 @@ export function ResultsContent() {
     clearOffer()
     router.push("/upload")
   }
+
 
   return (
     <div className="py-6 sm:py-8 md:py-12">
@@ -97,18 +161,18 @@ export function ResultsContent() {
 
           {/* Action Buttons - Requirement 8.1, 8.5: Responsive with touch targets */}
           <div className="mt-4 flex flex-wrap justify-center gap-2">
-            <Button 
-              variant="outline" 
-              size="sm" 
+            <Button
+              variant="outline"
+              size="sm"
               className="gap-2 bg-transparent touch-target min-h-[44px]"
             >
               <Download className="h-4 w-4" />
               <span className="hidden sm:inline">Export</span>
               <span className="sm:hidden">Export</span>
             </Button>
-            <Button 
-              variant="outline" 
-              size="sm" 
+            <Button
+              variant="outline"
+              size="sm"
               className="gap-2 bg-transparent touch-target min-h-[44px]"
             >
               <Share2 className="h-4 w-4" />
@@ -120,7 +184,7 @@ export function ResultsContent() {
 
         {/* Results Cards */}
         <div className="space-y-6">
-          <OfferSummaryCard 
+          <OfferSummaryCard
             offerText={offerDetails.offerText}
             role={offerDetails.role}
             experience={offerDetails.experience}
@@ -128,12 +192,22 @@ export function ResultsContent() {
             ctc={offerDetails.ctc}
           />
           <RedFlagsCard redFlags={currentOffer.redFlags || []} />
-          <SalaryComparisonCard 
+          <SalaryComparisonCard
             salaryComparison={currentOffer.salaryComparison}
-            offeredSalary={offerDetails.ctc * 100000} // Convert LPA to annual
+            offeredSalary={(offerDetails.ctc || 0) * 100000} // Convert LPA to annual
           />
-          <TakeHomeCard takeHome={currentOffer.takeHome} />
+          <TakeHomeCard takeHome={currentOffer.takeHome || 0} />
           <NegotiationBlueprintCard suggestions={currentOffer.negotiationSuggestions || []} />
+
+          {/* Negotiation Script Email Gate */}
+          {(currentOffer.analysisId || (currentOffer as any).id) && (
+            <div className="mt-8">
+              <EmailGatedContent
+                offerId={(currentOffer as any).id || currentOffer.analysisId}
+                title="Get Your Full Negotiation Script"
+              />
+            </div>
+          )}
         </div>
 
         {/* Analyze Another Button */}
@@ -143,8 +217,8 @@ export function ResultsContent() {
           viewport={{ once: true }}
           className="mt-8"
         >
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             className="w-full gap-2 bg-transparent"
             onClick={handleAnalyzeAnother}
           >
