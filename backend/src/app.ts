@@ -1,85 +1,69 @@
-import express, { Application } from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import config from './config';
-import { requestLogger, errorHandler, notFoundHandler, sanitizeInput } from './middleware';
-import logger from './utils/logger';
+import Fastify from 'fastify';
+import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
+import { registerPlugins } from '@/plugins/index.js';
+import { errorHandler } from '@/middleware/error-handler.js';
+import { registerRateLimiter } from '@/middleware/rate-limiter.js';
+import { guestIdentifier } from '@/middleware/guest-identifier.js';
+import { requestLogger } from '@/middleware/request-logger.js';
+import { offerRoutes } from '@/modules/offer/offer.routes.js';
+import { analysisRoutes } from '@/modules/analysis/analysis.routes.js';
+import { metadataRoutes } from '@/modules/metadata/metadata.routes.js';
+import { featureRequestRoutes } from '@/modules/feature-request/feature-request.routes.js';
+import { healthRoutes } from '@/modules/health/health.routes.js';
+import { authRoutes } from '@/modules/auth/auth.routes.js';
+import { userRoutes } from '@/modules/user/user.routes.js';
+import { negotiationRoutes } from '@/modules/negotiation/negotiation.routes.js';
+import { benefitsRoutes } from '@/modules/benefits/benefits.routes.js';
+import { comparisonRoutes } from '@/modules/comparison/comparison.routes.js';
+import { correctionRoutes } from '@/modules/correction/correction.routes.js';
+import { salaryRoutes } from '@/modules/salary/salary.routes.js';
+import { careerRoutes } from '@/modules/career/career.routes.js';
+import { forumRoutes } from '@/modules/forum/forum.routes.js';
+import { authenticate } from '@/middleware/authenticate.js';
+import providersPlugin from '@/plugins/providers.js';
 
-export const createApp = (): Application => {
-  const app = express();
-
-  // Security middleware
-  app.use(helmet());
-
-  // CORS configuration with whitelist
-  // Requirements: 1.5
-  const corsOrigins = config.corsOrigin.split(',').map((origin) => origin.trim());
-  app.use(
-    cors({
-      origin: (origin, callback) => {
-        // Allow requests with no origin (like mobile apps or curl requests)
-        if (!origin) return callback(null, true);
-        
-        if (corsOrigins.includes(origin)) {
-          callback(null, true);
-        } else {
-          callback(new Error('Not allowed by CORS'));
-        }
-      },
-      credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id'],
-    })
-  );
-
-  // Body parsing middleware
-  app.use(express.json({ limit: `${config.upload.maxFileSizeMB}mb` }));
-  app.use(express.urlencoded({ extended: true, limit: `${config.upload.maxFileSizeMB}mb` }));
-
-  // Request logging
-  app.use(requestLogger);
-
-  // Input sanitization (before routes)
-  // Requirements: 6.3, 6.4
-  app.use(sanitizeInput);
-
-  // API routes
-  const routes = require('./routes').default;
-  app.use('/api/v1', routes);
-
-  // 404 handler
-  app.use(notFoundHandler);
-
-  // Error handler (must be last)
-  app.use(errorHandler);
-
-  return app;
-};
-
-export const startServer = (app: Application) => {
-  const server = app.listen(config.port, () => {
-    logger.info(`🚀 Server running on http://${config.host}:${config.port}`);
-    logger.info(`📝 Environment: ${config.env}`);
-    logger.info(`🔒 CORS enabled for: ${config.corsOrigin}`);
-  });
-
-  // Graceful shutdown
-  const gracefulShutdown = (signal: string) => {
-    logger.info(`${signal} received, shutting down gracefully...`);
-    server.close(() => {
-      logger.info('Server closed');
-      process.exit(0);
+export function buildApp() {
+    const app = Fastify({
+        logger: true, // We use custom request logger but standard logger for internals
+        disableRequestLogging: true, // Disable default to use ours
     });
 
-    // Force shutdown after 10 seconds
-    setTimeout(() => {
-      logger.error('Forced shutdown after timeout');
-      process.exit(1);
-    }, 10000);
-  };
+    // Type Provider Setup
+    app.setValidatorCompiler(validatorCompiler);
+    app.setSerializerCompiler(serializerCompiler);
 
-  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+    // Plugins
+    app.register(registerPlugins);
+    app.register(providersPlugin);
 
-  return server;
-};
+    // Middleware
+    app.setErrorHandler(errorHandler);
+    app.register(registerRateLimiter);
+    app.addHook('onRequest', guestIdentifier);
+    app.addHook('onRequest', authenticate); // JWT Auth
+    app.addHook('onRequest', requestLogger);
+
+    // Routes
+    app.register(async (api) => {
+        // API v1 prefix
+        await api.register(healthRoutes);
+        await api.register(authRoutes, { prefix: '/auth' });
+        await api.register(userRoutes, { prefix: '/users' });
+        await api.register(offerRoutes, { prefix: '/offers' });
+        await api.register(analysisRoutes); // mounts /offers/:id/analysis inside
+        await api.register(metadataRoutes, { prefix: '/metadata' });
+        await api.register(featureRequestRoutes, { prefix: '/feature-requests' });
+
+        // Feature Routes
+
+        await api.register(negotiationRoutes);
+        await api.register(benefitsRoutes);
+        await api.register(comparisonRoutes);
+        await api.register(correctionRoutes);
+        await api.register(salaryRoutes);
+        await api.register(careerRoutes);
+        await api.register(forumRoutes, { prefix: '/forum' });
+    }, { prefix: '/api/v1' });
+
+    return app;
+}

@@ -1,0 +1,583 @@
+# OfferLens — API Specification (Phase 1)
+
+> Base URL: `/api/v1` | Format: JSON | Auth: None (Phase 1)
+
+## Conventions
+
+### Response Envelope
+
+All responses follow a consistent envelope:
+
+```typescript
+// Success
+{
+  "success": true,
+  "data": T,                    // Response payload
+  "meta"?: {                    // Optional pagination/metadata
+    "page": number,
+    "pageSize": number,
+    "total": number
+  }
+}
+
+// Error
+{
+  "success": false,
+  "error": {
+    "code": string,             // Machine-readable error code
+    "message": string,          // Human-readable message
+    "details"?: unknown         // Optional context (validation errors, etc.)
+  }
+}
+```
+
+### Common Headers
+
+| Header | Direction | Purpose |
+|---|---|---|
+| `Content-Type` | Response | Always `application/json` (except file uploads/downloads) |
+| `X-Request-Id` | Response | Correlation ID for debugging |
+| `X-Fingerprint` | Request | Client-generated browser fingerprint (guest tracking) |
+| `X-RateLimit-Limit` | Response | Max requests allowed in window |
+| `X-RateLimit-Remaining` | Response | Requests remaining in window |
+| `X-RateLimit-Reset` | Response | Unix timestamp when window resets |
+| `Retry-After` | Response (429) | Seconds until next request allowed |
+
+### Error Codes
+
+| Code | HTTP | When |
+|---|---|---|
+| `INVALID_FILE_TYPE` | 400 | Upload is not PDF/JPG/PNG/WebP |
+| `FILE_TOO_LARGE` | 400 | File exceeds 10MB |
+| `VALIDATION_ERROR` | 400 | Request body fails Zod validation |
+| `INVALID_INPUT` | 400 | Malformed request (bad UUID, etc.) |
+| `SPAM_DETECTED` | 400 | Feature request contains profanity/spam |
+| `GUEST_RESTRICTED` | 403 | Guest tried to access registered-only feature |
+| `NOT_FOUND` | 404 | Resource doesn't exist or has expired |
+| `ALREADY_VOTED` | 409 | Duplicate vote on feature request |
+| `RATE_LIMIT_EXCEEDED` | 429 | Too many requests |
+| `UPLOAD_LIMIT_EXCEEDED` | 429 | Guest exceeded 3 analyses/day |
+| `INTERNAL_ERROR` | 500 | Unexpected server error (never leaks details) |
+| `SERVICE_UNAVAILABLE` | 503 | External API down (Vision, Gemini) |
+
+---
+
+## Endpoints
+
+### Health
+
+#### `GET /api/v1/health`
+
+Returns server status. No rate limiting.
+
+**Response** `200`:
+```json
+{
+  "success": true,
+  "data": {
+    "status": "ok",
+    "version": "1.0.0",
+    "uptime": 3600,
+    "timestamp": "2026-02-12T12:00:00Z"
+  }
+}
+```
+
+---
+
+### Offers
+
+#### `POST /api/v1/offers`
+
+Upload an offer letter for analysis. Accepts multipart/form-data.
+
+**Rate limit**: Guest: 3/day | Global: 100/min per IP
+
+**Request** (`multipart/form-data`):
+
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| `file` | File | ✅ | PDF, JPG, PNG, WebP. Max 10MB |
+| `role` | string | ❌ | Closest matching job role |
+| `experienceYears` | number | ❌ | Years of experience (0-50) |
+| `city` | string | ❌ | City name |
+| `expectedCTC` | number | ❌ | Expected salary (in currency unit) |
+| `currency` | string | ❌ | ISO currency code, default: `INR` |
+
+**Response** `202 Accepted`:
+```json
+{
+  "success": true,
+  "data": {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "status": "QUEUED",
+    "createdAt": "2026-02-12T12:00:00Z",
+    "expiresAt": "2026-02-13T12:00:00Z",
+    "isGuest": true,
+    "estimatedProcessingTime": 15
+  }
+}
+```
+
+**Error responses**:
+
+| Scenario | Code | Response |
+|---|---|---|
+| Wrong file type | 400 | `{ code: "INVALID_FILE_TYPE", message: "Please upload a PDF or image (JPG, PNG, WebP)" }` |
+| File too large | 400 | `{ code: "FILE_TOO_LARGE", message: "File must be under 10MB" }` |
+| Guest daily limit | 429 | `{ code: "UPLOAD_LIMIT_EXCEEDED", message: "Guest limit reached (3/day). Create a free account for unlimited analyses" }` |
+
+---
+
+#### `GET /api/v1/offers/:id`
+
+Get offer status and basic info. Used for polling during processing.
+
+**Rate limit**: 60/min per IP (polling-friendly)
+
+**Path params**: `id` — offer UUID
+
+**Response** `200` (while processing):
+```json
+{
+  "success": true,
+  "data": {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "status": "PROCESSING",
+    "createdAt": "2026-02-12T12:00:00Z",
+    "expiresAt": "2026-02-13T12:00:00Z",
+    "isGuest": true,
+    "ocrConfidence": null,
+    "hasAnalysis": false
+  }
+}
+```
+
+**Response** `200` (completed):
+```json
+{
+  "success": true,
+  "data": {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "status": "COMPLETED",
+    "createdAt": "2026-02-12T12:00:00Z",
+    "expiresAt": "2026-02-13T12:00:00Z",
+    "isGuest": true,
+    "ocrConfidence": 0.92,
+    "lowConfidence": false,
+    "hasAnalysis": true
+  }
+}
+```
+
+**Response** `200` (failed):
+```json
+{
+  "success": true,
+  "data": {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "status": "FAILED",
+    "failureReason": "We couldn't read this file. Please try a clearer scan or paste the text manually.",
+    "createdAt": "2026-02-12T12:00:00Z"
+  }
+}
+```
+
+**Errors**: `NOT_FOUND` (404) — offer doesn't exist or guest TTL expired.
+
+---
+
+#### `GET /api/v1/offers/:id/analysis`
+
+Get full analysis results. Only available when `status = COMPLETED`.
+
+**Rate limit**: 30/min per IP
+
+**Path params**: `id` — offer UUID
+
+**Response** `200`:
+```json
+{
+  "success": true,
+  "data": {
+    "offerId": "a1b2c3d4-...",
+    "score": 72,
+    "scoreLabel": "good",
+    "scoringMethod": "standard",
+    "lowConfidence": false,
+
+    "extractedData": {
+      "companyName": "TechCorp India Pvt Ltd",
+      "role": "Senior Software Engineer",
+      "department": "Engineering",
+      "joiningDate": "2026-04-01",
+      "location": "Bangalore",
+      "employmentType": "full-time",
+      "compensation": {
+        "currency": "INR",
+        "baseSalary": { "amount": 1200000, "period": "annual" },
+        "variablePay": { "amount": 200000, "type": "performance", "details": "Based on annual review" },
+        "equity": { "type": "ESOP", "quantity": 500, "vestingSchedule": "4 years with 1-year cliff", "strikePrice": 100, "cliffMonths": 12 },
+        "totalCTC": 1800000,
+        "otherComponents": [
+          { "name": "Joining Bonus", "amount": 100000, "details": "One-time" }
+        ]
+      },
+      "noticePeriod": "90 days",
+      "probationPeriod": "6 months"
+    },
+
+    "redFlags": [
+      {
+        "type": "bond",
+        "severity": "high",
+        "title": "2-Year Service Bond",
+        "explanation": "You must stay for 2 years or repay ₹2,00,000. This limits your career flexibility.",
+        "matchedText": "employee agrees to serve for a minimum period of 24 months failing which a sum of Rs. 2,00,000 shall be payable",
+        "suggestion": "Negotiate to remove the bond or reduce the penalty amount"
+      }
+    ],
+
+    "salaryComparison": {
+      "marketRange": { "p25": 1400000, "p50": 1800000, "p75": 2200000, "p90": 2800000 },
+      "offerPercentile": 42,
+      "roleUsed": "Senior Software Engineer",
+      "roleMatchConfidence": 0.95,
+      "locationUsed": "Bangalore, India",
+      "dataSource": "ai_estimated",
+      "disclaimer": null
+    },
+
+    "negotiationSuggestions": [
+      {
+        "component": "Base Salary",
+        "currentValue": "₹12,00,000/year",
+        "suggestedAsk": "₹15,00,000/year",
+        "rationale": "Your offer is at p42. The market median (p50) for this role in Bangalore is ₹18L CTC.",
+        "priority": "high"
+      }
+    ],
+
+    "benefits": [
+      { "name": "Health Insurance", "value": "₹5,00,000 family floater", "details": "Employer-provided", "isStandard": true },
+      { "name": "PF", "value": "12% of basic", "details": "Statutory", "isStandard": true },
+      { "name": "Gratuity", "value": "As per statute", "details": null, "isStandard": true }
+    ],
+
+    "takeHome": {
+      "monthlyEstimate": 78500,
+      "assumptions": "Assuming old tax regime, no HRA exemption, standard deduction applied"
+    },
+
+    "metadata": {
+      "analysisVersion": "1.0",
+      "modelUsed": "gemini-2.0-flash",
+      "processingNote": null
+    },
+
+    "processingTimeMs": 12340,
+    "redFlagsDiscarded": 1,
+    "createdAt": "2026-02-12T12:00:15Z"
+  }
+}
+```
+
+**Errors**:
+- `NOT_FOUND` (404) — offer doesn't exist or not yet completed
+- If `status` is `QUEUED` or `PROCESSING`, returns 404 with message: `"Analysis is still processing. Check back shortly."`
+
+---
+
+#### `DELETE /api/v1/offers/:id`
+
+Delete an offer and its analysis permanently.
+
+**Rate limit**: 10/min per IP
+
+**Path params**: `id` — offer UUID
+
+**Response** `200`:
+```json
+{
+  "success": true,
+  "data": { "deleted": true }
+}
+```
+
+**Errors**: `NOT_FOUND` (404)
+
+---
+
+#### `GET /api/v1/offers/:id/report`
+
+Download PDF report of the analysis.
+
+**Rate limit**: 10/min per IP
+
+**Path params**: `id` — offer UUID
+
+**Response** `200`:
+- `Content-Type: application/pdf`
+- `Content-Disposition: attachment; filename="offerlens-report-{offerId}.pdf"`
+- Binary PDF body
+
+**Errors**:
+- `NOT_FOUND` (404) — offer doesn't exist or analysis not complete
+- `GUEST_RESTRICTED` (403) — guest users cannot download reports (Phase 1 note: currently allowed for all; this gate activates only if we add restrictions)
+
+---
+
+### Metadata
+
+#### `GET /api/v1/metadata/roles`
+
+List all available job roles for dropdown.
+
+**Rate limit**: 30/min per IP | **Cache**: Redis, 1h TTL
+
+**Query params**:
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `category` | string | — | Filter by category (engineering, design, etc.) |
+| `q` | string | — | Search by name (case-insensitive, prefix match) |
+
+**Response** `200`:
+```json
+{
+  "success": true,
+  "data": [
+    { "id": 1, "name": "Software Engineer", "category": "engineering" },
+    { "id": 2, "name": "Senior Software Engineer", "category": "engineering" },
+    { "id": 3, "name": "Product Manager", "category": "product" }
+  ]
+}
+```
+
+---
+
+#### `GET /api/v1/metadata/cities`
+
+List available cities for dropdown.
+
+**Rate limit**: 30/min per IP | **Cache**: Redis, 1h TTL
+
+**Query params**:
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `country` | string | — | Filter by country |
+| `q` | string | — | Search by name (prefix match) |
+
+**Response** `200`:
+```json
+{
+  "success": true,
+  "data": [
+    { "id": 1, "name": "Bangalore", "state": "Karnataka", "country": "India" },
+    { "id": 2, "name": "Mumbai", "state": "Maharashtra", "country": "India" },
+    { "id": 3, "name": "San Francisco", "state": "California", "country": "USA" }
+  ]
+}
+```
+
+---
+
+#### `GET /api/v1/metadata/experience-levels`
+
+List experience levels for dropdown.
+
+**Rate limit**: 30/min per IP | **Cache**: Redis, 1h TTL
+
+**Response** `200`:
+```json
+{
+  "success": true,
+  "data": [
+    { "id": 1, "label": "Fresher", "minYears": 0, "maxYears": 1 },
+    { "id": 2, "label": "Junior", "minYears": 1, "maxYears": 3 },
+    { "id": 3, "label": "Mid", "minYears": 3, "maxYears": 5 },
+    { "id": 4, "label": "Senior", "minYears": 5, "maxYears": 8 },
+    { "id": 5, "label": "Staff", "minYears": 8, "maxYears": 12 },
+    { "id": 6, "label": "Principal", "minYears": 12, "maxYears": 99 }
+  ]
+}
+```
+
+---
+
+### Feature Requests
+
+#### `POST /api/v1/feature-requests`
+
+Submit a feature request.
+
+**Rate limit**: 5/hour per fingerprint
+
+**Request body** (`application/json`):
+
+```json
+{
+  "title": "Dark mode support",
+  "description": "Add a dark mode toggle for late-night offer review sessions"
+}
+```
+
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| `title` | string | ✅ | 5-200 characters |
+| `description` | string | ✅ | 20-2000 characters |
+
+**Response** `201`:
+```json
+{
+  "success": true,
+  "data": {
+    "id": "b2c3d4e5-...",
+    "title": "Dark mode support",
+    "description": "Add a dark mode toggle for late-night offer review sessions",
+    "status": "open",
+    "voteCount": 0,
+    "createdAt": "2026-02-12T12:00:00Z"
+  }
+}
+```
+
+**Errors**:
+- `VALIDATION_ERROR` (400) — title/description too short/long
+- `SPAM_DETECTED` (400) — profanity filter triggered
+- `RATE_LIMIT_EXCEEDED` (429)
+
+---
+
+#### `GET /api/v1/feature-requests`
+
+List feature requests with sorting and pagination.
+
+**Rate limit**: 30/min per IP
+
+**Query params**:
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `sort` | string | `votes` | Sort by: `votes` (most voted), `newest`, `oldest` |
+| `status` | string | — | Filter by status: `open`, `planned`, `in_progress`, `done`, `rejected` |
+| `page` | number | 1 | Page number (1-indexed) |
+| `pageSize` | number | 20 | Items per page (max 50) |
+
+**Response** `200`:
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "b2c3d4e5-...",
+      "title": "Dark mode support",
+      "description": "Add a dark mode toggle...",
+      "status": "open",
+      "voteCount": 42,
+      "hasVoted": true,
+      "createdAt": "2026-02-12T12:00:00Z"
+    }
+  ],
+  "meta": {
+    "page": 1,
+    "pageSize": 20,
+    "total": 3
+  }
+}
+```
+
+> `hasVoted` is determined by matching the `X-Fingerprint` header against `feature_request_votes`. If no fingerprint is provided, it's always `false`.
+
+---
+
+#### `POST /api/v1/feature-requests/:id/vote`
+
+Vote on a feature request. One vote per fingerprint.
+
+**Rate limit**: 30/min per IP
+
+**Path params**: `id` — feature request UUID
+
+**Request body**: None (empty POST)
+
+**Response** `200`:
+```json
+{
+  "success": true,
+  "data": {
+    "featureRequestId": "b2c3d4e5-...",
+    "voteCount": 43,
+    "voted": true
+  }
+}
+```
+
+**Errors**:
+- `NOT_FOUND` (404) — feature request doesn't exist
+- `ALREADY_VOTED` (409) — `{ code: "ALREADY_VOTED", message: "You've already voted on this request" }`
+
+---
+
+## Rate Limit Summary
+
+| Endpoint Group | Limit | Key | Window |
+|---|---|---|---|
+| `POST /offers` (guest upload) | 3 | fingerprint + IP | 24 hours |
+| `GET /offers/:id` (polling) | 60 | IP | 1 minute |
+| `GET /offers/:id/analysis` | 30 | IP | 1 minute |
+| `DELETE /offers/:id` | 10 | IP | 1 minute |
+| `GET /offers/:id/report` | 10 | IP | 1 minute |
+| `GET /metadata/*` | 30 | IP | 1 minute |
+| `POST /feature-requests` | 5 | fingerprint | 1 hour |
+| `POST /feature-requests/:id/vote` | 30 | IP | 1 minute |
+| Global fallback | 100 | IP | 1 minute |
+
+---
+
+## Pagination
+
+All list endpoints use offset pagination:
+
+```
+GET /api/v1/feature-requests?page=2&pageSize=10
+```
+
+**Rules**:
+- `page` starts at 1 (not 0)
+- `pageSize` max is 50
+- Response includes `meta.total` for client-side page count
+- Default `pageSize` is 20
+
+> **Phase 2 consideration**: Switch to cursor pagination for `offers` history when volumes grow. Offset is fine for Phase 1.
+
+---
+
+## Versioning
+
+- All endpoints are prefixed with `/api/v1/`
+- Non-breaking changes (new fields, new endpoints) stay on `v1`
+- Breaking changes (removed fields, changed types) bump to `v2`
+- Old versions are supported for 6 months after deprecation notice
+- Deprecation communicated via `Sunset` response header
+
+---
+
+## Phase 2 Endpoint Preview
+
+These endpoints will be added in Phase 2 — listed here for frontend planning:
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/v2/auth/register` | Email/password registration |
+| `POST` | `/api/v2/auth/login` | JWT login |
+| `POST` | `/api/v2/auth/google` | Google OAuth |
+| `GET` | `/api/v2/offers` | List user's offer history |
+| `POST` | `/api/v2/offers/compare` | Compare 2-5 offers side-by-side |
+| `GET` | `/api/v2/offers/:id/script` | Generate negotiation email script |
+| `GET` | `/api/v2/offers/:id/career` | Career path insights |
+| `POST` | `/api/v2/payments/pass` | Purchase Job Hunt Pass |
+| `GET` | `/api/v2/account` | User profile |
+| `DELETE` | `/api/v2/account` | Delete account + all data |
+| `GET` | `/api/v2/account/export` | GDPR data export |

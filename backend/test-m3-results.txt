@@ -1,0 +1,38 @@
+
+=== 0. Dependency Check ===
+Γ£à All systems GO
+
+=== 1. Setup (User & Offer) ===
+[REQ] POST /auth/signup
+[RES] 201 Created
+Γ£à User Created (e982bba4-9305-4bea-b3d4-e1d2103b999a)
+[REQ] POST /offers
+[RES] 201 Created
+Γ£à Offer Created (718c1f66-97a3-4702-94b5-731524afb016)
+
+=== 2. Forum ===
+[REQ] POST /forum/posts
+[RES] 201 Created
+Γ£à Post Created (1d1460bc-fb94-4876-aefa-259d018303b5)
+[REQ] GET /forum/posts?category=negotiation
+[RES] 200 OK
+Γ£à List Posts
+[REQ] GET /forum/posts/1d1460bc-fb94-4876-aefa-259d018303b5
+[RES] 200 OK
+Γ£à Get Post Detail
+[REQ] POST /forum/posts/1d1460bc-fb94-4876-aefa-259d018303b5/comments
+[RES] 201 Created
+Γ£à Add Comment
+
+=== 3. Salary (Crowdsourced) ===
+[REQ] POST /salaries
+[RES] 200 OK
+Γ£à Submit Salary (Anonymous)
+[REQ] GET /salaries/stats?role=Senior Software Engineer&city=Bangalore
+[RES] 200 OK
+Γ£à Salary Stats: Not enough data for this role/city combination. (Count: 2)
+
+=== 4. Career Path ===
+[REQ] GET /offers/718c1f66-97a3-4702-94b5-731524afb016/career-path
+[RES] 200 OK
+Γ£à Generate Career Path

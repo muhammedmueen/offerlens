@@ -1,0 +1,71 @@
+
+=== 0. Dependency Check ===
+Γ£à Redis (Port 6379) is OPEN
+Γ£à Postgres (Port 5432) is OPEN
+Γ£à Backend Server (Port 8000) is OPEN
+
+=== 0. Connectivity Check ===
+[REQ] GET /health
+[RES] 200 OK
+Γ£à Server Reachable
+
+=== 1. Guest Upload (Pre-Signup) ===
+[REQ] POST /offers
+[RES] 201 Created
+Γ£à Guest Upload (ID: a8c5d896-2741-49b3-9bc8-c28ba1bf5a9f)
+[REQ] GET /offers/a8c5d896-2741-49b3-9bc8-c28ba1bf5a9f
+[RES] 200 OK
+Γ£à Guest verification
+
+=== 2. Signup & Migration ===
+[REQ] POST /auth/signup
+[RES] 201 Created
+Γ£à Signup (User ID: 2bc0577b-8802-452d-aadb-1d45d580237e)
+[REQ] GET /users/me/offers
+[RES] 200 OK
+Γ£à Migration verified (Guest offer a8c5d896-2741-49b3-9bc8-c28ba1bf5a9f found in user list)
+
+=== 3. User Upload (Direct) ===
+[REQ] POST /offers
+[RES] 201 Created
+Γ£à User Upload (ID: c870321a-c672-4705-acd7-7c04c5bbfe56)
+[REQ] GET /users/me/offers
+[RES] 200 OK
+Γ£à User Upload verified in list
+
+=== 4. M2 Features (Negotiation/Benefits/Corrections) ===
+[REQ] POST /offers/c870321a-c672-4705-acd7-7c04c5bbfe56/negotiate
+[RES] 400 Bad Request
+[ERR BODY] {"success":false,"error":{"code":"OFFER_NOT_READY","message":"Offer analysis must be completed before generating a negotiation script"}}...
+Γ¥î Negotiation: 400 {"success":false,"error":{"code":"OFFER_NOT_READY","message":"Offer analysis must be completed before generating a negotiation script"}}
+[REQ] POST /offers/c870321a-c672-4705-acd7-7c04c5bbfe56/benefits
+[RES] 400 Bad Request
+[ERR BODY] {"success":false,"error":{"code":"OFFER_NOT_READY","message":"Offer analysis must be completed first"}}...
+Γ¥î Benefits: 400 {"success":false,"error":{"code":"OFFER_NOT_READY","message":"Offer analysis must be completed first"}}
+[REQ] PATCH /offers/c870321a-c672-4705-acd7-7c04c5bbfe56/corrections
+[RES] 400 Bad Request
+[ERR BODY] {"success":false,"error":{"code":"OFFER_NOT_READY","message":"Offer analysis must be completed before submitting corrections"}}...
+Γ¥î Corrections: 400 {"success":false,"error":{"code":"OFFER_NOT_READY","message":"Offer analysis must be completed before submitting corrections"}}
+[REQ] GET /offers/c870321a-c672-4705-acd7-7c04c5bbfe56/corrections
+[RES] 200 OK
+Γ¥î Get Corrections: 200 {"success":true,"data":[]}
+
+=== 5. Comparison ===
+Skipping Comparison (requires 2 valid user offers)
+
+=== 6. Dashboard & Profile ===
+[REQ] GET /users/me/dashboard
+[RES] 200 OK
+Γ£à Dashboard stats: {"totalOffers":2,"averageScore":null,"completedAnalyses":0,"scoreDistribution":{"excellent":0,"good":0,"fair":0,"weak":0,"poor":0}}
+[REQ] GET /users/me
+[RES] 200 OK
+Γ£à Profile: testuser1770898571622@example.com
+
+=== 7. Cleanup (Delete Account) ===
+[REQ] DELETE /users/me
+[RES] 200 OK
+Γ£à Account deleted
+[REQ] GET /users/me
+[RES] 404 Not Found
+[ERR BODY] {"success":false,"error":{"code":"NOT_FOUND","message":"User not found"}}...
+Γ£à Auth rejected after delete

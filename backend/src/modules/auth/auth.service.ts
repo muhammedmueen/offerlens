@@ -1,0 +1,208 @@
+import { db } from '@/db/index.js';
+import { users, NewUser } from '@/db/schema/users.js';
+import { refreshTokens } from '@/db/schema/refresh-tokens.js';
+import { offers } from '@/db/schema/offers.js';
+import { eq, and, isNull } from 'drizzle-orm';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
+import { config } from '@/config/index.js';
+import { ACCESS_TOKEN_EXPIRY, REFRESH_TOKEN_EXPIRY, REFRESH_TOKEN_EXPIRY_MS } from '@/config/constants.js';
+import { AppError } from '@/shared/errors/app-error.js';
+import { ERROR_CODES } from '@/shared/errors/error-codes.js';
+import { AuthTokens, AuthResponse, JwtPayload, SignupInput, LoginInput, GoogleAuthInput } from './auth.types.js';
+
+const BCRYPT_ROUNDS = 12;
+
+export class AuthService {
+    async signup(input: SignupInput): Promise<AuthResponse> {
+        const existing = await db.query.users.findFirst({
+            where: eq(users.email, input.email.toLowerCase()),
+        });
+
+        if (existing) {
+            throw new AppError(ERROR_CODES.EMAIL_IN_USE, 'An account with this email already exists. Did you mean to log in?', 409);
+        }
+
+        const passwordHash = await bcrypt.hash(input.password, BCRYPT_ROUNDS);
+
+        const [user] = await db.insert(users).values({
+            email: input.email.toLowerCase(),
+            passwordHash,
+            name: input.name || null,
+        }).returning();
+
+        const tokens = await this.generateTokens({ userId: user.id, email: user.email });
+
+        return {
+            user: { id: user.id, email: user.email, name: user.name, avatarUrl: user.avatarUrl },
+            tokens,
+        };
+    }
+
+    async login(input: LoginInput): Promise<AuthResponse> {
+        const user = await db.query.users.findFirst({
+            where: eq(users.email, input.email.toLowerCase()),
+        });
+
+        if (!user || !user.passwordHash) {
+            throw new AppError(ERROR_CODES.INVALID_CREDENTIALS, 'Invalid email or password', 401);
+        }
+
+        const valid = await bcrypt.compare(input.password, user.passwordHash);
+        if (!valid) {
+            throw new AppError(ERROR_CODES.INVALID_CREDENTIALS, 'Invalid email or password', 401);
+        }
+
+        const tokens = await this.generateTokens({ userId: user.id, email: user.email });
+
+        return {
+            user: { id: user.id, email: user.email, name: user.name, avatarUrl: user.avatarUrl },
+            tokens,
+        };
+    }
+
+    async googleAuth(input: GoogleAuthInput): Promise<AuthResponse> {
+        // Dynamically import google-auth-library
+        const { OAuth2Client } = await import('google-auth-library');
+
+        if (!config.GOOGLE_CLIENT_ID) {
+            throw new AppError(ERROR_CODES.SERVICE_UNAVAILABLE, 'Google OAuth is not configured', 503);
+        }
+
+        const client = new OAuth2Client(config.GOOGLE_CLIENT_ID);
+        const ticket = await client.verifyIdToken({
+            idToken: input.idToken,
+            audience: config.GOOGLE_CLIENT_ID,
+        });
+
+        const payload = ticket.getPayload();
+        if (!payload || !payload.email) {
+            throw new AppError(ERROR_CODES.INVALID_CREDENTIALS, 'Invalid Google token', 401);
+        }
+
+        // Find or create user
+        let user = await db.query.users.findFirst({
+            where: eq(users.email, payload.email.toLowerCase()),
+        });
+
+        if (!user) {
+            [user] = await db.insert(users).values({
+                email: payload.email.toLowerCase(),
+                name: payload.name || null,
+                avatarUrl: payload.picture || null,
+                googleId: payload.sub,
+                isEmailVerified: payload.email_verified || false,
+            }).returning();
+        } else if (!user.googleId) {
+            // Link Google to existing email account
+            await db.update(users)
+                .set({ googleId: payload.sub, avatarUrl: user.avatarUrl || payload.picture || null })
+                .where(eq(users.id, user.id));
+        }
+
+        const tokens = await this.generateTokens({ userId: user.id, email: user.email });
+
+        return {
+            user: { id: user.id, email: user.email, name: user.name, avatarUrl: user.avatarUrl },
+            tokens,
+        };
+    }
+
+    async refreshAccessToken(refreshToken: string): Promise<AuthTokens> {
+        const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+
+        const stored = await db.query.refreshTokens.findFirst({
+            where: eq(refreshTokens.tokenHash, tokenHash),
+        });
+
+        if (!stored || stored.expiresAt < new Date()) {
+            // Clean up expired token if it exists
+            if (stored) {
+                await db.delete(refreshTokens).where(eq(refreshTokens.id, stored.id));
+            }
+            throw new AppError(ERROR_CODES.TOKEN_EXPIRED, 'Refresh token expired or invalid. Please log in again.', 401);
+        }
+
+        // Rotate: delete old, create new
+        await db.delete(refreshTokens).where(eq(refreshTokens.id, stored.id));
+
+        const user = await db.query.users.findFirst({ where: eq(users.id, stored.userId) });
+        if (!user) throw new AppError(ERROR_CODES.NOT_FOUND, 'User not found', 404);
+
+        return this.generateTokens({ userId: user.id, email: user.email });
+    }
+
+    async logout(refreshToken: string): Promise<void> {
+        const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+        await db.delete(refreshTokens).where(eq(refreshTokens.tokenHash, tokenHash));
+    }
+
+    async migrateGuestOffers(fingerprint: string, userId: string): Promise<number> {
+        const now = new Date();
+
+        // Find guest offers that haven't expired and belong to this fingerprint
+        // We'll use Drizzle query builder for this as it's cleaner and safer
+
+        // Drizzle approach: find the guest, then update their offers
+        const { guests } = await import('@/db/schema/guests.js');
+
+        const guest = await db.query.guests.findFirst({
+            where: eq(guests.fingerprint, fingerprint),
+        });
+
+        if (!guest) return 0;
+
+        const guestOffers = await db.query.offers.findMany({
+            where: and(
+                eq(offers.guestId, guest.id),
+                eq(offers.isGuest, true),
+            ),
+        });
+
+        // Filter to non-expired only
+        const validOffers = guestOffers.filter(o =>
+            !o.expiresAt || o.expiresAt > now
+        );
+
+        if (validOffers.length === 0) return 0;
+
+        // Migrate each offer
+        for (const offer of validOffers) {
+            await db.update(offers)
+                .set({
+                    userId,
+                    isGuest: false,
+                    expiresAt: null, // Remove TTL for registered users
+                })
+                .where(eq(offers.id, offer.id));
+        }
+
+        return validOffers.length;
+    }
+
+    private async generateTokens(payload: JwtPayload): Promise<AuthTokens> {
+        const accessToken = jwt.sign(payload, config.JWT_SECRET, {
+            expiresIn: ACCESS_TOKEN_EXPIRY,
+        });
+
+        const refreshTokenValue = crypto.randomBytes(40).toString('hex');
+        const tokenHash = crypto.createHash('sha256').update(refreshTokenValue).digest('hex');
+
+        await db.insert(refreshTokens).values({
+            userId: payload.userId,
+            tokenHash,
+            expiresAt: new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS),
+        });
+
+        return { accessToken, refreshToken: refreshTokenValue };
+    }
+
+    verifyAccessToken(token: string): JwtPayload {
+        try {
+            return jwt.verify(token, config.JWT_SECRET) as JwtPayload;
+        } catch {
+            throw new AppError(ERROR_CODES.TOKEN_EXPIRED, 'Access token expired or invalid', 401);
+        }
+    }
+}

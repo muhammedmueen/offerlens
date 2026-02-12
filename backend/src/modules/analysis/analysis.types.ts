@@ -1,0 +1,78 @@
+
+export interface AnalysisResult {
+    extractedData: {
+        companyName: string | null;
+        role: string | null;
+        department: string | null;
+        joiningDate: string | null;
+        location: string | null;
+        employmentType: 'full-time' | 'part-time' | 'contract' | 'intern';
+        compensation: Compensation;
+        noticePeriod: string | null;
+        probationPeriod: string | null;
+    };
+    redFlags: RedFlag[];
+    salaryComparison: SalaryComparison;
+    negotiationSuggestions: NegotiationSuggestion[];
+    benefits: Benefit[];
+    takeHome: {
+        monthlyEstimate: number | null;
+        assumptions: string | null;
+    } | null;
+    metadata: {
+        analysisVersion: string;
+        modelUsed: string;
+        processingNote: string | null;
+    };
+}
+
+export interface Compensation {
+    currency: string;
+    baseSalary: { amount: number; period: 'monthly' | 'annual' };
+    variablePay: { amount: number | null; type: string | null; details: string | null } | null;
+    equity: { type: string | null; quantity: number | null; vestingSchedule: string | null; strikePrice: number | null; cliffMonths: number | null } | null;
+    totalCTC: number | null;
+    otherComponents: { name: string; amount: number | null; details: string | null }[];
+}
+
+export interface RedFlag {
+    type: 'non_compete' | 'bond' | 'vague_compensation' | 'missing_benefit' | 'clawback' | 'ip_assignment' | 'probation' | 'other';
+    severity: 'high' | 'medium' | 'low';
+    title: string;
+    explanation: string;
+    matchedText: string;
+    suggestion: string;
+}
+
+export interface SalaryComparison {
+    marketRange: { p25: number; p50: number; p75: number; p90: number };
+    offerPercentile: number;
+    roleUsed: string;
+    roleMatchConfidence: number;
+    locationUsed: string;
+    dataSource: 'ai_estimated' | 'crowdsourced';
+    disclaimer: string | null;
+}
+
+export interface NegotiationSuggestion {
+    component: string;
+    currentValue: string;
+    suggestedAsk: string;
+    rationale: string;
+    priority: 'high' | 'medium' | 'low';
+}
+
+export interface Benefit {
+    name: string;
+    value: string | null;
+    details: string | null;
+    isStandard: boolean;
+}
+
+export interface ScoreBreakdown {
+    salaryScore: number;
+    redFlagScore: number;
+    benefitsScore: number;
+    growthScore: number;
+    totalScore: number;
+}
