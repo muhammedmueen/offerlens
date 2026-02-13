@@ -20,21 +20,28 @@ declare module 'fastify' {
 
 const providersPlugin: FastifyPluginAsync = async (fastify) => {
     // OCR Provider
-    const ocrProvider = config.GOOGLE_CLOUD_CREDENTIALS && config.NODE_ENV === 'production'
+    // OCR Provider
+    // Use Real Provider if credentials exist, otherwise Mock
+    const ocrProvider = config.GOOGLE_CLOUD_CREDENTIALS
         ? new GoogleVisionOcrProvider()
         : new MockOcrProvider();
 
     if (ocrProvider instanceof MockOcrProvider) {
-        fastify.log.warn('Using Mock OCR Provider');
+        fastify.log.warn('Using Mock OCR Provider (Set GOOGLE_CLOUD_CREDENTIALS to use real Vision API)');
+    } else {
+        fastify.log.info('Using Google Cloud Vision OCR Provider');
     }
 
     // AI Provider
-    const aiProvider = config.GEMINI_API_KEY && config.NODE_ENV === 'production'
+    // Use Real Provider if API key exists, otherwise Mock
+    const aiProvider = config.GEMINI_API_KEY
         ? new GeminiAiProvider()
         : new MockAiProvider();
 
     if (aiProvider instanceof MockAiProvider) {
-        fastify.log.warn('Using Mock AI Provider');
+        fastify.log.warn('Using Mock AI Provider (Set GEMINI_API_KEY to use real Gemini API)');
+    } else {
+        fastify.log.info('Using Google Gemini AI Provider');
     }
 
     // Storage Provider

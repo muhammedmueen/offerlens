@@ -15,8 +15,13 @@ Persistence (Master + Overrides pattern):
 """
 
 import argparse
+import sys
 from core import CSV_CONFIG, AVAILABLE_STACKS, MAX_RESULTS, search, search_stack
 from design_system import generate_design_system, persist_design_system
+
+# Force UTF-8 output for Windows console
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding='utf-8')
 
 
 def format_output(result):

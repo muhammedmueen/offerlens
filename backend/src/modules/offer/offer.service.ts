@@ -11,6 +11,11 @@ import crypto from 'crypto';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 import { v4 as uuidv4 } from 'uuid';
+import { GoogleVisionOcrProvider } from '@/providers/ocr/google-vision.ocr.js';
+import { MockOcrProvider } from '@/providers/ocr/mock.ocr.js';
+import { GeminiAiProvider } from '@/providers/ai/gemini.ai.js';
+import { MockAiProvider } from '@/providers/ai/mock.ai.js';
+import { config } from '@/config/index.js';
 
 export class OfferService {
     constructor(
@@ -134,6 +139,48 @@ export class OfferService {
         await db.update(offers)
             .set(data)
             .where(eq(offers.id, id));
+    }
+
+    async extractMetadata(file: { toBuffer: () => Promise<Buffer>, filename: string, mimetype: string }): Promise<any> {
+        // Instantiate providers (lazy or singleton)
+        // For now, new instance is fine or static
+        const ocrProvider = config.GOOGLE_CLOUD_CREDENTIALS && config.NODE_ENV === 'production'
+            ? new GoogleVisionOcrProvider()
+            : new MockOcrProvider();
+
+        const aiProvider = config.GEMINI_API_KEY && config.NODE_ENV === 'production'
+            ? new GeminiAiProvider()
+            : new MockAiProvider();
+
+        // 1. Save temp file for OCR (some providers need path) or use buffer if supported
+        // Google Vision needs path or buffer. Our OcrProvider interface takes path currently?
+        // Let's check OcrProvider interface.
+        // Assuming it takes path. We need to save file temporarily.
+        const buffer = await file.toBuffer();
+        const tempPath = `temp-${uuidv4()}-${file.filename}`;
+
+        // This is a bit hacky for temp file. Better: rely on storage provider or fs.
+        // Let's use fs to write temp file
+        const fs = await import('fs/promises');
+        await fs.writeFile(tempPath, buffer);
+
+        try {
+            // 2. OCR
+            let text = '';
+            if (file.filename.endsWith('.txt')) {
+                text = await fs.readFile(tempPath, 'utf-8');
+            } else {
+                const ocrResult = await ocrProvider.extractText(tempPath);
+                text = ocrResult.text;
+            }
+
+            // 3. AI Extraction
+            const metadata = await aiProvider.extractMetadata(text);
+            return metadata;
+        } finally {
+            // Cleanup
+            await fs.unlink(tempPath).catch(() => { });
+        }
     }
 
     async delete(id: string): Promise<void> {

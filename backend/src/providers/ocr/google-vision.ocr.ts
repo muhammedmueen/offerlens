@@ -3,11 +3,15 @@ import vision from '@google-cloud/vision';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 
+import { config } from '@/config/index.js';
+
 export class GoogleVisionOcrProvider implements OcrProvider {
     private client: vision.ImageAnnotatorClient;
 
     constructor() {
-        this.client = new vision.ImageAnnotatorClient();
+        this.client = new vision.ImageAnnotatorClient({
+            keyFilename: config.GOOGLE_CLOUD_CREDENTIALS,
+        });
     }
 
     async extractText(filePath: string): Promise<OcrResult> {

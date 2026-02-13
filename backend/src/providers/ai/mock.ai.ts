@@ -53,6 +53,16 @@ export class MockAiProvider implements AiProvider {
         };
     }
 
+    async extractMetadata(text: string): Promise<any> {
+        return {
+            role: 'Mock Software Engineer',
+            city: 'Mock City',
+            experienceLevel: 'Senior',
+            currentCtc: 1500000,
+            currency: 'INR'
+        };
+    }
+
     async generateCareerPath(input: { role: string; companyType: string; industry: string }): Promise<any> {
         return {
             timeline: [

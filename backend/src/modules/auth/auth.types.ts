@@ -20,7 +20,8 @@ export interface LoginInput {
 }
 
 export interface GoogleAuthInput {
-    idToken: string;
+    idToken?: string;
+    accessToken?: string;
 }
 
 export interface AuthResponse {

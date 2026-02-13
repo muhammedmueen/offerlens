@@ -56,6 +56,33 @@ export class GeminiAiProvider implements AiProvider {
         }
     }
 
+    async extractMetadata(text: string): Promise<any> {
+        try {
+            const prompt = `
+                Extract the following fields from the offer letter text:
+                - Role / Job Title
+                - City / Location
+                - Experience Level (Entry Level, Mid Level, Senior, Lead, Manager, etc. - infer from years or title)
+                - Current CTC (if mentioned, number only)
+                - Currency (e.g. INR, USD)
+
+                Output JSON key-values: "role", "city", "experienceLevel", "currentCtc" (number), "currency".
+                Return empty strings/null if not found. Do not invent data.
+
+                Text:
+                """${text.substring(0, 10000)}""" 
+            `;
+
+            const result = await this.model.generateContent(prompt);
+            const response = await result.response;
+            const jsonString = response.text().replace(/```json/g, '').replace(/```/g, '').trim();
+            return JSON.parse(jsonString);
+        } catch (error) {
+            console.error('Metadata extraction failed', error);
+            return {};
+        }
+    }
+
     async generateCareerPath(input: { role: string; companyType: string; industry: string }): Promise<any> {
         try {
             const prompt = `

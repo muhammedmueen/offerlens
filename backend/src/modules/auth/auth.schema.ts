@@ -17,7 +17,11 @@ export const loginSchema = {
 
 export const googleAuthSchema = {
     body: z.object({
-        idToken: z.string().min(1, 'Google ID token is required'),
+        idToken: z.string().optional(),
+        accessToken: z.string().optional(),
+    }).refine((data) => data.idToken || data.accessToken, {
+        message: "Either idToken or accessToken is required",
+        path: ["idToken"],
     }),
 };
 

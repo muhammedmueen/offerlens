@@ -1,0 +1,102 @@
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import api from "@/services/api";
+import { ENDPOINTS } from "@/constants/api";
+import PageShell from "@/components/layout/PageShell";
+import LoadingState from "@/components/common/LoadingState";
+import SalaryBar from "@/components/charts/SalaryBar";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Search, Loader2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+
+const SalaryExplorerPage = () => {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [role, setRole] = useState("");
+  const [city, setCity] = useState("");
+  const [searched, setSearched] = useState(false);
+
+  // Submit form state
+  const [subRole, setSubRole] = useState("");
+  const [subCity, setSubCity] = useState("");
+  const [subExp, setSubExp] = useState("");
+  const [subCtc, setSubCtc] = useState("");
+  const [subSize, setSubSize] = useState("");
+  const [dialogOpen, setDialogOpen] = useState(false);
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ["salary-stats", role, city],
+    queryFn: () => api.get(ENDPOINTS.SALARIES_STATS, { params: { role, city } }).then((r) => r.data.data),
+    enabled: searched && !!role && !!city,
+  });
+
+  const submitMutation = useMutation({
+    mutationFn: () => api.post(ENDPOINTS.SALARIES, { role: subRole, city: subCity, experienceYears: Number(subExp), annualCtc: Number(subCtc), companySize: subSize }),
+    onSuccess: () => { toast({ title: "Submitted!", description: "Your anonymous salary data was added." }); setDialogOpen(false); queryClient.invalidateQueries({ queryKey: ["salary-stats"] }); },
+    onError: (err: any) => {
+      if (err.response?.status === 429) toast({ title: "Rate limited", description: "Too many submissions. Please try again later.", variant: "destructive" });
+      else toast({ title: "Error", description: "Submission failed.", variant: "destructive" });
+    },
+  });
+
+  return (
+    <PageShell>
+      <div className="container mx-auto max-w-3xl px-4 py-8 space-y-8">
+        <h1 className="text-2xl font-bold">Salary Explorer</h1>
+
+        <div className="flex flex-col gap-4 sm:flex-row">
+          <Input value={role} onChange={(e) => setRole(e.target.value)} placeholder="Role (e.g. Software Engineer)" className="flex-1" />
+          <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="City (e.g. Bangalore)" className="flex-1" />
+          <Button onClick={() => { setSearched(true); refetch(); }} disabled={!role || !city} className="brand-gradient text-primary-foreground hover:opacity-90 cursor-pointer rounded-xl skeu-btn">
+            <Search className="mr-2 h-4 w-4" /> Search
+          </Button>
+        </div>
+
+        {isLoading && <LoadingState rows={2} />}
+
+        {data && (
+          <div className="rounded-xl border border-border bg-card p-6 space-y-4">
+            <SalaryBar min={data.min} p25={data.p25} median={data.median} p75={data.p75} max={data.max} />
+            <p className="text-xs text-muted-foreground">
+              {data.sampleSize ? `Based on ${data.sampleSize} submissions` : "AI-estimated"}
+            </p>
+          </div>
+        )}
+
+        {searched && !isLoading && !data && (
+          <div className="text-center py-12">
+            <p className="text-muted-foreground">No data for this combination yet.</p>
+            <Button variant="link" onClick={() => setDialogOpen(true)} className="text-primary cursor-pointer">Be the first to contribute</Button>
+          </div>
+        )}
+
+        <div className="text-center">
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" className="cursor-pointer">Submit Your Salary</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader><DialogTitle>Submit Salary (Anonymous)</DialogTitle></DialogHeader>
+              <form onSubmit={(e) => { e.preventDefault(); submitMutation.mutate(); }} className="space-y-4">
+                <div className="space-y-2"><Label>Role</Label><Input value={subRole} onChange={(e) => setSubRole(e.target.value)} required /></div>
+                <div className="space-y-2"><Label>City</Label><Input value={subCity} onChange={(e) => setSubCity(e.target.value)} required /></div>
+                <div className="space-y-2"><Label>Experience (years)</Label><Input type="number" value={subExp} onChange={(e) => setSubExp(e.target.value)} required /></div>
+                <div className="space-y-2"><Label>Annual CTC (₹)</Label><Input type="number" value={subCtc} onChange={(e) => setSubCtc(e.target.value)} required /></div>
+                <div className="space-y-2"><Label>Company Size</Label><Input value={subSize} onChange={(e) => setSubSize(e.target.value)} placeholder="e.g. 100-500" /></div>
+                <p className="text-xs text-muted-foreground">🔒 Your submission is fully anonymous</p>
+                <Button type="submit" disabled={submitMutation.isPending} className="w-full brand-gradient text-primary-foreground hover:opacity-90 cursor-pointer rounded-xl skeu-btn">
+                  {submitMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} Submit
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </div>
+    </PageShell>
+  );
+};
+
+export default SalaryExplorerPage;

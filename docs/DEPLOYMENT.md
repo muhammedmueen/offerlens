@@ -107,17 +107,32 @@ docker-compose up -d
    \`\`\`bash
    pm2 save
    pm2 startup
-   \`\`\`
+   ```
 
 ---
 
 ## 4. Health Checks
 
-- **API Health**: \`GET /health\` (if implemented) or check root \`/\`
-- **Logs**: Check configured log files or stdout/stderr.
+- **API Health**: `GET /api/v1/health`
+- **Logs**: Check output for "Using Google Cloud Vision OCR Provider" or "Using Mock OCR Provider".
 
-## 5. Troubleshooting
+## 6. Real vs Mock Providers
 
-- **Database Connection**: Ensure \`DATABASE_URL\` is correct and the database is running.
-- **Redis Connection**: Ensure \`REDIS_URL\` is reachable.
-- **Permissions**: Ensure the \`uploads\` directory is writable by the process user.
+By default, the backend uses **Mock Providers** for OCR and AI if no API keys are detected. To use real Google services:
+
+1.  **Google Cloud Vision (OCR)**:
+    -   Create a Service Account in GCP with "Cloud Vision API User" role.
+    -   Download the JSON key file.
+    -   Set `GOOGLE_CLOUD_CREDENTIALS=/path/to/key.json` in `.env`.
+
+2.  **Google Gemini (AI)**:
+    -   Get an API key from Google AI Studio.
+    -   Set `GEMINI_API_KEY=your-api-key` in `.env`.
+
+Restart the server (`npm run dev`) to apply changes.
+
+## 7. Troubleshooting
+
+- **Database Connection**: Ensure `DATABASE_URL` is correct and the database is running.
+- **Redis Connection**: Ensure `REDIS_URL` is reachable.
+- **Permissions**: Ensure the `uploads` directory is writable by the process user.

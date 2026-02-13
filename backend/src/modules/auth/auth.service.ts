@@ -70,13 +70,40 @@ export class AuthService {
             throw new AppError(ERROR_CODES.SERVICE_UNAVAILABLE, 'Google OAuth is not configured', 503);
         }
 
-        const client = new OAuth2Client(config.GOOGLE_CLIENT_ID);
-        const ticket = await client.verifyIdToken({
-            idToken: input.idToken,
-            audience: config.GOOGLE_CLIENT_ID,
-        });
+        let payload: { email?: string; name?: string; picture?: string; sub?: string; email_verified?: boolean } | undefined;
 
-        const payload = ticket.getPayload();
+        if (input.idToken) {
+            const client = new OAuth2Client(config.GOOGLE_CLIENT_ID);
+            const ticket = await client.verifyIdToken({
+                idToken: input.idToken,
+                audience: config.GOOGLE_CLIENT_ID,
+            });
+            payload = ticket.getPayload();
+        } else if (input.accessToken) {
+            // Verify access token and get user info
+            try {
+                const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+                    headers: { Authorization: `Bearer ${input.accessToken}` },
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to fetch user info');
+                }
+
+                const data = await response.json() as any;
+                payload = {
+                    email: data.email,
+                    name: data.name,
+                    picture: data.picture,
+                    sub: data.sub,
+                    email_verified: data.email_verified,
+                };
+            } catch (error) {
+                console.error('Google UserInfo Error:', error);
+                throw new AppError(ERROR_CODES.INVALID_CREDENTIALS, 'Invalid Google access token', 401);
+            }
+        }
+
         if (!payload || !payload.email) {
             throw new AppError(ERROR_CODES.INVALID_CREDENTIALS, 'Invalid Google token', 401);
         }

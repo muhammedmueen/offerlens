@@ -1,0 +1,199 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* BizMitra Brand Palette — Trust & Professionalism */
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 217 91% 50%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 186 91% 42%;
+    --secondary-foreground: 0 0% 100%;
+
+    --cta: 217 91% 50%;
+    --cta-foreground: 0 0% 100%;
+
+    --muted: 210 40% 94%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 210 40% 94%;
+    --accent-foreground: 222 47% 11%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 217 91% 50%;
+
+    --radius: 0.625rem;
+
+    --sidebar-background: 0 0% 99%;
+    --sidebar-foreground: 222 47% 11%;
+    --sidebar-primary: 217 91% 50%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 40% 96%;
+    --sidebar-accent-foreground: 222 47% 11%;
+    --sidebar-border: 214 32% 91%;
+    --sidebar-ring: 217 91% 50%;
+
+    /* Shadows */
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04);
+    --shadow-lg: 0 12px 28px rgba(0,0,0,0.10), 0 4px 10px rgba(0,0,0,0.06);
+    --shadow-xl: 0 24px 48px rgba(0,0,0,0.12), 0 8px 16px rgba(0,0,0,0.06);
+
+    /* Skeuomorphic tokens */
+    --surface-gradient: linear-gradient(180deg, hsl(0 0% 100%) 0%, hsl(210 40% 97%) 100%);
+    --surface-inset: inset 0 2px 4px rgba(0,0,0,0.06), inset 0 0 0 1px rgba(0,0,0,0.04);
+    --surface-raised: 0 1px 0 rgba(255,255,255,0.8) inset, 0 2px 6px rgba(0,0,0,0.08);
+    --surface-emboss: 0 1px 0 rgba(255,255,255,0.9) inset, 0 -1px 0 rgba(0,0,0,0.05) inset;
+    --btn-highlight: 0 1px 0 rgba(255,255,255,0.25) inset, 0 2px 8px rgba(0,0,0,0.12);
+
+    /* Brand gradients & glows */
+    --gradient-brand: linear-gradient(to right, hsl(217 91% 50%), hsl(186 91% 42%));
+    --glow-primary: 0 0 20px rgba(37, 99, 235, 0.3);
+    --glow-accent: 0 0 20px rgba(8, 145, 178, 0.3);
+  }
+
+  .dark {
+    --background: 222 47% 6%;
+    --foreground: 210 40% 96%;
+
+    --card: 222 47% 9%;
+    --card-foreground: 210 40% 96%;
+
+    --popover: 222 47% 9%;
+    --popover-foreground: 210 40% 96%;
+
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 186 91% 50%;
+    --secondary-foreground: 0 0% 100%;
+
+    --cta: 217 91% 60%;
+    --cta-foreground: 0 0% 100%;
+
+    --muted: 217 33% 14%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 217 33% 14%;
+    --accent-foreground: 210 40% 96%;
+
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 210 40% 96%;
+
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 217 91% 60%;
+
+    --sidebar-background: 222 47% 5%;
+    --sidebar-foreground: 210 40% 96%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 217 33% 14%;
+    --sidebar-accent-foreground: 210 40% 96%;
+    --sidebar-border: 217 33% 17%;
+    --sidebar-ring: 217 91% 60%;
+
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.35);
+    --shadow-lg: 0 12px 28px rgba(0,0,0,0.4);
+    --shadow-xl: 0 24px 48px rgba(0,0,0,0.45);
+
+    --surface-gradient: linear-gradient(180deg, hsl(222 47% 12%) 0%, hsl(222 47% 8%) 100%);
+    --surface-inset: inset 0 2px 4px rgba(0,0,0,0.3), inset 0 0 0 1px rgba(0,0,0,0.2);
+    --surface-raised: 0 1px 0 rgba(255,255,255,0.05) inset, 0 2px 6px rgba(0,0,0,0.3);
+    --surface-emboss: 0 1px 0 rgba(255,255,255,0.08) inset, 0 -1px 0 rgba(0,0,0,0.2) inset;
+    --btn-highlight: 0 1px 0 rgba(255,255,255,0.1) inset, 0 2px 8px rgba(0,0,0,0.3);
+
+    --gradient-brand: linear-gradient(to right, hsl(217 91% 60%), hsl(186 91% 50%));
+    --glow-primary: 0 0 20px rgba(37, 99, 235, 0.25);
+    --glow-accent: 0 0 20px rgba(8, 145, 178, 0.25);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  /* Reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+/* Skeuomorphic utility classes */
+@layer utilities {
+  .skeu-card {
+    background: var(--surface-gradient);
+    box-shadow: var(--surface-raised);
+    border: 1px solid hsl(var(--border));
+  }
+
+  .skeu-inset {
+    box-shadow: var(--surface-inset);
+    background: hsl(var(--muted) / 0.5);
+  }
+
+  .skeu-btn {
+    box-shadow: var(--btn-highlight);
+    background-image: linear-gradient(180deg, rgba(255,255,255,0.15) 0%, rgba(0,0,0,0.05) 100%);
+  }
+
+  .skeu-emboss {
+    box-shadow: var(--surface-emboss);
+  }
+
+  .skeu-nav {
+    background: hsl(var(--background) / 0.92);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.6) inset, var(--shadow-sm);
+    border-bottom: 1px solid hsl(var(--border));
+  }
+
+  .skeu-subtle-bg {
+    background-image:
+      radial-gradient(ellipse at 20% 50%, hsl(var(--primary) / 0.04) 0%, transparent 60%),
+      radial-gradient(ellipse at 80% 20%, hsl(var(--secondary) / 0.04) 0%, transparent 60%);
+  }
+
+  .brand-gradient {
+    background: var(--gradient-brand);
+  }
+
+  .brand-gradient-text {
+    background: var(--gradient-brand);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .glow-primary {
+    box-shadow: var(--glow-primary);
+  }
+
+  .glow-accent {
+    box-shadow: var(--glow-accent);
+  }
+}
