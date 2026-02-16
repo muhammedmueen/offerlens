@@ -53,23 +53,23 @@ const UploadPage = () => {
   const submitMutation = useMutation({
     mutationFn: async () => {
       const formData = new FormData();
-      
+
       // Always send text (either extracted from file or pasted)
       const textToSend = activeTab === "file" ? extractedText : pasteText;
       formData.append("text", textToSend);
-      
+
       formData.append("role", role);
       formData.append("city", city);
       formData.append("experienceLevel", experienceLevel);
       if (currentCtc) formData.append("currentCtc", currentCtc);
       formData.append("model", selectedModel);
-      
+
       console.log('[Upload] Submitting offer with FormData');
       console.log('[Upload] FormData entries:');
       for (const [key, value] of formData.entries()) {
         console.log(`  ${key}:`, typeof value === 'string' ? value.substring(0, 100) : value);
       }
-      
+
       return api.post(ENDPOINTS.OFFERS, formData);
     },
     onSuccess: (res) => {
@@ -95,17 +95,17 @@ const UploadPage = () => {
 
     setIsExtracting(true);
     setFileError("");
-    
+
     try {
       // Step 1: Try frontend extraction first
       console.log('[Upload] Step 1: Attempting frontend extraction');
       toast({ title: "Processing file", description: "Extracting text from your document..." });
       const extractionResult = await extractTextFromFile(file);
-      
+
       console.log('[Upload] Extraction result:', extractionResult);
-      
+
       let finalText = '';
-      
+
       if (extractionResult.success && extractionResult.text) {
         // Success! We got text from the browser
         console.log('[Upload] ✅ Frontend extraction successful');
@@ -115,29 +115,29 @@ const UploadPage = () => {
       } else if (extractionResult.needsOCR) {
         // Step 2: Fallback to backend OCR
         console.log('[Upload] Step 2: Falling back to backend OCR');
-        toast({ 
-          title: "Scanned document detected", 
+        toast({
+          title: "Scanned document detected",
           description: "Using advanced OCR to extract text. This may take a moment...",
           duration: 5000
         });
-        
+
         // Upload file to backend for OCR processing
         console.log('[Upload] Uploading file to backend for OCR');
         const formData = new FormData();
         formData.append("file", file);
-        
+
         const { data } = await api.post(ENDPOINTS.OFFER_EXTRACT_FILE, formData);
         console.log('[Upload] Backend OCR response:', data);
-        
+
         finalText = data.data.text;
-        
+
         if (!finalText || finalText.length < 50) {
           console.error('[Upload] ❌ Insufficient text from OCR', { textLength: finalText?.length });
           setFileError("Could not extract enough text from file. Please try pasting the text manually.");
           setIsExtracting(false);
           return;
         }
-        
+
         setExtractedText(finalText);
         console.log('[Upload] ✅ Backend OCR successful', { textLength: finalText.length });
         toast({ title: "OCR complete", description: "Successfully extracted text using OCR." });
@@ -147,46 +147,46 @@ const UploadPage = () => {
         setIsExtracting(false);
         return;
       }
-      
+
       // Step 3: Extract metadata from the text
       console.log('[Upload] Step 3: Extracting metadata from text');
       console.log('[Upload] Sending request to:', ENDPOINTS.OFFER_EXTRACT);
       console.log('[Upload] Text length:', finalText.length);
-      
+
       const { data } = await api.post(ENDPOINTS.OFFER_EXTRACT, { text: finalText }, {
         headers: { "Content-Type": "application/json" }
       });
-      
+
       console.log('[Upload] ✅ Metadata extraction response received');
       console.log('[Upload] Full response:', JSON.stringify(data, null, 2));
       console.log('[Upload] Response data field:', data.data);
       console.log('[Upload] Response data type:', typeof data.data);
       console.log('[Upload] Response data keys:', data.data ? Object.keys(data.data) : 'null');
-      
+
       const metadata = data.data;
       console.log('[Upload] Metadata object:', metadata);
-      
+
       if (metadata && metadata.role) {
         console.log('[Upload] ✅ Setting role:', metadata.role);
         setRole(metadata.role);
       } else {
         console.log('[Upload] ⚠️ No role found in metadata');
       }
-      
+
       if (metadata && metadata.city) {
         console.log('[Upload] ✅ Setting city:', metadata.city);
         setCity(metadata.city);
       } else {
         console.log('[Upload] ⚠️ No city found in metadata');
       }
-      
+
       if (metadata && metadata.experienceLevel) {
         console.log('[Upload] ✅ Setting experience level:', metadata.experienceLevel);
         setExperienceLevel(metadata.experienceLevel);
       } else {
         console.log('[Upload] ⚠️ No experienceLevel found in metadata');
       }
-      
+
       if (metadata && metadata.currentCtc) {
         console.log('[Upload] ✅ Setting current CTC:', metadata.currentCtc);
         setCurrentCtc(metadata.currentCtc.toString());
@@ -204,11 +204,11 @@ const UploadPage = () => {
         response: error?.response?.data,
         status: error?.response?.status
       });
-      
+
       const errorMsg = error?.response?.data?.error?.message || error.message || "Failed to process file";
       setFileError(errorMsg);
-      toast({ 
-        title: "Extraction failed", 
+      toast({
+        title: "Extraction failed",
         description: "Please try pasting the text manually instead.",
         variant: "destructive"
       });
@@ -382,17 +382,17 @@ const UploadPage = () => {
                   <SelectValue placeholder="Select model" />
                 </SelectTrigger>
                 <SelectContent className="rounded-xl skeu-card max-h-60 overflow-auto">
-                  <SelectItem value="gemini-2.5-flash" className="cursor-pointer rounded-lg">gemini-2.5-flash (Latest, Fast)</SelectItem>
+                  <SelectItem value="gemini-2.5-flash" className="cursor-pointer rounded-lg">gemini-2.5-flash (Fast, Thinking)</SelectItem>
                   <SelectItem value="gemini-2.5-pro" className="cursor-pointer rounded-lg">gemini-2.5-pro (Most Capable)</SelectItem>
                   <SelectItem value="gemini-2.0-flash" className="cursor-pointer rounded-lg">gemini-2.0-flash</SelectItem>
                   <SelectItem value="gemini-flash-latest" className="cursor-pointer rounded-lg">gemini-flash-latest (Default)</SelectItem>
-                  <SelectItem value="gemini-flash-lite-latest" className="cursor-pointer rounded-lg">gemini-flash-lite-latest (Lightweight)</SelectItem>
+                  <SelectItem value="gemini-2.5-flash-lite" className="cursor-pointer rounded-lg">gemini-2.5-flash-lite (Lightweight)</SelectItem>
+                  <SelectItem value="gemini-2.0-flash-lite" className="cursor-pointer rounded-lg">gemini-2.0-flash-lite</SelectItem>
+                  <SelectItem value="gemini-flash-lite-latest" className="cursor-pointer rounded-lg">gemini-flash-lite-latest</SelectItem>
                   <SelectItem value="gemini-pro-latest" className="cursor-pointer rounded-lg">gemini-pro-latest</SelectItem>
-                  <SelectItem value="gemini-1.5-flash" className="cursor-pointer rounded-lg">gemini-1.5-flash</SelectItem>
-                  <SelectItem value="gemini-1.5-pro" className="cursor-pointer rounded-lg">gemini-1.5-pro</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">Switch models if you hit rate limits during testing</p>
+              <p className="text-xs text-muted-foreground">Model auto-switches on rate limit</p>
             </div>
 
             <Button

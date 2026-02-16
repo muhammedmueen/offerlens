@@ -46,3 +46,13 @@ export const RATE_LIMITS = {
 } as const;
 
 export const APP_VERSION = '1.0.0';
+
+// Ordered by preference — used for auto-fallback on 429 rate limits
+export const GEMINI_FALLBACK_MODELS = [
+    'gemini-2.5-flash',
+    'gemini-2.0-flash',
+    'gemini-flash-latest',
+    'gemini-2.5-flash-lite',
+    'gemini-2.0-flash-lite',
+    'gemini-flash-lite-latest',
+] as const;

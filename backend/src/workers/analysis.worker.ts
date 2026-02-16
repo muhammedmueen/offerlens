@@ -18,6 +18,61 @@ console.log('[Analysis Worker] AI Provider initialized:', aiProvider.constructor
 console.log('[Analysis Worker] GEMINI_API_KEY present:', !!config.GEMINI_API_KEY);
 console.log('[Analysis Worker] NODE_ENV:', config.NODE_ENV);
 
+/**
+ * Normalize AI response to match DB schema expectations.
+ * Different models may return varying structures.
+ */
+function normalizeAiResult(raw: any): AnalysisResult {
+    // Normalize benefits — models sometimes return string[] instead of Benefit[]
+    const benefits = (raw.benefits || []).map((b: any) => {
+        if (typeof b === 'string') {
+            return { name: b, value: null, details: null, isStandard: true };
+        }
+        return { name: b.name || 'Unknown', value: b.value ?? null, details: b.details ?? null, isStandard: b.isStandard ?? true };
+    });
+
+    // Normalize red flags
+    const redFlags = (raw.redFlags || []).map((f: any) => ({
+        type: f.type || 'other',
+        severity: f.severity || 'medium',
+        title: f.title || 'Unnamed flag',
+        explanation: f.explanation || '',
+        matchedText: f.matchedText || '',
+        suggestion: f.suggestion || '',
+    }));
+
+    // Normalize negotiation suggestions
+    const negotiationSuggestions = (raw.negotiationSuggestions || []).map((s: any) => ({
+        component: s.component || 'General',
+        currentValue: s.currentValue || '',
+        suggestedAsk: s.suggestedAsk || '',
+        rationale: s.rationale || '',
+        priority: s.priority || 'medium',
+    }));
+
+    return {
+        extractedData: raw.extractedData || {},
+        redFlags,
+        salaryComparison: raw.salaryComparison || {
+            marketRange: { p25: 0, p50: 0, p75: 0, p90: 0 },
+            offerPercentile: 50,
+            roleUsed: 'unknown',
+            roleMatchConfidence: 0,
+            locationUsed: 'unknown',
+            dataSource: 'ai_estimated',
+            disclaimer: 'Salary comparison data unavailable from AI response',
+        },
+        negotiationSuggestions,
+        benefits,
+        takeHome: raw.takeHome || null,
+        metadata: raw.metadata || {
+            analysisVersion: '1.0',
+            modelUsed: 'unknown',
+            processingNote: 'Metadata missing from AI response',
+        },
+    };
+}
+
 export const analysisWorker = new Worker(
     'analysis-queue',
     async (job: Job) => {
@@ -34,14 +89,17 @@ export const analysisWorker = new Worker(
 
             // AI Analysis - use model from job data
             const context = offer.userContext as any; // Cast to OfferContext
-            const result: AnalysisResult = await aiProvider.analyzeOffer(text, context, model || 'gemini-flash-latest');
+            const rawResult = await aiProvider.analyzeOffer(text, context, model || 'gemini-flash-latest');
+
+            // Normalize AI result — models may return varying structures
+            const result = normalizeAiResult(rawResult);
 
             // Hallucination Guard (Simple version: checks if extracted company names etc appear in text approximately)
             // Implementation plan says: verify matchedText in RedFlags against raw text.
             // We will trust the provider for now or add simple verification here.
             // Let's implement simple check if red flags have matched text in raw text.
 
-            const verifiedRedFlags = result.redFlags.filter(flag => {
+            const verifiedRedFlags = (result.redFlags || []).filter(flag => {
                 if (!flag.matchedText) return false;
                 // Simple includes check, case insensitive, simplified whitespace
                 const normalizedText = text.toLowerCase().replace(/\s+/g, ' ');
@@ -50,7 +108,7 @@ export const analysisWorker = new Worker(
                 // If match is long, maybe it was truncated?
             });
 
-            const discardedCount = result.redFlags.length - verifiedRedFlags.length;
+            const discardedCount = (result.redFlags?.length || 0) - verifiedRedFlags.length;
 
             // Calculate Score (Deterministic based on rubric)
             // For now, assume AI returned score breakdown or we compute it?
@@ -78,11 +136,11 @@ export const analysisWorker = new Worker(
                 if (f.severity === 'medium') score -= 5;
             });
 
-            if (result.salaryComparison.offerPercentile > 75) score += 20;
-            else if (result.salaryComparison.offerPercentile > 50) score += 10;
+            if (result.salaryComparison?.offerPercentile > 75) score += 20;
+            else if (result.salaryComparison?.offerPercentile > 50) score += 10;
 
             // Length of benefits
-            if (result.benefits.length > 5) score += 5;
+            if ((result.benefits?.length || 0) > 5) score += 5;
 
             score = Math.max(0, Math.min(100, score));
 
@@ -102,10 +160,10 @@ export const analysisWorker = new Worker(
                     scoringMethod: 'standard',
                     extractedData: result.extractedData,
                     redFlags: verifiedRedFlags,
-                    salaryComparison: result.salaryComparison,
-                    negotiationSuggestions: result.negotiationSuggestions,
-                    benefits: result.benefits,
-                    takeHome: result.takeHome,
+                    salaryComparison: result.salaryComparison || {},
+                    negotiationSuggestions: result.negotiationSuggestions || [],
+                    benefits: result.benefits || [],
+                    takeHome: result.takeHome || {},
                     aiMetadata: result.metadata,
                     lowConfidence: false, // Calculate from AI metadata if possible
                     redFlagsDiscarded: discardedCount,
@@ -118,10 +176,10 @@ export const analysisWorker = new Worker(
             console.log(`[Analysis] Job ${job.id} completed. Score: ${score}`);
         } catch (error: any) {
             console.error(`[Analysis] Job ${job.id} failed:`, error);
-            
+
             // Detect rate limit errors
             let failureReason = error.message || 'Analysis failed';
-            
+
             if (error.message?.includes('429') || error.message?.includes('rate limit') || error.message?.includes('quota')) {
                 failureReason = 'RATE_LIMIT: API rate limit exceeded. Please wait a few minutes and try again, or switch to a different model.';
                 console.error(`[Analysis] Rate limit hit for offer ${offerId}`);
@@ -130,7 +188,7 @@ export const analysisWorker = new Worker(
             } else if (error.message?.includes('500') || error.message?.includes('internal')) {
                 failureReason = 'AI_ERROR: The AI service encountered an internal error. Please try again.';
             }
-            
+
             await db.update(offers).set({
                 status: 'FAILED',
                 failureReason: failureReason
