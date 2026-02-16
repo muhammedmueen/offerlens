@@ -11,15 +11,15 @@ import { analysisQueue } from '@/queue/queues.js';
 import { OCR_MIN_CONFIDENCE } from '@/config/constants.js';
 
 // Setup provider (should be injected or singleton, but new instance per worker process is fine)
-const ocrProvider: OcrProvider = config.GOOGLE_CLOUD_CREDENTIALS && config.NODE_ENV === 'production'
+const ocrProvider: OcrProvider = config.GOOGLE_CLOUD_CREDENTIALS
     ? new GoogleVisionOcrProvider()
     : new MockOcrProvider();
 
 export const ocrWorker = new Worker(
     'ocr-queue',
     async (job: Job) => {
-        const { offerId, storedPath } = job.data;
-        console.log(`[OCR] Processing job ${job.id} for offer ${offerId}`);
+        const { offerId, storedPath, text: providedText, model } = job.data;
+        console.log(`[OCR] Processing job ${job.id} for offer ${offerId}, model: ${model || 'default'}`);
 
         try {
             await db.update(offers).set({ status: 'PROCESSING' }).where(eq(offers.id, offerId));
@@ -27,7 +27,12 @@ export const ocrWorker = new Worker(
             let text = '';
             let confidence = 0;
 
-            if (storedPath.endsWith('.txt')) {
+            // If text was provided directly (no file upload), skip OCR
+            if (providedText) {
+                console.log(`[OCR] Text provided directly, skipping OCR. Length: ${providedText.length}`);
+                text = providedText;
+                confidence = 1.0;
+            } else if (storedPath && storedPath.endsWith('.txt')) {
                 // Text file - read directly
                 const fs = await import('fs/promises');
                 text = await fs.readFile(storedPath, 'utf-8');
@@ -63,18 +68,28 @@ export const ocrWorker = new Worker(
                 // So we enqueue Analysis job here.
             }).where(eq(offers.id, offerId));
 
-            // Enqueue Analysis
+            // Enqueue Analysis with model parameter
             await analysisQueue.add('analyze-offer', {
                 offerId,
                 text,
+                model: model || 'gemini-flash-latest',
             });
 
-            console.log(`[OCR] Job ${job.id} completed. Enqueued analysis.`);
+            console.log(`[OCR] Job ${job.id} completed. Enqueued analysis with model: ${model || 'gemini-flash-latest'}`);
         } catch (error: any) {
             console.error(`[OCR] Job ${job.id} failed:`, error);
+            
+            // Detect rate limit errors
+            let failureReason = error.message || 'OCR extraction failed';
+            
+            if (error.message?.includes('429') || error.message?.includes('rate limit') || error.message?.includes('quota')) {
+                failureReason = 'RATE_LIMIT: API rate limit exceeded during text extraction. Please wait a few minutes and try again.';
+                console.error(`[OCR] Rate limit hit for offer ${offerId}`);
+            }
+            
             await db.update(offers).set({
                 status: 'FAILED',
-                failureReason: error.message || 'OCR extraction failed'
+                failureReason: failureReason
             }).where(eq(offers.id, offerId));
             throw error;
         }

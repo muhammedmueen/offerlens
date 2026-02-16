@@ -12,6 +12,7 @@ import { ENDPOINTS, ACCEPTED_FILE_TYPES, MAX_FILE_SIZE_BYTES, MAX_FILE_SIZE_MB }
 import { Upload, FileText, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
+import { extractTextFromFile } from "@/lib/pdf-extractor";
 
 const UploadPage = () => {
   const navigate = useNavigate();
@@ -19,6 +20,7 @@ const UploadPage = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [file, setFile] = useState<File | null>(null);
+  const [extractedText, setExtractedText] = useState("");
   const [pasteText, setPasteText] = useState("");
   const [role, setRole] = useState("");
   const [city, setCity] = useState("");
@@ -28,6 +30,8 @@ const UploadPage = () => {
   const [activeTab, setActiveTab] = useState("file");
   const [roleSearch, setRoleSearch] = useState("");
   const [citySearch, setCitySearch] = useState("");
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [selectedModel, setSelectedModel] = useState("gemini-flash-latest");
 
   const { data: roles } = useQuery({
     queryKey: ["metadata-roles", roleSearch],
@@ -49,16 +53,24 @@ const UploadPage = () => {
   const submitMutation = useMutation({
     mutationFn: async () => {
       const formData = new FormData();
-      if (activeTab === "file" && file) {
-        formData.append("file", file);
-      } else {
-        formData.append("text", pasteText);
-      }
+      
+      // Always send text (either extracted from file or pasted)
+      const textToSend = activeTab === "file" ? extractedText : pasteText;
+      formData.append("text", textToSend);
+      
       formData.append("role", role);
       formData.append("city", city);
       formData.append("experienceLevel", experienceLevel);
       if (currentCtc) formData.append("currentCtc", currentCtc);
-      return api.post(ENDPOINTS.OFFERS, formData, { headers: { "Content-Type": "multipart/form-data" } });
+      formData.append("model", selectedModel);
+      
+      console.log('[Upload] Submitting offer with FormData');
+      console.log('[Upload] FormData entries:');
+      for (const [key, value] of formData.entries()) {
+        console.log(`  ${key}:`, typeof value === 'string' ? value.substring(0, 100) : value);
+      }
+      
+      return api.post(ENDPOINTS.OFFERS, formData);
     },
     onSuccess: (res) => {
       const offerId = res.data.data.id;
@@ -74,28 +86,135 @@ const UploadPage = () => {
     },
   });
 
-  const [isExtracting, setIsExtracting] = useState(false);
+  const handleExtractAndAnalyze = async (file: File) => {
+    console.log('[Upload] Starting extraction and analysis', {
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: file.type
+    });
 
-  const handleExtractMetadata = async (file: File) => {
     setIsExtracting(true);
-    const formData = new FormData();
-    formData.append("file", file);
-
+    setFileError("");
+    
     try {
-      const { data } = await api.post(ENDPOINTS.OFFER_EXTRACT, formData);
-
+      // Step 1: Try frontend extraction first
+      console.log('[Upload] Step 1: Attempting frontend extraction');
+      toast({ title: "Processing file", description: "Extracting text from your document..." });
+      const extractionResult = await extractTextFromFile(file);
+      
+      console.log('[Upload] Extraction result:', extractionResult);
+      
+      let finalText = '';
+      
+      if (extractionResult.success && extractionResult.text) {
+        // Success! We got text from the browser
+        console.log('[Upload] ✅ Frontend extraction successful');
+        finalText = extractionResult.text;
+        setExtractedText(finalText);
+        toast({ title: "Text extracted", description: "Successfully extracted text from your document." });
+      } else if (extractionResult.needsOCR) {
+        // Step 2: Fallback to backend OCR
+        console.log('[Upload] Step 2: Falling back to backend OCR');
+        toast({ 
+          title: "Scanned document detected", 
+          description: "Using advanced OCR to extract text. This may take a moment...",
+          duration: 5000
+        });
+        
+        // Upload file to backend for OCR processing
+        console.log('[Upload] Uploading file to backend for OCR');
+        const formData = new FormData();
+        formData.append("file", file);
+        
+        const { data } = await api.post(ENDPOINTS.OFFER_EXTRACT_FILE, formData);
+        console.log('[Upload] Backend OCR response:', data);
+        
+        finalText = data.data.text;
+        
+        if (!finalText || finalText.length < 50) {
+          console.error('[Upload] ❌ Insufficient text from OCR', { textLength: finalText?.length });
+          setFileError("Could not extract enough text from file. Please try pasting the text manually.");
+          setIsExtracting(false);
+          return;
+        }
+        
+        setExtractedText(finalText);
+        console.log('[Upload] ✅ Backend OCR successful', { textLength: finalText.length });
+        toast({ title: "OCR complete", description: "Successfully extracted text using OCR." });
+      } else {
+        console.error('[Upload] ❌ Extraction failed', extractionResult);
+        setFileError(extractionResult.error || "Failed to extract text from file");
+        setIsExtracting(false);
+        return;
+      }
+      
+      // Step 3: Extract metadata from the text
+      console.log('[Upload] Step 3: Extracting metadata from text');
+      console.log('[Upload] Sending request to:', ENDPOINTS.OFFER_EXTRACT);
+      console.log('[Upload] Text length:', finalText.length);
+      
+      const { data } = await api.post(ENDPOINTS.OFFER_EXTRACT, { text: finalText }, {
+        headers: { "Content-Type": "application/json" }
+      });
+      
+      console.log('[Upload] ✅ Metadata extraction response received');
+      console.log('[Upload] Full response:', JSON.stringify(data, null, 2));
+      console.log('[Upload] Response data field:', data.data);
+      console.log('[Upload] Response data type:', typeof data.data);
+      console.log('[Upload] Response data keys:', data.data ? Object.keys(data.data) : 'null');
+      
       const metadata = data.data;
-      if (metadata.role) setRole(metadata.role);
-      if (metadata.city) setCity(metadata.city);
-      if (metadata.experienceLevel) setExperienceLevel(metadata.experienceLevel);
-      if (metadata.currentCtc) setCurrentCtc(metadata.currentCtc.toString());
+      console.log('[Upload] Metadata object:', metadata);
+      
+      if (metadata && metadata.role) {
+        console.log('[Upload] ✅ Setting role:', metadata.role);
+        setRole(metadata.role);
+      } else {
+        console.log('[Upload] ⚠️ No role found in metadata');
+      }
+      
+      if (metadata && metadata.city) {
+        console.log('[Upload] ✅ Setting city:', metadata.city);
+        setCity(metadata.city);
+      } else {
+        console.log('[Upload] ⚠️ No city found in metadata');
+      }
+      
+      if (metadata && metadata.experienceLevel) {
+        console.log('[Upload] ✅ Setting experience level:', metadata.experienceLevel);
+        setExperienceLevel(metadata.experienceLevel);
+      } else {
+        console.log('[Upload] ⚠️ No experienceLevel found in metadata');
+      }
+      
+      if (metadata && metadata.currentCtc) {
+        console.log('[Upload] ✅ Setting current CTC:', metadata.currentCtc);
+        setCurrentCtc(metadata.currentCtc.toString());
+      } else {
+        console.log('[Upload] ⚠️ No currentCtc found in metadata');
+      }
 
-      toast({ title: "Data Extracted", description: "We've auto-filled some fields from your offer letter." });
-    } catch (error) {
-      console.error("Extraction failed", error);
-      // Fail silently or show toast? Silent is better for UX if it's just autofill
+      console.log('[Upload] ✅ Complete! Metadata extracted successfully');
+      console.log('[Upload] Final state - role:', role, 'city:', city, 'experienceLevel:', experienceLevel, 'currentCtc:', currentCtc);
+      toast({ title: "Data extracted", description: "We've auto-filled some fields from your offer letter." });
+    } catch (error: any) {
+      console.error('[Upload] ❌ Extraction failed with error:', error);
+      console.error('[Upload] Error details:', {
+        message: error.message,
+        response: error?.response?.data,
+        status: error?.response?.status
+      });
+      
+      const errorMsg = error?.response?.data?.error?.message || error.message || "Failed to process file";
+      setFileError(errorMsg);
+      toast({ 
+        title: "Extraction failed", 
+        description: "Please try pasting the text manually instead.",
+        variant: "destructive"
+      });
     } finally {
       setIsExtracting(false);
+      console.log('[Upload] Extraction process complete');
     }
   };
 
@@ -118,7 +237,7 @@ const UploadPage = () => {
       const f = e.dataTransfer.files[0];
       if (f && validateFile(f)) {
         setFile(f);
-        handleExtractMetadata(f);
+        handleExtractAndAnalyze(f);
       }
     },
     [validateFile]
@@ -128,11 +247,11 @@ const UploadPage = () => {
     const f = e.target.files?.[0];
     if (f && validateFile(f)) {
       setFile(f);
-      handleExtractMetadata(f);
+      handleExtractAndAnalyze(f);
     }
   };
 
-  const hasContent = activeTab === "file" ? !!file : pasteText.trim().length > 20;
+  const hasContent = activeTab === "file" ? !!extractedText : pasteText.trim().length > 20;
   const canSubmit = hasContent && role && city && experienceLevel && !submitMutation.isPending;
 
   return (
@@ -254,6 +373,26 @@ const UploadPage = () => {
             <div className="space-y-2">
               <Label>Current CTC (optional)</Label>
               <Input type="number" value={currentCtc} onChange={(e) => setCurrentCtc(e.target.value)} placeholder="e.g. 1200000" className="rounded-lg" />
+            </div>
+
+            <div className="space-y-2">
+              <Label>AI Model (Development Only)</Label>
+              <Select value={selectedModel} onValueChange={setSelectedModel}>
+                <SelectTrigger className="cursor-pointer rounded-lg">
+                  <SelectValue placeholder="Select model" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl skeu-card max-h-60 overflow-auto">
+                  <SelectItem value="gemini-2.5-flash" className="cursor-pointer rounded-lg">gemini-2.5-flash (Latest, Fast)</SelectItem>
+                  <SelectItem value="gemini-2.5-pro" className="cursor-pointer rounded-lg">gemini-2.5-pro (Most Capable)</SelectItem>
+                  <SelectItem value="gemini-2.0-flash" className="cursor-pointer rounded-lg">gemini-2.0-flash</SelectItem>
+                  <SelectItem value="gemini-flash-latest" className="cursor-pointer rounded-lg">gemini-flash-latest (Default)</SelectItem>
+                  <SelectItem value="gemini-flash-lite-latest" className="cursor-pointer rounded-lg">gemini-flash-lite-latest (Lightweight)</SelectItem>
+                  <SelectItem value="gemini-pro-latest" className="cursor-pointer rounded-lg">gemini-pro-latest</SelectItem>
+                  <SelectItem value="gemini-1.5-flash" className="cursor-pointer rounded-lg">gemini-1.5-flash</SelectItem>
+                  <SelectItem value="gemini-1.5-pro" className="cursor-pointer rounded-lg">gemini-1.5-pro</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Switch models if you hit rate limits during testing</p>
             </div>
 
             <Button

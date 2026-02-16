@@ -10,15 +10,19 @@ import { MockAiProvider } from '@/providers/ai/mock.ai.js';
 import { config } from '@/config/index.js';
 import { AnalysisResult } from '@/modules/analysis/analysis.types.js';
 
-const aiProvider: AiProvider = config.GEMINI_API_KEY && config.NODE_ENV === 'production'
+const aiProvider: AiProvider = config.GEMINI_API_KEY
     ? new GeminiAiProvider()
     : new MockAiProvider();
+
+console.log('[Analysis Worker] AI Provider initialized:', aiProvider.constructor.name);
+console.log('[Analysis Worker] GEMINI_API_KEY present:', !!config.GEMINI_API_KEY);
+console.log('[Analysis Worker] NODE_ENV:', config.NODE_ENV);
 
 export const analysisWorker = new Worker(
     'analysis-queue',
     async (job: Job) => {
-        const { offerId, text } = job.data;
-        console.log(`[Analysis] Processing job ${job.id} for offer ${offerId}`);
+        const { offerId, text, model } = job.data;
+        console.log(`[Analysis] Processing job ${job.id} for offer ${offerId} with model: ${model || 'default'}`);
 
         try {
             // Fetch offer for user context
@@ -28,9 +32,9 @@ export const analysisWorker = new Worker(
 
             if (!offer) throw new Error('Offer not found');
 
-            // AI Analysis
+            // AI Analysis - use model from job data
             const context = offer.userContext as any; // Cast to OfferContext
-            const result: AnalysisResult = await aiProvider.analyzeOffer(text, context);
+            const result: AnalysisResult = await aiProvider.analyzeOffer(text, context, model || 'gemini-flash-latest');
 
             // Hallucination Guard (Simple version: checks if extracted company names etc appear in text approximately)
             // Implementation plan says: verify matchedText in RedFlags against raw text.
@@ -114,9 +118,22 @@ export const analysisWorker = new Worker(
             console.log(`[Analysis] Job ${job.id} completed. Score: ${score}`);
         } catch (error: any) {
             console.error(`[Analysis] Job ${job.id} failed:`, error);
+            
+            // Detect rate limit errors
+            let failureReason = error.message || 'Analysis failed';
+            
+            if (error.message?.includes('429') || error.message?.includes('rate limit') || error.message?.includes('quota')) {
+                failureReason = 'RATE_LIMIT: API rate limit exceeded. Please wait a few minutes and try again, or switch to a different model.';
+                console.error(`[Analysis] Rate limit hit for offer ${offerId}`);
+            } else if (error.message?.includes('400') || error.message?.includes('invalid')) {
+                failureReason = 'INVALID_REQUEST: The AI model encountered an error processing your offer. Please try a different model.';
+            } else if (error.message?.includes('500') || error.message?.includes('internal')) {
+                failureReason = 'AI_ERROR: The AI service encountered an internal error. Please try again.';
+            }
+            
             await db.update(offers).set({
                 status: 'FAILED',
-                failureReason: error.message || 'Analysis failed'
+                failureReason: failureReason
             }).where(eq(offers.id, offerId));
             throw error;
         }

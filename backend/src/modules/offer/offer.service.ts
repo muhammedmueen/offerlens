@@ -32,90 +32,120 @@ export class OfferService {
             await this.guestService.checkLimits(guest.id);
         }
 
-        // 2. File Validation & Hashing
-        const fileBuffer = await input.file.toBuffer();
-        const hash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+        // 2. Get text content and hash
+        let textContent: string;
+        let hash: string;
+        let storedPath: string | null = null;
+        let fileInfo: { filename: string; mimetype: string; size: number } | null = null;
 
-        // 3. Duplicate Check
+        if (input.text) {
+            // Text provided directly
+            textContent = input.text;
+            hash = crypto.createHash('sha256').update(textContent).digest('hex');
+        } else if (input.file) {
+            // File provided - extract text via OCR
+            const fileBuffer = await input.file.toBuffer();
+            hash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+            
+            // Store file
+            storedPath = await this.fastify.storage.upload(fileBuffer, input.file.filename);
+            fileInfo = {
+                filename: input.file.filename,
+                mimetype: input.file.mimetype,
+                size: fileBuffer.length,
+            };
+            
+            // Extract text (will be done by worker, but we need placeholder)
+            textContent = ''; // Will be filled by OCR worker
+        } else {
+            throw new AppError(ERROR_CODES.VALIDATION_ERROR, 'File or text is required', 400);
+        }
+
+        // 3. Duplicate Check (exclude failed offers to allow retries)
         const existingOffer = await db.query.offers.findFirst({
             where: eq(offers.textHash, hash),
-            // We might want to allow re-upload if previous failed or explicit retry?
-            // For now, simple dedup: if exists return it? Or error?
-            // Let's check status. If FAILED, allow retry (maybe delete old?). 
-            // If PROCESSING/COMPLETED, return existing ID?
-            // Spec says: "If exact duplicate hash found -> return existing analysis ID"
         });
 
-        if (existingOffer) {
-            // If existing offer belongs to user, return it
-            // If it belongs to guest, and now we are user, we might want to "claim" it?
-            // For now, simple return.
+        if (existingOffer && existingOffer.status !== 'FAILED') {
+            console.log('[Offer Service] Found existing offer:', existingOffer.id, 'status:', existingOffer.status);
             return {
                 id: existingOffer.id,
                 status: existingOffer.status,
                 createdAt: existingOffer.createdAt,
                 isGuest: existingOffer.isGuest,
-                // estimatedProcessingTime: 0 // Completed
             };
         }
+        
+        if (existingOffer && existingOffer.status === 'FAILED') {
+            console.log('[Offer Service] Found failed offer, deleting it to allow retry');
+            // Delete the failed offer to allow creating a new one with the same text_hash
+            await db.delete(offers).where(eq(offers.id, existingOffer.id));
+        }
 
-        // 4. Upload File
-        // We use storage provider
-        const storedPath = await this.fastify.storage.upload(fileBuffer, input.file.filename);
-
-        // 5. Create Database Records (Transaction)
+        // 4. Create Database Records (Transaction)
         const offerId = uuidv4();
 
         const newOffer: NewOffer = {
             id: offerId,
             guestId: guest.id,
-            userId: userId, // Link to user
+            userId: userId,
             textHash: hash,
-            status: 'QUEUED',
-            isGuest: !userId, // False if user
+            status: input.text ? 'QUEUED' : 'QUEUED', // Both go to queue
+            isGuest: !userId,
+            rawText: input.text || null, // Store text immediately if provided
             userContext: {
                 role: input.role,
-                experienceYears: input.experienceYears,
+                experienceLevel: input.experienceLevel,
                 city: input.city,
-                expectedCTC: input.expectedCTC,
-                currency: input.currency,
+                currentCtc: input.currentCtc,
             },
-            expiresAt: userId ? undefined : new Date(Date.now() + 24 * 60 * 60 * 1000), // Users: no expiry (or long), Guests: 24h
-        };
-
-        const newFile: NewOfferFile = {
-            offerId: offerId,
-            originalName: input.file.filename,
-            storedPath: storedPath,
-            mimeType: input.file.mimetype,
-            fileSizeBytes: fileBuffer.length,
+            expiresAt: userId ? undefined : new Date(Date.now() + 24 * 60 * 60 * 1000),
         };
 
         await db.transaction(async (tx) => {
             await tx.insert(offers).values(newOffer);
-            await tx.insert(offerFiles).values(newFile);
+            
+            if (fileInfo && storedPath) {
+                const newFile: NewOfferFile = {
+                    offerId: offerId,
+                    originalName: fileInfo.filename,
+                    storedPath: storedPath,
+                    mimeType: fileInfo.mimetype,
+                    fileSizeBytes: fileInfo.size,
+                };
+                await tx.insert(offerFiles).values(newFile);
+            }
 
-            // Initial analysis record? Or create later in worker?
-            // Better to create partial record later or now?
-            // Let's create offer record only. Analysis record created when results ready or processing starts.
-
-            // Increment guest usage (still track even for users)
             await this.guestService.incrementAnalysisCount(guest.id);
         });
 
-        // 6. Enqueue Job
-        await ocrQueue.add('process-ocr', {
-            offerId,
-            storedPath, // Workers need access to storage. If local, sharing volume/path works.
-            // In distributed, storedPath must be accessible (S3 URL etc). Local is file path.
-        });
+        // 5. Enqueue Job
+        if (input.text) {
+            // Skip OCR, go straight to analysis
+            console.log('[Offer Service] Adding job to OCR queue (process-text):', { offerId, textLength: input.text.length, model: input.model });
+            await ocrQueue.add('process-text', {
+                offerId,
+                text: input.text,
+                model: input.model || 'gemini-flash-latest',
+            });
+            console.log('[Offer Service] ✅ Job added to queue successfully');
+        } else {
+            // Need OCR first
+            console.log('[Offer Service] Adding job to OCR queue (process-ocr):', { offerId, storedPath, model: input.model });
+            await ocrQueue.add('process-ocr', {
+                offerId,
+                storedPath,
+                model: input.model || 'gemini-flash-latest',
+            });
+            console.log('[Offer Service] ✅ Job added to queue successfully');
+        }
 
         return {
             id: offerId,
             status: 'QUEUED',
             createdAt: new Date(),
             isGuest: !userId,
-            estimatedProcessingTime: 30, // seconds estimated
+            estimatedProcessingTime: 30,
         };
     }
 
@@ -133,12 +163,62 @@ export class OfferService {
             expiresAt: offer.expiresAt,
             isGuest: offer.isGuest,
             rawText: offer.rawText,
+            failureReason: offer.failureReason,
         };
     }
     async update(id: string, data: Partial<NewOffer>): Promise<void> {
         await db.update(offers)
             .set(data)
             .where(eq(offers.id, id));
+    }
+
+    async extractMetadataFromText(text: string): Promise<any> {
+        const aiProvider = config.GEMINI_API_KEY
+            ? new GeminiAiProvider()
+            : new MockAiProvider();
+
+        this.fastify.log.info({ provider: aiProvider.constructor.name }, 'Using AI provider for metadata extraction');
+
+        const metadata = await aiProvider.extractMetadata(text);
+        return metadata;
+    }
+
+    async extractTextFromFile(file: { toBuffer: () => Promise<Buffer>, filename: string, mimetype: string }): Promise<string> {
+        this.fastify.log.info({ filename: file.filename, mimetype: file.mimetype }, 'Starting text extraction from file');
+        
+        const ocrProvider = config.GOOGLE_CLOUD_CREDENTIALS
+            ? new GoogleVisionOcrProvider()
+            : new MockOcrProvider();
+
+        this.fastify.log.info({ provider: ocrProvider.constructor.name }, 'Using OCR provider');
+
+        const buffer = await file.toBuffer();
+        this.fastify.log.info({ bufferSize: buffer.length }, 'File buffer loaded');
+        
+        const tempPath = `temp-${uuidv4()}-${file.filename}`;
+        this.fastify.log.info({ tempPath }, 'Writing temp file');
+
+        const fs = await import('fs/promises');
+        await fs.writeFile(tempPath, buffer);
+
+        try {
+            let text = '';
+            if (file.filename.endsWith('.txt')) {
+                this.fastify.log.info('Reading as text file');
+                text = await fs.readFile(tempPath, 'utf-8');
+            } else {
+                this.fastify.log.info('Calling OCR provider');
+                const ocrResult = await ocrProvider.extractText(tempPath);
+                text = ocrResult.text;
+                this.fastify.log.info({ textLength: text.length, confidence: ocrResult.confidence }, 'OCR complete');
+            }
+            return text;
+        } finally {
+            this.fastify.log.info('Cleaning up temp file');
+            await fs.unlink(tempPath).catch((err) => {
+                this.fastify.log.warn({ error: err }, 'Failed to delete temp file');
+            });
+        }
     }
 
     async extractMetadata(file: { toBuffer: () => Promise<Buffer>, filename: string, mimetype: string }): Promise<any> {

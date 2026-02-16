@@ -22,6 +22,7 @@ export const ENDPOINTS = {
   OFFER_NEGOTIATE: (id: string) => `/offers/${id}/negotiate`,
   OFFER_BENEFITS: (id: string) => `/offers/${id}/benefits`,
   OFFER_EXTRACT: "/offers/extract",
+  OFFER_EXTRACT_FILE: "/offers/extract-file",
   OFFER_CAREER_PATH: (id: string) => `/offers/${id}/career-path`,
   OFFER_CORRECTIONS: (id: string) => `/offers/${id}/corrections`,
   OFFERS_COMPARE: "/offers/compare",

@@ -7,17 +7,18 @@ export enum OfferStatus {
 }
 
 export interface CreateOfferInput {
-    file: {
+    file?: {
         filename: string;
         mimetype: string;
         encoding: string;
         toBuffer: () => Promise<Buffer>;
     };
+    text?: string;
     role?: string;
-    experienceYears?: number;
+    experienceLevel?: string;
     city?: string;
-    expectedCTC?: number;
-    currency?: string;
+    currentCtc?: number;
+    model?: string;
 }
 
 export interface OfferResponse {
@@ -28,4 +29,5 @@ export interface OfferResponse {
     isGuest: boolean;
     estimatedProcessingTime?: number;
     rawText?: string | null;
+    failureReason?: string | null;
 }

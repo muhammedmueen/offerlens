@@ -8,37 +8,53 @@ import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 export class GeminiAiProvider implements AiProvider {
     private genAI: GoogleGenerativeAI;
     private model: any;
+    private simpleModel: any; // For metadata extraction without schema
 
     constructor() {
         if (!config.GEMINI_API_KEY) {
             throw new Error('GEMINI_API_KEY is not set');
         }
         this.genAI = new GoogleGenerativeAI(config.GEMINI_API_KEY);
+        
+        // Model for full analysis - using gemini-flash-latest by default
+        // In development, this can be overridden per request
         this.model = this.genAI.getGenerativeModel({
-            model: 'gemini-2.0-flash',
+            model: 'gemini-flash-latest',
             generationConfig: {
                 responseMimeType: 'application/json',
-                responseSchema: {
-                    type: SchemaType.OBJECT,
-                    properties: {
-                        // I'll skip full schema definition here for brevity in code, relying on prompt instructions + JSON mode
-                        // Or better, define it if strict mode is critical.
-                        // Given ai-prompts.md has a very complex schema, defining it all in code is verbose but safer.
-                        // For Phase 1 startup, I will use JSON mode with prompt instruction, but Gemini 2.0 Flash supports Schema.
-                        // Let's rely on the prompt to enforce structure for now to save 200 lines of schema definition code here,
-                        // but I will instruct the model strongly.
-                    }
-                },
                 temperature: 0.3,
                 maxOutputTokens: 8192,
             },
         });
+        
+        // Simple model for metadata extraction without schema constraints
+        this.simpleModel = this.genAI.getGenerativeModel({
+            model: 'gemini-flash-lite-latest',
+            generationConfig: {
+                responseMimeType: 'application/json',
+                temperature: 0.3,
+                maxOutputTokens: 2048,
+            },
+        });
     }
 
-    async analyzeOffer(text: string, context?: OfferContext): Promise<AnalysisResult> {
+    async analyzeOffer(text: string, context?: OfferContext, model?: string): Promise<AnalysisResult> {
         try {
+            const modelToUse = model || 'gemini-flash-latest';
+            console.log('[Gemini AI] Using model for analysis:', modelToUse);
+            
+            // Create model instance with specified model name
+            const analysisModel = this.genAI.getGenerativeModel({
+                model: modelToUse,
+                generationConfig: {
+                    responseMimeType: 'application/json',
+                    temperature: 0.3,
+                    maxOutputTokens: 8192,
+                },
+            });
+            
             const prompt = this.buildPrompt(text, context);
-            const result = await this.model.generateContent(prompt);
+            const result = await analysisModel.generateContent(prompt);
             const response = await result.response;
             const jsonString = response.text();
 
@@ -46,10 +62,36 @@ export class GeminiAiProvider implements AiProvider {
             const data = JSON.parse(jsonString);
 
             return data as AnalysisResult;
-        } catch (error) {
+        } catch (error: any) {
+            console.error('[Gemini AI] Analysis failed:', error);
+            
+            // Check for specific error types
+            if (error.message?.includes('429') || error.status === 429) {
+                throw new AppError(
+                    ERROR_CODES.INTERNAL_ERROR,
+                    'Rate limit exceeded. Please wait a few minutes or try a different model.',
+                    429,
+                    error
+                );
+            } else if (error.message?.includes('quota')) {
+                throw new AppError(
+                    ERROR_CODES.INTERNAL_ERROR,
+                    'API quota exceeded. Please try again later or switch to a different model.',
+                    429,
+                    error
+                );
+            } else if (error.message?.includes('400') || error.status === 400) {
+                throw new AppError(
+                    ERROR_CODES.INTERNAL_ERROR,
+                    'Invalid request to AI model. Please try a different model.',
+                    400,
+                    error
+                );
+            }
+            
             throw new AppError(
                 ERROR_CODES.INTERNAL_ERROR,
-                'AI analysis failed',
+                'AI analysis failed: ' + (error.message || 'Unknown error'),
                 500,
                 error
             );
@@ -58,27 +100,47 @@ export class GeminiAiProvider implements AiProvider {
 
     async extractMetadata(text: string): Promise<any> {
         try {
+            console.log('[Gemini AI] Starting metadata extraction, text length:', text.length);
+            console.log('[Gemini AI] Text preview:', text.substring(0, 200));
+            
             const prompt = `
                 Extract the following fields from the offer letter text:
                 - Role / Job Title
                 - City / Location
-                - Experience Level (Entry Level, Mid Level, Senior, Lead, Manager, etc. - infer from years or title)
+                - Experience Level (choose from: "Fresher (0-1 yrs)", "Junior (1-3 yrs)", "Mid-Level (3-5 yrs)", "Senior (5-8 yrs)", "Staff/Lead (8-12 yrs)", "Principal/Director (12+ yrs)")
                 - Current CTC (if mentioned, number only)
                 - Currency (e.g. INR, USD)
 
-                Output JSON key-values: "role", "city", "experienceLevel", "currentCtc" (number), "currency".
-                Return empty strings/null if not found. Do not invent data.
+                Output JSON with these exact keys: "role", "city", "experienceLevel", "currentCtc" (number), "currency".
+                For experienceLevel, use one of the exact values listed above based on years of experience or job title.
+                Return null for fields not found. Do not invent data.
 
                 Text:
                 """${text.substring(0, 10000)}""" 
             `;
 
-            const result = await this.model.generateContent(prompt);
+            console.log('[Gemini AI] Sending request to Gemini API with model:', 'gemini-flash-lite-latest');
+            const result = await this.simpleModel.generateContent(prompt);
+            console.log('[Gemini AI] ✅ Received response from Gemini API');
+            
             const response = await result.response;
             const jsonString = response.text().replace(/```json/g, '').replace(/```/g, '').trim();
-            return JSON.parse(jsonString);
+            
+            console.log('[Gemini AI] Raw response:', jsonString);
+            
+            const parsed = JSON.parse(jsonString);
+            console.log('[Gemini AI] ✅ Parsed metadata successfully:', JSON.stringify(parsed, null, 2));
+            
+            return parsed;
         } catch (error) {
-            console.error('Metadata extraction failed', error);
+            console.error('[Gemini AI] ❌ Metadata extraction failed:', error);
+            console.error('[Gemini AI] Error details:', {
+                message: error instanceof Error ? error.message : 'Unknown error',
+                stack: error instanceof Error ? error.stack : undefined,
+                name: error instanceof Error ? error.name : undefined
+            });
+            
+            // Return empty object so the flow continues
             return {};
         }
     }

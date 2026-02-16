@@ -3,6 +3,12 @@ node_modules/
 .pnp
 .pnp.js
 
+# Lock files from other package managers (keep package-lock.json)
+yarn.lock
+pnpm-lock.yaml
+bun.lockb
+
+
 # Environment variables
 .env
 .env.local

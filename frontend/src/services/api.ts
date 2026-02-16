@@ -31,6 +31,13 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   if (token && config.headers) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  
+  // If sending FormData, remove Content-Type header to let axios set it automatically
+  if (config.data instanceof FormData && config.headers) {
+    console.log('[API] Detected FormData, removing Content-Type header');
+    delete config.headers['Content-Type'];
+  }
+  
   return config;
 });
 

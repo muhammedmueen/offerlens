@@ -2,7 +2,7 @@ import { AiProvider, OfferContext } from './ai.provider.js';
 import { AnalysisResult } from '@/modules/analysis/analysis.types.js';
 
 export class MockAiProvider implements AiProvider {
-    async analyzeOffer(text: string, context?: OfferContext): Promise<AnalysisResult> {
+    async analyzeOffer(text: string, context?: OfferContext, model?: string): Promise<AnalysisResult> {
         // Return sample analysis
         return {
             extractedData: {
@@ -41,7 +41,7 @@ export class MockAiProvider implements AiProvider {
             },
             metadata: {
                 analysisVersion: '1.0',
-                modelUsed: 'mock-v1',
+                modelUsed: model || 'mock-v1',
                 processingNote: 'This is a mock analysis for testing.',
             },
         };

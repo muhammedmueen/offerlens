@@ -16,7 +16,7 @@
         "db:push": "tsx node_modules/drizzle-kit/bin.cjs push",
         "db:seed": "tsx src/db/seed.ts",
         "lint": "tsc --noEmit",
-        "workers": "tsx src/workers/index.ts"
+        "workers": "tsx watch src/workers/index.ts"
     },
     "keywords": [
         "offerlens",

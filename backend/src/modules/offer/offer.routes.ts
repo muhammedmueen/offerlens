@@ -11,20 +11,72 @@ export async function offerRoutes(fastify: FastifyInstance) {
 
     // POST /offers — Upload an offer letter
     fastify.post('/', async (req, reply) => {
-        const data = await req.file();
-        if (!data) {
-            throw new AppError(ERROR_CODES.VALIDATION_ERROR, 'File is required', 400);
+        console.log('[Offer Routes] POST /offers called');
+        console.log('[Offer Routes] Content-Type:', req.headers['content-type']);
+        
+        // With attachFieldsToBody: true, fields are in req.body as objects with .value property
+        const body = req.body as any;
+        
+        let file: any = null;
+        let text: string | undefined = undefined;
+        const fields: Record<string, any> = {};
+        
+        // Extract values from the field objects
+        if (body) {
+            for (const [key, fieldObj] of Object.entries(body)) {
+                // Each field is an object with { type, fieldname, value, ... }
+                const field = fieldObj as any;
+                
+                // Check if it's a file object
+                if (field.type === 'file') {
+                    console.log('[Offer Routes] Found file field');
+                    file = field;
+                } else if (field.type === 'field') {
+                    const value = field.value;
+                    console.log(`[Offer Routes] Field: ${key} = ${typeof value === 'string' ? value.substring(0, 100) : value}`);
+                    
+                    if (key === 'text') {
+                        text = value as string;
+                        console.log('[Offer Routes] ✅ Text field found, length:', text.length);
+                    } else {
+                        fields[key] = value;
+                    }
+                }
+            }
         }
 
-        const fields = data.fields as Record<string, any>;
+        console.log('[Offer Routes] Parsing complete. Summary:', {
+            hasFile: !!file,
+            hasText: !!text,
+            textLength: text?.length,
+            fieldCount: Object.keys(fields).length,
+            fields: Object.keys(fields)
+        });
+
+        if (!file && !text) {
+            console.log('[Offer Routes] ❌ Validation failed: no file or text');
+            throw new AppError(ERROR_CODES.VALIDATION_ERROR, 'File or text is required', 400);
+        }
+
         const input = {
-            file: data,
-            role: fields.role?.value,
-            experienceYears: fields.experienceYears?.value ? Number(fields.experienceYears.value) : undefined,
-            city: fields.city?.value,
-            expectedCTC: fields.expectedCTC?.value ? Number(fields.expectedCTC.value) : undefined,
-            currency: fields.currency?.value,
+            file: file,
+            text: text,
+            role: fields.role,
+            experienceLevel: fields.experienceLevel,
+            city: fields.city,
+            currentCtc: fields.currentCtc ? Number(fields.currentCtc) : undefined,
+            model: fields.model || 'gemini-flash-latest',
         };
+
+        console.log('[Offer Routes] Creating offer with input:', {
+            hasFile: !!input.file,
+            hasText: !!input.text,
+            textLength: input.text?.length,
+            role: input.role,
+            city: input.city,
+            experienceLevel: input.experienceLevel,
+            currentCtc: input.currentCtc
+        });
 
         const result = await offerService.create(input, req.guestId!, req.ip, req.userId);
 
@@ -34,19 +86,53 @@ export async function offerRoutes(fastify: FastifyInstance) {
         });
     });
 
-    // POST /offers/extract — Extract metadata from file
+    // POST /offers/extract — Extract metadata from text
     fastify.post('/extract', async (req, reply) => {
-        const data = await req.file();
-        if (!data) {
-            throw new AppError(ERROR_CODES.VALIDATION_ERROR, 'File is required', 400);
+        const body = req.body as { text: string };
+        
+        if (!body || !body.text) {
+            throw new AppError(ERROR_CODES.VALIDATION_ERROR, 'Text is required', 400);
         }
 
-        const result = await offerService.extractMetadata(data);
+        const result = await offerService.extractMetadataFromText(body.text);
 
         return reply.send({
             success: true,
             data: result,
         });
+    });
+
+    // POST /offers/extract-file — Extract text from file using OCR (fallback for scanned docs)
+    fastify.post('/extract-file', async (req, reply) => {
+        try {
+            fastify.log.info('Extract-file endpoint called');
+            
+            const data = await req.file();
+            
+            fastify.log.info({ 
+                hasFile: !!data, 
+                filename: data?.filename, 
+                mimetype: data?.mimetype 
+            }, 'File data received');
+            
+            if (!data) {
+                fastify.log.warn('No file found in request');
+                throw new AppError(ERROR_CODES.VALIDATION_ERROR, 'File is required', 400);
+            }
+
+            fastify.log.info('Calling extractTextFromFile service');
+            const result = await offerService.extractTextFromFile(data);
+            
+            fastify.log.info({ textLength: result.length }, 'Text extraction complete');
+
+            return reply.send({
+                success: true,
+                data: { text: result },
+            });
+        } catch (error) {
+            fastify.log.error({ error }, 'Extract-file endpoint error');
+            throw error;
+        }
     });
 
     // GET /offers/:id — Get offer by ID

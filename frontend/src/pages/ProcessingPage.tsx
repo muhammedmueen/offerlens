@@ -5,7 +5,7 @@ import api from "@/services/api";
 import { ENDPOINTS, OFFER_STATUS, POLLING_INTERVAL_MS } from "@/constants/api";
 import PageShell from "@/components/layout/PageShell";
 import ErrorState from "@/components/common/ErrorState";
-import { CheckCircle, Loader2 } from "lucide-react";
+import { CheckCircle, Loader2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const STEPS = ["Uploading", "Reading Document", "Analyzing", "Scoring"];
@@ -25,7 +25,14 @@ const ProcessingPage = () => {
   const { data, error, refetch } = useQuery({
     queryKey: ["offer-status", id],
     queryFn: () => api.get(ENDPOINTS.OFFER(id!)).then((r) => r.data.data),
-    refetchInterval: POLLING_INTERVAL_MS,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      // Stop polling if status is COMPLETED or FAILED
+      if (status === OFFER_STATUS.COMPLETED || status === OFFER_STATUS.FAILED) {
+        return false;
+      }
+      return POLLING_INTERVAL_MS;
+    },
     enabled: !!id,
   });
 
@@ -42,14 +49,71 @@ const ProcessingPage = () => {
 
   const stepIndex = data ? getStepIndex(data.status) : 1;
 
+  // Parse failure reason for better UX
+  const getErrorMessage = (failureReason?: string | null) => {
+    if (!failureReason) return "Analysis failed. Please try again.";
+    
+    if (failureReason.startsWith('RATE_LIMIT:')) {
+      return failureReason.replace('RATE_LIMIT: ', '');
+    } else if (failureReason.startsWith('INVALID_REQUEST:')) {
+      return failureReason.replace('INVALID_REQUEST: ', '');
+    } else if (failureReason.startsWith('AI_ERROR:')) {
+      return failureReason.replace('AI_ERROR: ', '');
+    }
+    
+    return failureReason;
+  };
+
+  const isRateLimitError = data?.failureReason?.includes('RATE_LIMIT') || data?.failureReason?.includes('rate limit');
+
   if (data?.status === OFFER_STATUS.FAILED) {
     return (
       <PageShell>
         <div className="container mx-auto max-w-lg px-4 py-24">
-          <ErrorState
-            message="Analysis failed. Please try again."
-            onRetry={() => { navigate("/upload"); }}
-          />
+          <div className="rounded-2xl p-8 text-center skeu-card">
+            <div className="mb-6 flex justify-center">
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-destructive/10 skeu-emboss">
+                <AlertCircle className="h-8 w-8 text-destructive" />
+              </div>
+            </div>
+            
+            <h2 className="text-xl font-bold mb-3 text-foreground">
+              {isRateLimitError ? "Rate Limit Exceeded" : "Analysis Failed"}
+            </h2>
+            
+            <p className="text-muted-foreground mb-6">
+              {getErrorMessage(data.failureReason)}
+            </p>
+            
+            {isRateLimitError && (
+              <div className="mb-6 rounded-xl bg-muted/50 p-4 text-sm text-left skeu-inset">
+                <p className="font-medium mb-2">💡 Tips to avoid rate limits:</p>
+                <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                  <li>Wait 2-3 minutes before trying again</li>
+                  <li>Switch to a different AI model (e.g., gemini-flash-lite-latest)</li>
+                  <li>Use the model selector in the upload form</li>
+                </ul>
+              </div>
+            )}
+            
+            <div className="flex gap-3 justify-center">
+              <Button 
+                onClick={() => navigate("/upload")} 
+                className="cursor-pointer rounded-xl skeu-btn brand-gradient"
+              >
+                Try Again
+              </Button>
+              {isRateLimitError && (
+                <Button 
+                  variant="outline" 
+                  onClick={() => navigate("/upload")} 
+                  className="cursor-pointer rounded-xl skeu-emboss"
+                >
+                  Change Model
+                </Button>
+              )}
+            </div>
+          </div>
         </div>
       </PageShell>
     );

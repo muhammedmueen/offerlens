@@ -19,7 +19,7 @@ export interface NegotiationInput {
 }
 
 export interface AiProvider {
-    analyzeOffer(text: string, context?: OfferContext): Promise<AnalysisResult>;
+    analyzeOffer(text: string, context?: OfferContext, model?: string): Promise<AnalysisResult>;
     generateNegotiationScript(input: NegotiationInput): Promise<{ subject: string; body: string }>;
     /**
      * Extracts structured metadata from offer text for autofill
