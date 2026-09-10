@@ -24,8 +24,11 @@ export const OCR_MIN_CONFIDENCE = 0.6; // 60%
 export const QUEUE_RETRY_ATTEMPTS = 3;
 export const QUEUE_RETRY_BACKOFF_MS = 1_000; // 1s base, exponential
 
-export const SPOOFING_THRESHOLD = 5; // fingerprints per IP per hour
-export const SPOOFING_WINDOW_MS = 60 * 60 * 1_000; // 1 hour
+// Guest identity cookie (ADR-001). Replaced the fingerprint + IP scheme, along with
+// the SPOOFING_THRESHOLD / SPOOFING_WINDOW_MS constants that supported it — a
+// server-signed cookie leaves nothing for a client to forge.
+export const GUEST_COOKIE_NAME = 'ol_guest';
+export const GUEST_COOKIE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
 export const RATE_LIMITS = {
     guestUpload: { max: 3, window: '1 day' },

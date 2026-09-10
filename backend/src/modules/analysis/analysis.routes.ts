@@ -3,6 +3,7 @@ import { AnalysisService } from './analysis.service.js';
 import { getAnalysisSchema } from './analysis.schema.js';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
+import { loadAuthorizedOffer } from '@/shared/access/offer-guard.js';
 
 export async function analysisRoutes(fastify: FastifyInstance) {
     const analysisService = new AnalysisService(fastify);
@@ -11,6 +12,10 @@ export async function analysisRoutes(fastify: FastifyInstance) {
         schema: getAnalysisSchema,
         handler: async (req, reply) => {
             const { id } = req.params as { id: string };
+
+            // Previously unauthenticated — the full analysis was readable by ID.
+            await loadAuthorizedOffer(id, req);
+
             const analysis = await analysisService.getAnalysis(id);
 
             if (!analysis) {
@@ -31,6 +36,11 @@ export async function analysisRoutes(fastify: FastifyInstance) {
     fastify.get('/offers/:id/report', {
         handler: async (req, reply) => {
             const { id } = req.params as { id: string };
+
+            // Previously unauthenticated. The roadmap specified this as registered-only
+            // (GUEST_RESTRICTED); it is now owner-or-owning-guest, which is stricter
+            // than the original spec and consistent with the other offer routes.
+            await loadAuthorizedOffer(id, req);
 
             // Lazy load ReportService to avoid circular dependency if any
             const { ReportService } = await import('@/modules/report/report.service.js');

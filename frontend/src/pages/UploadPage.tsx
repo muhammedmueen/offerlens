@@ -13,6 +13,7 @@ import { Upload, FileText, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
 import { extractTextFromFile } from "@/lib/pdf-extractor";
+import { rememberGuestOffer } from "@/lib/guest-offers";
 
 const UploadPage = () => {
   const navigate = useNavigate();
@@ -74,6 +75,9 @@ const UploadPage = () => {
     },
     onSuccess: (res) => {
       const offerId = res.data.data.id;
+      // Persist locally so the analysis survives a tab close, and so signup can
+      // present it for claiming (ADR-001).
+      rememberGuestOffer(offerId);
       navigate(`/offers/${offerId}/processing`);
     },
     onError: (err: any) => {

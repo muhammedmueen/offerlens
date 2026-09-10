@@ -4,6 +4,7 @@ import { GuestService } from '@/modules/guest/guest.service.js';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 import { requireRegistered } from '@/middleware/authenticate.js';
+import { loadAuthorizedOffer } from '@/shared/access/offer-guard.js';
 
 export async function offerRoutes(fastify: FastifyInstance) {
     const guestService = new GuestService();
@@ -135,9 +136,13 @@ export async function offerRoutes(fastify: FastifyInstance) {
         }
     });
 
-    // GET /offers/:id — Get offer by ID
+    // GET /offers/:id — Get offer by ID (owner or owning guest only)
     fastify.get('/:id', async (req, reply) => {
         const { id } = req.params as { id: string };
+
+        // Previously unauthenticated, and it returns rawText — the full offer letter.
+        await loadAuthorizedOffer(id, req);
+
         const offer = await offerService.getById(id);
 
         if (!offer) {
@@ -155,6 +160,11 @@ export async function offerRoutes(fastify: FastifyInstance) {
         preHandler: [requireRegistered],
         handler: async (req, reply) => {
             const { id } = req.params as { id: string };
+
+            // requireRegistered only proves authentication. Without this, any logged-in
+            // user could delete any other user's offer by ID.
+            await loadAuthorizedOffer(id, req);
+
             await offerService.delete(id);
 
             return reply.send({

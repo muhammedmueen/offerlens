@@ -4,6 +4,7 @@ import { analyses } from '@/db/schema/analyses.js';
 import { eq } from 'drizzle-orm';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
+import { assertOfferAccess } from '@/shared/access/offer-access.js';
 import { AnalysisResult, Benefit, Compensation } from '@/modules/analysis/analysis.types.js';
 import { calculateBenefitValues, BenefitBreakdown } from './benefits.calculator.js';
 
@@ -11,7 +12,7 @@ export class BenefitsService {
     async calculate(offerId: string, userId: string, overrides?: Record<string, number>) {
         const offer = await db.query.offers.findFirst({ where: eq(offers.id, offerId) });
         if (!offer) throw new AppError(ERROR_CODES.NOT_FOUND, 'Offer not found', 404);
-        if (offer.userId !== userId) throw new AppError(ERROR_CODES.UNAUTHORIZED, 'Not authorized', 403);
+        assertOfferAccess(offer, { userId });
         if (offer.status !== 'COMPLETED') {
             throw new AppError(ERROR_CODES.OFFER_NOT_READY, 'Offer analysis must be completed first', 400);
         }

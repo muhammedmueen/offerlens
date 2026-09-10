@@ -2,7 +2,7 @@ import { db } from '@/db/index.js';
 import { offers, NewOffer } from '@/db/schema/offers.js';
 import { offerFiles, NewOfferFile } from '@/db/schema/offer-files.js';
 import { analyses } from '@/db/schema/analyses.js';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { FastifyInstance } from 'fastify';
 import { CreateOfferInput, OfferResponse } from './offer.types.js';
 import { GuestService } from '@/modules/guest/guest.service.js';
@@ -16,6 +16,7 @@ import { MockOcrProvider } from '@/providers/ocr/mock.ocr.js';
 import { GeminiAiProvider } from '@/providers/ai/gemini.ai.js';
 import { MockAiProvider } from '@/providers/ai/mock.ai.js';
 import { config } from '@/config/index.js';
+import { resolveDedupScope } from './offer.dedup.js';
 
 export class OfferService {
     constructor(
@@ -61,9 +62,19 @@ export class OfferService {
             throw new AppError(ERROR_CODES.VALIDATION_ERROR, 'File or text is required', 400);
         }
 
-        // 3. Duplicate Check (exclude failed offers to allow retries)
+        // 3. Duplicate Check — scoped to the caller (ADR-001).
+        //
+        // This lookup used to be global, against a globally-unique text_hash. Two people
+        // uploading identical text collided: the second was handed the first's offer ID,
+        // and when that offer had FAILED the delete below removed someone else's row.
+        const ownerScope = resolveDedupScope(userId, guest.id);
         const existingOffer = await db.query.offers.findFirst({
-            where: eq(offers.textHash, hash),
+            where: and(
+                eq(offers.textHash, hash),
+                ownerScope.kind === 'user'
+                    ? eq(offers.userId, ownerScope.id)
+                    : eq(offers.guestId, ownerScope.id),
+            ),
         });
 
         if (existingOffer && existingOffer.status !== 'FAILED') {
@@ -75,10 +86,10 @@ export class OfferService {
                 isGuest: existingOffer.isGuest,
             };
         }
-        
+
         if (existingOffer && existingOffer.status === 'FAILED') {
             console.log('[Offer Service] Found failed offer, deleting it to allow retry');
-            // Delete the failed offer to allow creating a new one with the same text_hash
+            // Safe now: the query above guarantees this offer belongs to the caller.
             await db.delete(offers).where(eq(offers.id, existingOffer.id));
         }
 

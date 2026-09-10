@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm';
 import { FastifyInstance } from 'fastify';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
+import { assertOfferAccess } from '@/shared/access/offer-access.js';
 import { AnalysisResult } from '@/modules/analysis/analysis.types.js';
 
 export class CareerService {
@@ -13,8 +14,8 @@ export class CareerService {
     async generatePath(offerId: string, userId: string) {
         const offer = await db.query.offers.findFirst({ where: eq(offers.id, offerId) });
         if (!offer) throw new AppError(ERROR_CODES.NOT_FOUND, 'Offer not found', 404);
-        if (offer.userId !== userId) throw new AppError(ERROR_CODES.UNAUTHORIZED, 'Not authorized', 403);
-        if (offer.status !== 'COMPLETED') { // Corrected: offer.status check
+        assertOfferAccess(offer, { userId });
+        if (offer.status !== 'COMPLETED') {
             throw new AppError(ERROR_CODES.OFFER_NOT_READY, 'Offer analysis must be completed first', 400);
         }
 

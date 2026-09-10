@@ -23,6 +23,10 @@ const processQueue = (error: unknown, token: string | null = null) => {
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: { "Content-Type": "application/json" },
+  // Required so the signed httpOnly guest identity cookie is sent (ADR-001).
+  // The backend must keep an explicit CORS origin — credentialed requests cannot
+  // use a wildcard.
+  withCredentials: true,
 });
 
 // Request interceptor — attach token
@@ -71,9 +75,11 @@ api.interceptors.response.use(
       }
 
       try {
-        const { data } = await axios.post(`${API_BASE_URL}${ENDPOINTS.AUTH_REFRESH}`, {
-          refreshToken,
-        });
+        const { data } = await axios.post(
+          `${API_BASE_URL}${ENDPOINTS.AUTH_REFRESH}`,
+          { refreshToken },
+          { withCredentials: true },
+        );
         const newToken = data.data.tokens.accessToken;
         localStorage.setItem("access_token", newToken);
         if (data.data.tokens.refreshToken) {

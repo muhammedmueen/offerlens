@@ -18,7 +18,16 @@ This section records what was confirmed by reading and running the code, not inf
 | Pipeline refactor progress | ❌ not started — worker still single-pass |
 | Working tree | clean, `main` synced with origin |
 
-**Manual test script status**: `test-m2-results.txt` shows negotiation, benefits, and corrections all returning `OFFER_NOT_READY`, and comparison skipped, because no analysis reached `COMPLETED` during that run. Those four features have never been exercised end-to-end. `test-m3-results.txt` shows salary stats returning "not enough data" at n=2.
+**Manual test script status**: `test-m2-results.txt` shows negotiation, benefits, and corrections all returning `OFFER_NOT_READY`, and comparison skipped, because no analysis reached `COMPLETED` during that run. Those four features have never been exercised end-to-end.
+
+> [!WARNING]
+> **`test-m3-results.txt` is partially stale.** Its salary section logs `POST /salaries` → `200 OK`; the current route is `POST /salary` → `201`. It was recorded against an older revision. Forum and career-path sections still match current routes and remain valid evidence. Treat the salary section as no evidence.
+
+**What was NOT verified**: no runtime behaviour. The backend was never booted — that needs Postgres, Redis, a Gemini key, and GCP credentials. Every "works" claim below rests on reading the code plus the two manual logs, not on observed execution.
+
+**Deployment status**: never deployed, no real user data — confirmed by the project owner. All defects below are pre-production with zero live exposure. Note this repo had an earlier life (**v1**, React + Prisma) that *did* reach a `"MVP to Production"` commit with Railway config before being re-initialized into the current Fastify + Drizzle codebase. See ADR-003 for what the rewrite dropped and should recover.
+
+**Frontend bundle baseline**: one **1,465 KB** JS chunk, zero code splitting. Target is 200 KB init + 80 KB/route (ADR-002).
 
 **Already implemented from this plan**: the red-flag hallucination guard is live in `analysis.worker.ts` — flags whose `matchedText` is absent from the raw text are discarded and counted in `redFlagsDiscarded`. Nothing else below has been started.
 
@@ -80,6 +89,7 @@ Every visitor sharing an IP and User-Agent becomes one guest identity. Two conse
 
 1. **Shared quota** — the 3-analyses-per-day guest limit is per IP+UA, so an office or campus network gets 3 total, not 3 each.
 2. **Cross-user data leak** — `AuthService.migrateGuestOffers(fingerprint, userId)` matches guest offers by that fingerprint. On signup a user **inherits strangers' offer letters** (salary, company, name) if they shared an IP and browser. This is in the guest→account funnel, which is the product's primary conversion path.
+3. **Feature-request voting is one vote per network** — `feature-request.routes.ts` passes `req.guestId` as the dedup key for `service.vote()`, so the second person behind a NAT cannot vote. Same for `create()`. This quietly breaks M7's whole premise of "the product evolves based on user demand," because the vote counts measure networks, not people.
 
 Side effect: the spoofing detector can never fire (one fingerprint per IP, threshold is 5), so that code is inert.
 
@@ -99,6 +109,49 @@ Ownership enforcement is **correct** in `negotiation`, `benefits`, `comparison`,
 Root cause: `requireRegistered` in `middleware/authenticate.ts` proves *authentication* and never *ownership*. Fix it in one guard rather than per-route.
 
 Compounding this: `offers.textHash` is `.unique()` **globally**, and `OfferService.create()` returns the existing offer's ID on a hash hit. Identical text from a different person hands you their offer ID, which the unauthenticated GETs then serve. Dedup should be scoped per user/guest.
+
+### 🔴 P0 — Frontend↔backend contract drift: Salary Explorer is non-functional
+
+The Salary Explorer page fails on **three independent mismatches** against the same feature:
+
+| Layer | Frontend sends | Backend expects | Result |
+|-------|----------------|-----------------|--------|
+| Path | `POST /salaries` and `GET /salaries/stats` (`constants/api.ts`) | `POST /salary`, `GET /salary` (`salary.routes.ts`) | **404** |
+| Payload field | `annualCtc` | `ctc` | NOT NULL violation |
+| Payload field | *(omitted entirely)* | `companyType` is `.notNull()` | NOT NULL violation |
+
+So the crowdsourced salary DB cannot be populated through the UI at all — which compounds the Stage 2a problem: even after the analysis worker is wired to `SalaryService.getStats()`, there will be no data to read.
+
+> [!WARNING]
+> **`test-m3-results.txt` is stale and must not be trusted as evidence.** It logs `POST /salaries` → `200 OK`. The current route is `POST /salary` and returns `201`. That log was recorded against an older revision. Its forum and career-path sections still match current routes; its salary section is worthless.
+>
+> This is a second-order finding worth noting on its own: **the only runtime evidence this project has is two uncommitted, unversioned, manually-run scripts, and one of them has already silently gone out of date.** That is the strongest argument for Phase 0.
+
+**Also dead**: `OFFER_ANALYZE: (id) => /offers/${id}/analyze` is defined in `constants/api.ts`. No such backend route exists. Currently unused, so harmless — but it is a live trap for the next person.
+
+### 🟠 P1 — Experience level has three incompatible vocabularies
+
+| Source | Values |
+|--------|--------|
+| `frontend/src/constants/api.ts` → `EXPERIENCE_LEVELS` | `"Entry Level"`, `"Mid Level"`, `"Senior"`, `"Lead"`, `"Manager"`, `"Director"`, `"VP"`, `"C-Level"` (8) |
+| `backend/src/db/seed.ts` → `EXPERIENCE` | `"Fresher (0-1 yrs)"`, `"Junior (1-3 yrs)"`, `"Mid-Level (3-5 yrs)"`, … (6) |
+| `gemini.ai.ts` → `extractMetadata()` prompt | Matches the DB seed (6) |
+
+The AI is instructed to return the DB vocabulary, but the upload form's dropdown offers the frontend's. An auto-filled `experienceLevel` will not match any option the user can select. `GET /metadata/experience-levels` serves the DB values and is apparently not what the form binds to.
+
+Pick one vocabulary — the DB seed is the right source of truth since it carries `minYears`/`maxYears` — and delete the other two.
+
+### 🟠 P1 — Local setup cannot work from a fresh clone
+
+| Problem | Detail |
+|---------|--------|
+| `.env.example` omits required secrets | `JWT_SECRET` and `JWT_REFRESH_SECRET` are both required at min 32 chars by `env.schema.ts`. Copying `.env.example` produces a config that **fails validation at boot**. `GOOGLE_CLIENT_ID`/`SECRET` are also absent |
+| `.env.example` has duplicated keys | `PORT`, `DATABASE_URL`, `REDIS_URL` each appear twice — a sloppy append |
+| API port mismatch | Frontend defaults to `http://localhost:5000/api/v1`; backend `PORT` defaults to **8000** |
+| CORS origin mismatch | Backend `CORS_ORIGIN` defaults to `http://localhost:3000`; the Vite dev server serves on **8080** |
+| `frontend/.env` is committed | Tracked in git, and there is **no `frontend/.env.example`**. Contents are `VITE_API_BASE_URL` + `VITE_GOOGLE_CLIENT_ID`. OAuth web client IDs are public by design, so this is hygiene rather than a credential leak — but the pattern is inverted and should be fixed before anything secret lands there |
+
+Net effect: nothing runs until three separate values are overridden, and the file that is supposed to document them is both incomplete and, in the frontend's case, the wrong file to be tracking.
 
 ### 🟠 P1 — Per-route rate limits are dead config
 
@@ -421,13 +474,17 @@ Store prompt template versions in `analysis.aiMetadata` for rollback and A/B tes
 
 **Proposed**:
 
+Weights set by decision 7. Revised from an earlier 35/25/20/10/10, which put the largest weight on the least reliable input.
+
 | Component | Weight | Calculation |
 |-----------|--------|-------------|
-| **Salary Position** | 35% | `offerPercentile` from real salary data → 0-100 |
-| **Red Flag Penalty** | 25% | 100 base, deduct per flag: High −20, Med −10, Low −5 |
+| **Red Flag Penalty** | 30% | 100 base, deduct per flag: High −20, Med −10, Low −5. Weighted highest because rule-engine flags are the most deterministic signal available |
+| **Salary Position** | 30% | `offerPercentile` from real salary data → 0-100 |
 | **Benefits Completeness** | 20% | % of standard benefits present from checklist |
 | **Growth Signals** | 10% | Equity/ESOP, learning budget, title progression, RSU |
 | **Transparency** | 10% | Compensation breakdown clarity, no vague terms |
+
+**Redistribution rule** (roadmap M3 sad path, currently unimplemented): when salary benchmark data is unavailable, the 30% salary weight is redistributed proportionally across the remaining four components, and the response carries `"Score based on limited market data"`. Until Phase 1 wires in real salary data and Phase 4 seeds the DB, this is the *default* path, not the exception.
 
 ### Confidence Tagging
 
@@ -552,21 +609,72 @@ Option B is simplest and works with existing polling architecture.
 
 ## Implementation Phases
 
-### Phase -1: Correctness & Security (1-2 days) — Blocks Launch
+### Phase -1: Correctness & Security — Blocks Launch
 
-These are small, self-contained diffs and independent of the pipeline work. They ship first because two of them are live data-integrity problems, not quality problems.
+Split into three independently reviewable units. Each is commit-sized and safe to stop after. Originally scoped as "1-2 days" for 9 tasks; it is now 23 across three groups, so treat the estimate per-group rather than as a whole.
+
+Ordering rationale: **-1A** fixes the defects that corrupt data. **-1B** fixes the ones that make features silently non-functional. **-1C** is hardening and tooling, none of which changes behaviour a user sees.
+
+---
+
+#### -1A — P0 Security (ADR-001)
+
+The only group that touches data integrity. Do this first and in order; A2 depends on A1's identity model.
+
+| # | Task | Severity | Status |
+|---|------|----------|--------|
+| A0 | Stand up vitest on the backend — prerequisite for leaving a runnable check behind on A1-A4 | 🟠 P1 | ✅ `vitest.config.ts`, tests colocated as `src/**/*.test.ts` so `tsc` covers them |
+| A1 | Add `@fastify/cookie`; issue a signed httpOnly guest cookie on first request. Remove `X-Fingerprint`, the `MD5(ip+ua)` fallback, `spoofingTracker`, and the spoofing-detection path. Drop `X-Fingerprint` from CORS `allowedHeaders`; add `withCredentials` on the frontend | 🔴 P0 | ✅ Done |
+| A2 | Build one `assertOfferAccess(offer, req)` guard (`userId` match OR guest match). Apply to `GET`/`DELETE /offers/:id`, `/analysis`, `/report`, and **replace** the five duplicated checks in negotiation, benefits, comparison, correction, career | 🔴 P0 | ✅ Done |
+| A3 | Scope `textHash` dedup per user/guest instead of globally — needs a schema migration to drop the global unique constraint | 🔴 P0 | ✅ Done — migration `0001` |
+| A4 | Track created offer IDs client-side; signup presents them and the server migrates only those, after verifying guest ownership. Also fixes guests losing their analysis on tab close | 🔴 P0 | ✅ Done |
+
+**Verified**: `tsc --noEmit` clean on both packages; 22 backend tests pass across 3 files.
+
+**What the tests cover**: the two decision points, as pure functions — `canAccessOffer` (owner, wrong user, owning guest, wrong guest, anonymous, post-migration guest, orphan, empty-string identities) and `resolveGuestToken` / `resolveDedupScope`. **Not covered**: anything requiring a live Postgres or Redis, so the DB-facing wrappers (`loadAuthorizedOffer`, `migrateGuestOffers`) and Fastify hook ordering are reasoned-about but not executed. Those need the integration suite.
+
+**Notable implementation choices**
+
+| Choice | Reason |
+|--------|--------|
+| Guard raises **404, not 403** | A 403 on an existing offer confirms the ID is real, making the endpoint an enumeration oracle. Changes behaviour vs the old per-service 403s |
+| Guest branch requires `!offer.userId` | `migrateGuestOffers` sets `userId` but leaves `guestId` populated. Without this, an old guest cookie would retain access to a claimed offer |
+| `request.guestId` stays the raw cookie token | The rate limiter's `keyGenerator` reads it directly. The guard resolves token → `guests.id` only when the user path has already failed, so logged-in requests cost no extra query |
+| `guests.fingerprint` column kept as-is | It now holds the opaque cookie token. Renaming it would mean a migration for no functional gain |
+| `offerIds` on signup is optional | When present it narrows the claim set; when absent all of the guest's offers are claimed. Both are safe now that identity is a signed cookie — the list is defence in depth, not the control |
+| Cookie is `sameSite: 'lax'` | Covers same-site deployments including differing localhost ports. Flagged in-code with a `ponytail:` comment: genuinely cross-domain deployment needs `'none'` + `secure` |
+
+#### -1B — Contract integrity
+
+Three currently-broken or latent frontend↔backend mismatches, plus the test that stops the next one.
 
 | # | Task | Severity |
 |---|------|----------|
-| -1a | Send `X-Fingerprint` from the frontend, **or** replace fingerprint-based migration with a signed guest cookie | 🔴 P0 |
-| -1b | Add an ownership check to `DELETE /offers/:id` — fix in the shared guard, not per-route | 🔴 P0 |
-| -1c | Decide and apply the auth story for `GET /offers/:id`, `/analysis`, `/report` (guests need to poll their own offer, so this needs a guest-scoped token, not blanket `requireRegistered`) | 🔴 P0 |
-| -1d | Scope `textHash` dedup per user/guest instead of globally | 🔴 P0 |
-| -1e | Wire the per-route `RATE_LIMITS` that already exist, starting with `authLogin` | 🟠 P1 |
-| -1f | Gate `POST /offers/extract` and `/extract-file` behind auth or a strict limit | 🟠 P1 |
-| -1g | Sanitize `file.filename` before temp-file writes | 🟠 P1 |
-| -1h | Fix the benefits `extractNumber()` unit handling (lakh / L / LPA / Cr) | 🟠 P1 |
-| -1i | Declare `uuid` in `package.json`, or switch to `crypto.randomUUID()` | 🟡 P2 |
+| B1 | **Salary contract**: align the path (`/salaries` vs `/salary`), rename `annualCtc`→`ctc`, send `companyType`. Without this the crowdsourced DB can never fill up, which blocks Stage 2a from ever having data | 🔴 P0 |
+| B2 | Collapse the three experience-level vocabularies down to the DB seed; bind the upload form to `GET /metadata/experience-levels` | 🟠 P1 |
+| B3 | Delete the dead `OFFER_ANALYZE` endpoint constant | 🟡 P2 |
+| B4 | **Contract test**: assert every `ENDPOINTS` entry resolves to a registered Fastify route | 🟠 P1 |
+
+> [!TIP]
+> B1, B2, and B3 are all the same bug class — `constants/api.ts` and the route definitions drifted with nothing watching. B4 would have caught all three and is cheaper than fixing them one at a time as they surface. That is why it is in this group rather than deferred.
+
+#### -1C — Hardening & tooling
+
+No user-visible behaviour change. Safe to defer past -1A/-1B if needed.
+
+| # | Task | Severity |
+|---|------|----------|
+| C1 | Wire the per-route `RATE_LIMITS` that already exist, starting with `authLogin`. **[ADR-003]** No regression risk — v1 disabled these for local testing convenience, not because of an incident | 🟠 P1 |
+| C2 | Gate `POST /offers/extract` and `/extract-file` behind auth or a strict limit | 🟠 P1 |
+| C3 | Sanitize `file.filename` before temp-file writes | 🟠 P1 |
+| C4 | Fix the benefits `extractNumber()` unit handling (lakh / L / LPA / Cr) | 🟠 P1 |
+| C5 | Fix `.env.example` (add JWT secrets, drop duplicate keys), align the frontend API port default with 8000 and `CORS_ORIGIN` with 8080, add `frontend/.env.example` and gitignore `frontend/.env` | 🟠 P1 |
+| C6 | Declare `uuid` in `package.json`, or switch to `crypto.randomUUID()` | 🟡 P2 |
+| C7 | **[ADR-003]** Rewrite or delete `.github/workflows/ci.yml` — a stale v1 artifact targeting Prisma and the old directory names; cannot pass | 🟠 P1 |
+| C8 | **[ADR-003]** Recover v1's input sanitization module from commit `83a456a` instead of writing it fresh in Phase 1 | 🟠 P1 |
+| C9 | **[ADR-003]** Restore ESLint + Prettier — `lint` is currently only `tsc --noEmit` | 🟡 P2 |
+| C10 | **[decision 11]** Split `pdfjs-dist`, `recharts`, and `framer-motion` into dynamic imports — 1,465 KB single chunk against a 200 KB budget (ADR-002) | 🟠 P1 |
+| C11 | **Decide the migration workflow.** Found while generating A3's migration: the Drizzle journal was badly out of date — snapshot `0000` predates the entire M2/M3 schema, so `0001` had to create `users`, `refresh_tokens`, `corrections`, `forum_posts`, `forum_comments`, `salary_submissions` and add `offers.user_id` alongside the dedup change. That means the schema has been evolving via `db:push` while `db:migrate` sat unused. Pick one: either commit to generated migrations (and accept that `0001` is a large catch-up), or drop the migration files and standardise on `push` for pre-launch. Mixing the two is how a deploy discovers a missing column | 🟠 P1 |
 
 ### Phase 0: Evaluation Framework (1 day) — Do This First
 
@@ -584,7 +692,7 @@ These are small, self-contained diffs and independent of the pipeline work. They
 
 | # | Task | Impact |
 |---|------|--------|
-| 1 | Add input sanitization (strip control chars, prompt-injection patterns) | Security |
+| 1 | Add prompt-injection sanitization for AI input (strip control chars, injection patterns). **Note**: general XSS/SQLi sanitization is recovered separately in task -1p from v1's commit `83a456a` — this task is only the AI-prompt-specific layer | Security |
 | 2 | Wire `SalaryService.getStats()` into analysis worker | Real salary data |
 | 3 | Add `responseSchema` to Gemini extraction call | Consistent JSON output |
 | 4 | Add Zod validation on AI output in worker | Catch malformed responses |
@@ -598,7 +706,7 @@ These are small, self-contained diffs and independent of the pipeline work. They
 |---|------|--------|
 | 8 | Build red flag pattern rule engine (includes > regex, 100ms timeout) | Reliable, deterministic detection |
 | 9 | Build Indian tax take-home calculator | Accurate take-home |
-| 10 | Implement weighted scoring rubric (5 components) | Fair, auditable scores |
+| 10 | Implement weighted scoring rubric — **30 flags / 30 salary / 20 benefits / 10 growth / 10 transparency** per decision 7, with redistribution when salary data is absent | Fair, auditable scores |
 | 11 | Add confidence tags to all output fields | User trust signals |
 | 12 | Add standard benefits checklist + missing detection | Complete benefits analysis |
 | 13 | Add salary data caching in Redis (1hr TTL) | Performance |
@@ -642,7 +750,7 @@ These are small, self-contained diffs and independent of the pipeline work. They
 | **Salary Comparison** | AI hallucinated p25/p50/p75/p90 | Crowdsourced DB → fuzzy match → AI fallback with disclaimer |
 | **Red Flags** | AI-only, may hallucinate | Rule engine + AI for nuance, source-tagged |
 | **Take-Home** | AI estimated | Deterministic Indian tax calculator (old + new regime) |
-| **Score** | `70 ± adjustments` | 5-component weighted rubric (35/25/20/10/10), auditable |
+| **Score** | `70 ± adjustments` | 5-component weighted rubric (30/30/20/10/10), auditable, with redistribution when salary data is absent |
 | **Negotiation** | AI script based on fake salary data | AI script grounded in real market data + rule-engine talking points |
 | **Comparison** | Deterministic but AI-sourced inputs | Real scores, dimension-by-dimension, weighted preferences |
 | **Career Path** | `industry: 'Technology'`, hardcoded | Extracted industry + company context + real salary progression |
@@ -657,21 +765,137 @@ These are small, self-contained diffs and independent of the pipeline work. They
 
 ---
 
-## Decisions Needed
+## Decisions Made
 
-### On the security phase (new — blocks everything)
+> Decided 2026-09-09. The three architecturally significant decisions are recorded as ADRs; the rest are in the decision log below.
 
-1. **Guest identity**: real client fingerprint sent as `X-Fingerprint`, or signed guest cookie? The cookie is more robust and removes the spoofing-detection code entirely.
-2. **Read access to offers**: how should a guest poll their own offer without an account? Options: guest-scoped JWT issued on first visit, or a per-offer unguessable access token returned at upload.
-3. **Migration safety**: given the fingerprint collapse already in production-shaped code, do any existing records need auditing for wrongly-migrated offers before the fix ships?
+---
 
-### On the pipeline
+### ADR-001: Guest identity via signed httpOnly cookie
 
-4. **Phase priority**: Phase -1 → Phase 0 (evaluation) → Phase 1 (quick wins), or something else?
-5. **Tax calculator scope**: Indian-only for now, or plan for multi-country?
-6. **Salary data seeding**: Import a public dataset, or start from scratch with crowdsourced data?
-7. **Scoring weights**: Are 35/25/20/10/10 (salary/flags/benefits/growth/transparency) reasonable?
-8. **Role synonym map**: Manual mapping or use AI to normalize role names?
-9. **Progressive UX approach**: SSE, polling with partial results, or simpler approach?
-10. **Frontend scope**: How much UI work in this plan, or keep backend-focused?
-11. **Testing**: there is currently no real test suite. Does Phase 0's eval harness double as the entry point for backend unit tests, or is a test setup its own task?
+**Status**: Accepted
+
+**Context**
+
+Guest identity currently collapses to `MD5(ip + userAgent)` because the frontend never sends the `X-Fingerprint` header the backend expects. This causes a shared 3/day quota per NAT, feature-request votes that count networks instead of people, and — most seriously — `migrateGuestOffers()` handing a stranger's offer letters to a new signup.
+
+Separately, guest **read** access has no authorization: `GET /offers/:id` (returns `rawText`), `/analysis`, and `/report` are readable by anyone holding the ID.
+
+Two options were considered:
+
+- **A — client-generated `X-Fingerprint`**: no backend change, but the value is client-controlled so quota is bypassed by editing one header. A random UUID in `localStorage` is a bearer token in the least-protected storage available; real device fingerprinting adds a dependency and a GDPR consent obligation that a functional cookie does not carry.
+- **B — server-issued signed cookie**: not spoofable, correct per-browser isolation, consent-friendlier.
+
+**Decision**
+
+Adopt **B**. Issue a signed httpOnly cookie on first request via `@fastify/cookie` (new dependency; official plugin). Replace fingerprint-based identity entirely.
+
+Authorization becomes a **single shared guard**, `assertOfferAccess(offer, req)`: pass if `offer.userId === req.userId`, or if `offer.guestId === req.guestId`. This replaces the five hand-rolled `offer.userId !== userId` checks currently duplicated across the negotiation, benefits, comparison, correction, and career services, and fixes the missing `DELETE /offers/:id` check by construction.
+
+Guest migration additionally requires the client to **present the offer IDs it holds**; the server migrates only those, after verifying each belongs to the presenting guest identity. Defence in depth — even with a wrong identity you cannot inherit an offer you cannot name. This requires tracking created offer IDs client-side, which is needed anyway: guests currently persist nothing, so closing the tab loses the analysis permanently.
+
+Rejected: per-offer capability tokens in the URL. URL tokens leak via referrers, logs, and browser history. If link-sharing becomes a product requirement, add it later as an explicit share action with its own short-lived token — not as the default read path.
+
+**Consequences**
+
+*Positive* — identity is server-controlled and unspoofable. Deletes the `spoofingTracker` in-memory Map and the entire spoofing-detection path as dead code. The same cookie primitive resolves the `localStorage` refresh-token issue, so one dependency closes two P1s. Consolidating five duplicate ownership checks into one guard reduces the surface where the next such bug can hide.
+
+*Negative* — one new dependency. Requires CORS `credentials: true` and axios `withCredentials`. If frontend and backend end up cross-site, needs `SameSite=None; Secure`.
+
+*Risks* — cookie clearing resets the quota. **Accepted**: the roadmap already documents this tradeoff ("guest clears cookies and uses a VPN → gets 3 more analyses"), on the grounds that per-analysis cost is low and aggressive blocking penalises legitimate users.
+
+*No data audit required* — see ADR-003.
+
+---
+
+### ADR-002: Non-functional targets
+
+**Status**: Accepted
+
+**Context**
+
+The roadmap specified exactly one number: "upload → results < 30s", with no percentile attached, plus a "99% uptime" aspiration with no named error-budget owner. No RPO/RTO, no frontend budget. The 4-stage pipeline refactor changes latency characteristics, so these need to exist before Stage 1 is built rather than after.
+
+**Decision**
+
+Adopt industry-standard targets for this segment (small-team SaaS, async AI workload, single region):
+
+| Target | Value | Rationale |
+|--------|-------|-----------|
+| Sync API p99 | **400 ms** | Every sync route is a DB read plus at most one queue add |
+| Analysis end-to-end | **p50 20s / p95 45s / p99 90s** | The original flat "< 30s" is unachievable as a p99 once Stage 3 adds a second Gemini round-trip |
+| SLO | **99.5% monthly** on the sync API | Analysis measured on *success rate*, not uptime — the async path has retries and a queue |
+| Error-budget owner | **Project owner** (solo operator) | Recorded so it is not implicitly nobody |
+| RPO | **24 h** (daily Postgres snapshot) | Analyses are regenerable from `rawText` for one Gemini call. Guest data is deliberately ephemeral |
+| RTO | **4 h** | Solo operator; no HA story exists or is warranted at this stage |
+| Frontend LCP | **2500 ms** mobile-4G p75 | Standard Vite-SPA profile |
+| Frontend bundle | **200 KB init + 80 KB/route** gzip | Standard Vite-SPA profile |
+
+**Consequences**
+
+*Positive* — Stage 2's `Promise.all()` and Stage 3's token budget now have a number to trade against. The p95/p99 split makes the pipeline refactor measurable rather than a matter of opinion.
+
+*Negative* — the frontend budget is currently **badly missed**. Measured baseline: **one 1,465 KB JS chunk with zero code splitting**, roughly 7× over the initial-load budget. `pdfjs-dist`, `recharts`, and `framer-motion` are all route-specific and all in the initial chunk; three dynamic imports should recover most of it.
+
+*Risk* — closing the bundle gap is its own task, tracked separately from Phase -1 so it does not block the security fixes.
+
+---
+
+### ADR-003: No data audit required — project has never been deployed
+
+**Status**: Accepted
+
+**Context**
+
+`git log` shows two distinct lives for this repo. **v1** (`021d432` → `e5e6604`) was a React + Prisma app under `offerlens-backend/` and `offerlens-frontend(new)/`, which reached a commit literally titled `3a42d15 "MVP to Production"` and carried Railway/nixpacks deployment config. It was then re-initialized: `ea75e33 "Establish core backend architecture"` and `6b71d35 "Initialize OfferLens project"` began the current Fastify + Drizzle codebase.
+
+This raised the question of whether a live v1 deployment held real user data exposed to the cross-user migration defect.
+
+**Decision**
+
+Confirmed by the project owner: **the project has never been live and holds no real user data.** It remains in development.
+
+All P0/P1 findings in this document are therefore **pre-production defects with zero live exposure**. No data audit, no migration remediation, no disclosure obligation.
+
+**Consequences**
+
+*Positive* — Phase -1 can be sequenced purely on engineering convenience. Breaking changes to guest identity, `textHash` dedup scoping, and the salary contract need no backfill or compatibility shim.
+
+*Negative* — `.github/workflows/ci.yml` is a **stale v1 artifact** and cannot pass: it targets `offerlens-backend` / `offerlens-frontend(new)`, runs `prisma generate` and `prisma migrate deploy` against a Drizzle project, and sets `NEXT_PUBLIC_API_URL` for a Vite app. It needs rewriting or deleting.
+
+*Also inherited from v1* — the rewrite **dropped** several things v1 had. Recover rather than rewrite where practical:
+
+| v1 had | Current state | Action |
+|--------|---------------|--------|
+| Input sanitization (XSS/SQLi patterns), commit `83a456a` | ❌ Absent | **Recover from git** — Phase 1 task 1 lists this as new work; it isn't |
+| ESLint + Prettier config | ❌ Absent (`lint` is just `tsc --noEmit`) | Restore |
+| `.env.production.example`, `.env.staging.example`, `.dockerignore` | ❌ Absent | Restore as needed |
+| nixpacks / Railway config | ❌ Absent (`Dockerfile`, `docker-compose.yml` survive) | Re-add when deployment resumes |
+
+*Resolved question* — v1 commits `ab9702f` and `1743709` disabled rate limiting. The commit message states the reason: *"Temporarily disable rate limiting to allow unrestricted access during development/testing."* It was **not** a production incident and not an API-cost measure. Re-enabling per-route limits in Phase -1e carries no known regression risk.
+
+---
+
+### Decision log
+
+| # | Decision | Call | Rationale |
+|---|----------|------|-----------|
+| 4 | Phase priority | Phase -1 → Phase 0 → Phase 1 | Security and correctness before measurement before accuracy |
+| 5 | Tax calculator scope | **India only** | Everything is already ₹/lakh/PF/HRA/Bangalore. Multi-country is speculative. Keep behind an interface keyed on currency so a second country is additive |
+| 6 | Salary data seeding | **Seed with public data**, tagged `dataSource: 'seeded'` | Forced: the submission path is 404-broken, so organic data is zero. Exclude seeded rows from "based on N verified submissions" copy. **Verify dataset licensing before import** |
+| 7 | Scoring weights | **30 flags / 30 salary / 20 benefits / 10 growth / 10 transparency** | Revised from 35/25/20/10/10. The original put the largest weight on the least reliable input. Rule-engine flags will be the most trustworthy signal. Implement the redistribution the roadmap already specifies for missing salary data — which is currently always |
+| 8 | Role synonym map | **Manual**, ~30 entries | Covers Indian tech titles. An AI call would add latency and non-determinism to what becomes a Redis cache key |
+| 9 | Progressive UX | **Polling with partial results** (Option B) | Polling already exists; SSE adds infrastructure for a cosmetic gain |
+| 10 | Testing strategy | **Separate concerns.** Stand up vitest on the backend during Phase -1; Phase 0's eval harness is a reporting script, not a pass/fail test | Different tools, different cadence. The contract test needs a runner in place anyway |
+
+---
+
+| 11 | Frontend scope | **Minimal.** Fix the broken contracts (B1-B3), split the three heavy imports (C10), touch nothing cosmetic. Progressive UX (decision 9) stays in Phase 3 | Bundle is 7× over budget and three contracts are broken, so some frontend work is unavoidable — but none of it needs to be redesign |
+
+---
+
+### Still open
+
+| # | Question | Blocks |
+|---|----------|--------|
+| 12 | **Public salary dataset choice** — which source, and is its licence compatible with commercial use? | Phase 4 task 23 |

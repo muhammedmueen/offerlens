@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm';
 import { FastifyInstance } from 'fastify';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
+import { assertOfferAccess } from '@/shared/access/offer-access.js';
 import { AnalysisResult } from '@/modules/analysis/analysis.types.js';
 
 export class NegotiationService {
@@ -21,7 +22,7 @@ export class NegotiationService {
         });
 
         if (!offer) throw new AppError(ERROR_CODES.NOT_FOUND, 'Offer not found', 404);
-        if (offer.userId !== userId) throw new AppError(ERROR_CODES.UNAUTHORIZED, 'Not authorized to access this offer', 403);
+        assertOfferAccess(offer, { userId });
         if (offer.status !== 'COMPLETED') {
             throw new AppError(ERROR_CODES.OFFER_NOT_READY, 'Offer analysis must be completed before generating a negotiation script', 400);
         }

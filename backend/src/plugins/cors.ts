@@ -7,7 +7,9 @@ const corsPlugin: FastifyPluginAsync = async (fastify) => {
     await fastify.register(cors, {
         origin: config.CORS_ORIGIN,
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-        allowedHeaders: ['Content-Type', 'Authorization', 'X-Fingerprint', 'X-Request-Id'],
+        // X-Fingerprint removed: guest identity is a signed httpOnly cookie (ADR-001).
+        allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id'],
+        // Required for the guest identity cookie to be sent cross-origin.
         credentials: true,
     });
 };

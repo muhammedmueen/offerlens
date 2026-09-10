@@ -13,6 +13,9 @@ export const envSchema = z.object({
 
     JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
     JWT_REFRESH_SECRET: z.string().min(32, 'JWT_REFRESH_SECRET must be at least 32 characters'),
+    // Signs the guest identity cookie (ADR-001). Falls back to JWT_SECRET when unset so
+    // existing local .env files keep working; set it explicitly in production.
+    COOKIE_SECRET: z.string().min(32, 'COOKIE_SECRET must be at least 32 characters').optional(),
     GOOGLE_CLIENT_ID: z.string().optional(),
     GOOGLE_CLIENT_SECRET: z.string().optional(),
 

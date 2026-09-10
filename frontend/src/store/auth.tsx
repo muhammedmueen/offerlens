@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import api from "@/services/api";
 import { ENDPOINTS } from "@/constants/api";
+import { getGuestOfferIds, clearGuestOffers } from "@/lib/guest-offers";
 
 export interface User {
   id: string;
@@ -57,16 +58,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signup = async (email: string, password: string, name?: string) => {
-    const { data } = await api.post(ENDPOINTS.AUTH_SIGNUP, { email, password, name });
+    // Present the guest offers this browser created so the server can claim them.
+    const offerIds = getGuestOfferIds();
+    const { data } = await api.post(ENDPOINTS.AUTH_SIGNUP, { email, password, name, offerIds });
     localStorage.setItem("access_token", data.data.tokens.accessToken);
     localStorage.setItem("refresh_token", data.data.tokens.refreshToken);
+    clearGuestOffers();
     await fetchUser();
   };
 
   const loginWithGoogle = async (token: string) => {
-    const { data } = await api.post(ENDPOINTS.AUTH_GOOGLE, { accessToken: token });
+    const offerIds = getGuestOfferIds();
+    const { data } = await api.post(ENDPOINTS.AUTH_GOOGLE, { accessToken: token, offerIds });
     localStorage.setItem("access_token", data.data.tokens.accessToken);
     localStorage.setItem("refresh_token", data.data.tokens.refreshToken);
+    clearGuestOffers();
     await fetchUser();
   };
 

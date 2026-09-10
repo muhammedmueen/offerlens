@@ -1,49 +1,89 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
-import { v4 as uuidv4 } from 'uuid';
-import CryptoJS from 'crypto-js';
-import { SPOOFING_THRESHOLD, SPOOFING_WINDOW_MS } from '@/config/constants.js';
+import crypto from 'node:crypto';
+import { config } from '@/config/index.js';
+import { GUEST_COOKIE_NAME, GUEST_COOKIE_MAX_AGE_SECONDS } from '@/config/constants.js';
 
 declare module 'fastify' {
     interface FastifyRequest {
+        /**
+         * Opaque server-issued guest token from the signed `ol_guest` cookie.
+         *
+         * This is NOT a `guests.id`. It is the value stored in `guests.fingerprint`.
+         * Resolve it via `GuestService.findByToken()` when you need the row.
+         *
+         * Kept as the raw token because the rate limiter keys on it directly.
+         */
         guestId?: string;
     }
 }
 
-// In-memory spoofing tracker (IP -> { fingerprints: Set, since: timestamp })
-// In production with multiple instances, this should be in Redis.
-// For Phase 1 single instance, Map is fine.
-const spoofingTracker = new Map<string, { fingerprints: Set<string>; since: number }>();
+const GUEST_TOKEN_PATTERN =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
+export function isValidGuestToken(value: unknown): value is string {
+    return typeof value === 'string' && GUEST_TOKEN_PATTERN.test(value);
+}
+
+/**
+ * Decide the guest token for a request, given whatever survived cookie unsigning.
+ *
+ * Pure so the branch logic is testable without a Fastify instance.
+ *
+ * The shape check matters even though the signature already guarantees authenticity:
+ * a cookie signed under a rotated secret, or left over from an older identity scheme,
+ * should be replaced rather than adopted as an identity.
+ */
+export function resolveGuestToken(unsignedValue: string | null): {
+    token: string;
+    isNew: boolean;
+} {
+    if (isValidGuestToken(unsignedValue)) {
+        return { token: unsignedValue, isNew: false };
+    }
+    return { token: crypto.randomUUID(), isNew: true };
+}
+
+export function guestCookieOptions() {
+    return {
+        signed: true,
+        httpOnly: true,
+        // ponytail: 'lax' covers same-site deployments, including different ports on
+        // localhost and app./api. subdomains of one registrable domain. If the frontend
+        // and backend ever land on genuinely different domains, this must become
+        // sameSite: 'none' + secure: true, and CORS origin must stay explicit.
+        sameSite: 'lax' as const,
+        secure: config.NODE_ENV === 'production',
+        path: '/',
+        maxAge: GUEST_COOKIE_MAX_AGE_SECONDS,
+    };
+}
+
+/**
+ * Establishes guest identity from a signed httpOnly cookie (ADR-001).
+ *
+ * Replaces the previous `MD5(ip + userAgent)` scheme, which collapsed every visitor
+ * behind a NAT into one identity — sharing the upload quota, counting feature-request
+ * votes per network, and letting signup migrate a stranger's offers into a new account.
+ *
+ * Because identity is now server-issued and signed, the spoofing detector this file
+ * used to carry is gone: there is nothing left for a client to forge.
+ */
 export const guestIdentifier = async (request: FastifyRequest, reply: FastifyReply) => {
-    const ip = request.ip;
-    const userAgent = request.headers['user-agent'] || 'unknown';
-    const clientFingerprint = (request.headers['x-fingerprint'] as string) || '';
+    const rawCookie = request.cookies?.[GUEST_COOKIE_NAME];
 
-    // Simple server-side fingerprint fallback
-    const fallbackFingerprint = CryptoJS.MD5(`${ip}-${userAgent}`).toString();
-
-    const fingerprint = clientFingerprint || fallbackFingerprint;
-
-    // Spoofing detection
-    const now = Date.now();
-    let tracker = spoofingTracker.get(ip);
-
-    if (!tracker || now - tracker.since > SPOOFING_WINDOW_MS) {
-        // Reset window
-        tracker = { fingerprints: new Set(), since: now };
-        spoofingTracker.set(ip, tracker);
+    let unsigned: string | null = null;
+    if (rawCookie) {
+        const result = request.unsignCookie(rawCookie);
+        if (result.valid && result.value) {
+            unsigned = result.value;
+        }
     }
 
-    tracker.fingerprints.add(fingerprint);
+    const { token, isNew } = resolveGuestToken(unsigned);
 
-    if (tracker.fingerprints.size > SPOOFING_THRESHOLD) {
-        request.log.warn({ ip, count: tracker.fingerprints.size }, 'Fingerprint spoofing detected');
-        // Fallback to IP-based identity if spoofing detected
-        request.guestId = `ip-${ip.replace(/[^a-zA-Z0-9]/g, '')}`;
-    } else {
-        // Trust the fingerprint
-        request.guestId = fingerprint;
+    if (isNew) {
+        reply.setCookie(GUEST_COOKIE_NAME, token, guestCookieOptions());
     }
 
-    // Pass guestId to next handlers
+    request.guestId = token;
 };

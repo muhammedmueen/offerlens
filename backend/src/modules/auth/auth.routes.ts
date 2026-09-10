@@ -9,11 +9,17 @@ export async function authRoutes(fastify: FastifyInstance) {
     fastify.post('/signup', {
         schema: signupSchema,
         handler: async (req, reply) => {
+            const body = req.body as { offerIds?: string[] };
             const result = await authService.signup(req.body as any);
 
-            // Migrate guest offers if fingerprint present
+            // Claim the guest's offers. Identity comes from the signed cookie; the
+            // client-supplied offerIds only narrow the set (ADR-001).
             if (req.guestId) {
-                const migrated = await authService.migrateGuestOffers(req.guestId, result.user.id);
+                const migrated = await authService.migrateGuestOffers(
+                    req.guestId,
+                    result.user.id,
+                    body.offerIds,
+                );
                 if (migrated > 0) {
                     req.log.info({ userId: result.user.id, migrated }, 'Migrated guest offers to new account');
                 }
@@ -43,11 +49,15 @@ export async function authRoutes(fastify: FastifyInstance) {
     fastify.post('/google', {
         schema: googleAuthSchema,
         handler: async (req, reply) => {
+            const body = req.body as { offerIds?: string[] };
             const result = await authService.googleAuth(req.body as any);
 
-            // Migrate guest offers if fingerprint present
             if (req.guestId) {
-                const migrated = await authService.migrateGuestOffers(req.guestId, result.user.id);
+                const migrated = await authService.migrateGuestOffers(
+                    req.guestId,
+                    result.user.id,
+                    body.offerIds,
+                );
                 if (migrated > 0) {
                     req.log.info({ userId: result.user.id, migrated }, 'Migrated guest offers via Google auth');
                 }

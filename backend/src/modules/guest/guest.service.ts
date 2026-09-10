@@ -7,6 +7,18 @@ import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 
 export class GuestService {
+    /**
+     * Resolve a guest cookie token to its row without creating one.
+     *
+     * `guests.fingerprint` holds the opaque token issued by the guest identity cookie
+     * (ADR-001) — the column name predates the cookie scheme.
+     */
+    async findByToken(token: string) {
+        return db.query.guests.findFirst({
+            where: eq(guests.fingerprint, token),
+        });
+    }
+
     async getOrCreateGuest(identity: GuestIdentity) {
         // Try to find by fingerprint
         let guest = await db.query.guests.findFirst({

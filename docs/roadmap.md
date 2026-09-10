@@ -19,13 +19,18 @@ Job seekers receive offer letters as opaque PDFs with complex compensation struc
 
 **Where things actually are**: code exists for every M1-M3 module. Both packages typecheck clean. There is effectively no test suite (one placeholder frontend test; no backend tests; two manual `.mjs` integration scripts). Milestone 4 is untouched.
 
+**Deployment**: never deployed, no real user data. Everything below is a pre-production defect with **zero live exposure** — no audit, remediation, or disclosure obligation. Breaking changes to guest identity, dedup scoping, and API contracts need no backfill. Decisions and rationale are recorded as ADRs in [PLAN-analysis-pipeline.md](./PLAN-analysis-pipeline.md).
+
 **M1 is not shippable yet.** Three launch-blocking defects, detailed with file citations in [PLAN-analysis-pipeline.md](./PLAN-analysis-pipeline.md):
 
 | Blocker | Effect |
 |---|---|
-| Frontend never sends `X-Fingerprint` | Guest identity collapses to MD5(IP + User-Agent). The 3/day cap is shared across everyone behind a NAT, and **signup can migrate a stranger's offers into a new account** |
+| Frontend never sends `X-Fingerprint` | Guest identity collapses to MD5(IP + User-Agent). The 3/day cap is shared across everyone behind a NAT, feature-request votes count networks rather than people, and **signup can migrate a stranger's offers into a new account** |
 | Missing ownership checks on offer read/delete/report | Any logged-in user can delete any offer; offer text, analysis, and PDF report are readable by ID with no auth |
 | Analysis output is unvalidated | The prompt never contains the schema, `responseSchema` is unset, and there is no Zod validation — malformed AI output is coerced into a confident-looking analysis |
+| Salary Explorer is wired to routes that don't exist | `/salaries` vs `/salary`, plus two payload field mismatches. C1 is non-functional end-to-end and the crowdsourced DB can never fill up |
+
+**Also blocking a fresh clone**: `.env.example` omits the required `JWT_SECRET` / `JWT_REFRESH_SECRET`, so copying it fails env validation at boot. The frontend's default API port (5000) doesn't match the backend's (8000), and the backend's default `CORS_ORIGIN` (3000) doesn't match the Vite dev server (8080).
 
 Ownership **is** correctly enforced in the negotiation, benefits, comparison, correction, and career modules. The gap is specific to the offer/analysis routes, not systemic.
 
@@ -394,6 +399,7 @@ See [implementation_plan.md](file:///C:/Users/Mueen/.gemini/antigravity/brain/42
 >
 > 1. **Shared quota** — an office or campus network gets 3 analyses total, not 3 each.
 > 2. **Cross-user data leak** — `AuthService.migrateGuestOffers(fingerprint, userId)` matches on that fingerprint, so **signup can migrate a stranger's offer letters** (salary, company, name) into a new account. This sits in the primary conversion funnel.
+> 3. **Feature-request voting counts networks, not people** — `feature-request.routes.ts` uses `req.guestId` as the vote dedup key, so the second person behind a NAT cannot vote. This undercuts M7's stated purpose of letting the product evolve on user demand.
 >
 > Separately, the guest **read** path has no authorization at all: `GET /offers/:id` (returns `rawText`), `GET /offers/:id/analysis`, and `GET /offers/:id/report` are readable by anyone holding the ID. The report endpoint was specified above as `GUEST_RESTRICTED`; it is fully open. And because `offers.textHash` is globally `.unique()`, uploading identical text returns *another user's* offer ID, which those open endpoints will then serve.
 >
@@ -559,8 +565,8 @@ See [implementation_plan.md](file:///C:/Users/Mueen/.gemini/antigravity/brain/42
 
 | # | Criterion | Status |
 |---|---|---|
-| 1 | Anonymous salary submissions work with moderation (spam/troll filtering) | ⚠️ Submission + numeric sanity checks work (`SalaryService.validate` rejects <₹1L with >5 YOE, >40 YOE, >₹20Cr) and a 1-per-hour-per-fingerprint check exists. ❌ **No spam/profanity filtering anywhere in the codebase** — `rejected` is only a status enum value, never set by a content filter. No 3σ outlier rejection, no recency weighting |
-| 2 | Salary comparison uses crowdsourced data when 50+ data points exist for a role+city combo | ❌ **`SalaryService.getStats()` is never called by the analysis worker.** Salary comparison is 100% AI-fabricated. The standalone Salary Explorer page does use it, at a threshold of `n < 5` — not 50 |
+| 1 | Anonymous salary submissions work with moderation (spam/troll filtering) | 🔴 **Submission is broken from the UI** — path and payload both mismatch the backend (see C1 note). Server-side numeric sanity checks are sound (`SalaryService.validate` rejects <₹1L with >5 YOE, >40 YOE, >₹20Cr) and a 1-per-hour-per-fingerprint check exists. ❌ **No spam/profanity filtering anywhere in the codebase** — `rejected` is only a status enum value, never set by a content filter. No 3σ outlier rejection, no recency weighting |
+| 2 | Salary comparison uses crowdsourced data when 50+ data points exist for a role+city combo | 🔴 **Unreachable.** `SalaryService.getStats()` is never called by the analysis worker, so offer analysis is 100% AI-fabricated. The Salary Explorer page *would* call it, at a threshold of `n < 5` rather than 50 — but its request 404s, and submissions can't land either, so the data set stays empty by construction |
 | 3 | Career path insights generate meaningful 5-year trajectories | ⚠️ Endpoint works (`test-m3.mjs` passes) but is called with hardcoded `industry: 'Technology'` / `companyType: 'Unknown'`, so output is generic |
 | 4 | Forum supports posting, replying, and viewing with pagination | ✅ Verified by `test-m3.mjs` — create, list by category, detail, and comment all pass. ❌ No content moderation (see 1) |
 
@@ -597,7 +603,19 @@ See [implementation_plan.md](file:///C:/Users/Mueen/.gemini/antigravity/brain/42
 **Data Retention**: Submissions are retained indefinitely but fully anonymized — no linkage to user accounts, IPs, or fingerprints after validation.
 
 > [!CAUTION]
-> **Status: the anonymity guarantee is not implemented.** `salary_submissions` has a `user_id` column that is a **live foreign key to `users.id`**, plus a `fingerprint` column. Both are written on submit and never scrubbed. "No PII linkage" and "fully anonymized after validation" are currently false.
+> **Status: this feature is non-functional end-to-end, and the anonymity guarantee is not implemented.**
+>
+> **The UI cannot submit or read salary data at all.** Three independent frontend↔backend mismatches:
+>
+> | Layer | Frontend sends | Backend expects | Result |
+> |---|---|---|---|
+> | Path | `POST /salaries`, `GET /salaries/stats` | `POST /salary`, `GET /salary` | **404** |
+> | Field | `annualCtc` | `ctc` | NOT NULL violation |
+> | Field | *(omitted)* | `companyType` (`.notNull()`) | NOT NULL violation |
+>
+> So the crowdsourced DB has no way to fill up, which means the "50+ data points" happy path below can never trigger regardless of traffic.
+>
+> **The anonymity guarantee is false.** `salary_submissions` has a `user_id` column that is a **live foreign key to `users.id`**, plus a `fingerprint` column. Both are written on submit and never scrubbed. "No PII linkage" and "fully anonymized after validation" do not hold.
 >
 > Also on this section:
 > - The **50-data-point threshold does not exist**. `SalaryService.getStats()` uses `data.length < 5`, and the analysis worker never calls it, so crowdsourced data never reaches an offer analysis regardless of volume.
@@ -752,9 +770,22 @@ flowchart TB
 
 ## Success Metrics
 
+> [!NOTE]
+> **Non-functional targets are now set** — see ADR-002 in [PLAN-analysis-pipeline.md](./PLAN-analysis-pipeline.md). The flat "< 30s" below is superseded: it was unachievable as a p99 once the pipeline gains a second AI round-trip.
+>
+> | Target | Value |
+> |---|---|
+> | Sync API p99 | 400 ms |
+> | Analysis end-to-end | p50 20s / p95 45s / p99 90s |
+> | SLO | 99.5% monthly on sync API; analysis measured on success rate |
+> | Error-budget owner | Project owner |
+> | RPO / RTO | 24 h / 4 h |
+> | Frontend LCP | 2500 ms mobile-4G p75 |
+> | Frontend bundle | 200 KB init + 80 KB/route gzip — **currently 1,465 KB single chunk, ~7× over** |
+
 | Metric | Target (M1) | Target (M2) | Target (M4) |
 |---|---|---|---|
-| Upload → results latency | < 30s | < 25s | < 15s |
+| Upload → results latency | < 30s *(superseded — see above)* | < 25s | < 15s |
 | Analysis accuracy (correction rate) | < 30% | < 20% | < 10% |
 | Uptime | 99% | 99.5% | 99.9% |
 | Daily active analyses | 10+ | 50+ | 500+ |
@@ -769,9 +800,9 @@ flowchart TB
 
 | Was logged as | What actually happened | Action |
 |---|---|---|
-| **Guest fingerprint spoofing** — "Low likelihood, mitigated by IP fallback" | Inverted. Nobody needs to spoof: the header is never sent, so **everyone** already shares one identity. The IP-fallback mitigation *is* the failure mode, and the 5-fingerprint detector can never fire | Phase -1a |
+| **Guest fingerprint spoofing** — "Low likelihood, mitigated by IP fallback" | Inverted. Nobody needs to spoof: the header is never sent, so **everyone** already shares one identity. The IP-fallback mitigation *is* the failure mode, and the 5-fingerprint detector can never fire. ✅ **Resolved by ADR-001** — signed httpOnly cookie replaces fingerprinting entirely and deletes the detector as dead code | Phase -1a |
 | **AI hallucination** — "mitigated by hallucination guard" | The red-flag guard works, but it was the *narrow* case. Salary benchmarks (`p25/p50/p75/p90`) are fabricated wholesale with no guard, and the prompt never contains the schema | Phase 1 |
-| **GCP cost overrun** — "mitigated by rate limiting" | Per-route rate limiting was never registered. `POST /offers/extract` (Gemini) and `/extract-file` (Vision) are unauthenticated behind a single 100/min global limit | Phase -1e, -1f |
+| **GCP cost overrun** — "mitigated by rate limiting" | Per-route rate limiting was never registered. `POST /offers/extract` (Gemini) and `/extract-file` (Vision) are unauthenticated behind a single 100/min global limit. **Root cause found**: v1 commit `ab9702f` disabled these deliberately — *"to allow unrestricted access during development/testing"* — and they were never restored. No incident, so re-enabling is safe | Phase -1e, -1f |
 | **Cloud Vision OCR accuracy** — "mitigated by showing confidence score" | The confidence score never reaches the UI: `\|\| 0.85` masks a real `0`, low confidence hard-fails instead of warning, and `lowConfidence` is hardcoded `false` | Phase 3, 21d |
 | **Low crowdsourced salary data** — "mitigated by AI fallback with source label" | Moot — the crowdsourced path is never consulted during analysis at all, so it is *always* the AI fallback, and the `dataSource` label is not surfaced | Phase 1 |
 
@@ -780,6 +811,11 @@ flowchart TB
 | Risk | Impact | Likelihood | Mitigation |
 |---|---|---|---|
 | **No test suite** | Any refactor silently breaks behaviour; the pipeline rewrite is unverifiable | High | Phase 0 eval corpus + field-level accuracy harness, before Phase 1 |
+| **Frontend↔backend contract drift** | Already realized once (Salary Explorer, 404 + 2 field mismatches) and there is a second latent case (`OFFER_ANALYZE` points at a nonexistent route). Nothing detects it | High | One contract test asserting every `ENDPOINTS` entry resolves to a registered route |
+| **Stale verification artifacts** | `test-m3-results.txt` records `/salaries` → 200 against routes that no longer exist, so a passing-looking log masks a broken feature | High | Version the integration scripts, or replace them with real tests |
+| **Divergent enum vocabularies** | Experience level is defined three ways (frontend hardcodes 8 values, DB seed and Gemini prompt use a different 6). AI-extracted values won't match the dropdown | Medium | Single source of truth = DB seed; bind the form to `GET /metadata/experience-levels` |
+| **Local setup can't work from `.env.example`** | New contributors hit a boot failure; three config values need manual overrides | Medium | Fix `.env.example`, align port and CORS defaults, add `frontend/.env.example` |
+| **`frontend/.env` is committed** | No `.env.example` counterpart, and the pattern is inverted — harmless today (OAuth client IDs are public by design) but the wrong habit for the file that will hold secrets later | Low | Gitignore it, add `frontend/.env.example` |
 | **Privacy policy overstates deletion** | Compliance exposure — the doc promises post-OCR file deletion and a data-export endpoint, neither of which exist | Medium | Implement, or correct the wording before publishing a policy |
 | **Salary submissions are not anonymous** | Contradicts a stated privacy guarantee; `userId` is a live FK to `users.id` | Medium | Add a scrubbing step post-validation, or restate the policy |
 | **Phantom dependency** — `uuid` imported but undeclared | Build breaks if `bullmq` drops it or hoisting changes | Low | Declare it, or use `crypto.randomUUID()` |

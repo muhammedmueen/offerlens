@@ -165,21 +165,35 @@ export class AuthService {
         await db.delete(refreshTokens).where(eq(refreshTokens.tokenHash, tokenHash));
     }
 
-    async migrateGuestOffers(fingerprint: string, userId: string): Promise<number> {
+    /**
+     * Claim a guest's offers into a new account (ADR-001).
+     *
+     * `guestToken` is the value of the signed guest cookie. Because that cookie is
+     * server-issued and signed, matching on it is now trustworthy — previously it was
+     * `MD5(ip + userAgent)`, so signing up could migrate a stranger's offers.
+     *
+     * `claimedOfferIds` is optional defence in depth. When the client supplies the IDs
+     * it holds, migration is restricted to that set; every ID is still verified against
+     * the guest row, so a forged list grants nothing. When omitted — a returning guest
+     * whose localStorage was cleared but whose cookie survived — all of that guest's
+     * offers are migrated, which is safe for the same reason.
+     */
+    async migrateGuestOffers(
+        guestToken: string,
+        userId: string,
+        claimedOfferIds?: string[],
+    ): Promise<number> {
         const now = new Date();
 
-        // Find guest offers that haven't expired and belong to this fingerprint
-        // We'll use Drizzle query builder for this as it's cleaner and safer
-
-        // Drizzle approach: find the guest, then update their offers
         const { guests } = await import('@/db/schema/guests.js');
 
         const guest = await db.query.guests.findFirst({
-            where: eq(guests.fingerprint, fingerprint),
+            where: eq(guests.fingerprint, guestToken),
         });
 
         if (!guest) return 0;
 
+        // Ownership is enforced here, in the query, not against the client's list.
         const guestOffers = await db.query.offers.findMany({
             where: and(
                 eq(offers.guestId, guest.id),
@@ -187,9 +201,13 @@ export class AuthService {
             ),
         });
 
-        // Filter to non-expired only
+        const claimed = claimedOfferIds && claimedOfferIds.length > 0
+            ? new Set(claimedOfferIds)
+            : null;
+
         const validOffers = guestOffers.filter(o =>
-            !o.expiresAt || o.expiresAt > now
+            (!o.expiresAt || o.expiresAt > now) &&
+            (claimed === null || claimed.has(o.id))
         );
 
         if (validOffers.length === 0) return 0;

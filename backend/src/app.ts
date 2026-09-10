@@ -3,7 +3,6 @@ import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod
 import { registerPlugins } from '@/plugins/index.js';
 import { errorHandler } from '@/middleware/error-handler.js';
 import { registerRateLimiter } from '@/middleware/rate-limiter.js';
-import { guestIdentifier } from '@/middleware/guest-identifier.js';
 import { requestLogger } from '@/middleware/request-logger.js';
 import { offerRoutes } from '@/modules/offer/offer.routes.js';
 import { analysisRoutes } from '@/modules/analysis/analysis.routes.js';
@@ -38,8 +37,9 @@ export function buildApp() {
 
     // Middleware
     app.setErrorHandler(errorHandler);
+    // Guest identity is established by the guest-identity plugin inside registerPlugins
+    // above, which loads before this so keyGenerator can read request.guestId.
     app.register(registerRateLimiter);
-    app.addHook('onRequest', guestIdentifier);
     app.addHook('onRequest', authenticate); // JWT Auth
     app.addHook('onRequest', requestLogger);
 
