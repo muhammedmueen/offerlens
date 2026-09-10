@@ -4,7 +4,48 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { config } from '@/config/index.js';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
-import { GEMINI_FALLBACK_MODELS } from '@/config/constants.js';
+import { GEMINI_FALLBACK_MODELS, DEFAULT_GEMINI_MODEL } from '@/config/constants.js';
+
+/**
+ * Is this error worth retrying on a different model?
+ *
+ * Covers three server-side conditions, all meaning "this model can't serve you right
+ * now" rather than "your request is wrong":
+ *
+ *  - 429 / quota / RESOURCE_EXHAUSTED — rate limited
+ *  - 503 / UNAVAILABLE / overloaded   — model temporarily saturated
+ *  - 500 / INTERNAL                   — transient server fault
+ *
+ * The 503 case was the bug: it was absent, so an overloaded model threw straight out
+ * of `withFallback` and the remaining healthy models were never tried. Observed live —
+ * the then-default `gemini-flash-latest` returned 503 while two configured fallbacks
+ * answered normally, which failed every analysis.
+ *
+ * Deliberately NOT retried: 400 (malformed request) and JSON.parse failures. Those are
+ * our bug, not the model's, and retrying the same input elsewhere just burns quota.
+ *
+ * Exported (rather than a private method) so it can be tested without an API key.
+ */
+export function isRetryableModelError(error: unknown): boolean {
+    const err = error as { status?: number; message?: unknown } | null | undefined;
+    const status = err?.status;
+    const message = String(err?.message ?? '').toLowerCase();
+
+    if (status === 429 || status === 503 || status === 500) return true;
+
+    return [
+        '429',
+        'quota',
+        'rate limit',
+        'resource_exhausted',
+        '503',
+        'unavailable',
+        'overloaded',
+        'currently experiencing',
+        '500',
+        'internal',
+    ].some((needle) => message.includes(needle));
+}
 
 export class GeminiAiProvider implements AiProvider {
     private genAI: GoogleGenerativeAI;
@@ -17,19 +58,9 @@ export class GeminiAiProvider implements AiProvider {
     }
 
     // ─── Shared fallback helper ───────────────────────────────────────
-    private isRateLimitError(error: any): boolean {
-        return (
-            error.status === 429 ||
-            error.message?.includes('429') ||
-            error.message?.includes('quota') ||
-            error.message?.includes('rate limit') ||
-            error.message?.includes('RESOURCE_EXHAUSTED')
-        );
-    }
-
     /**
      * Runs `fn` with the requested model first, then falls back through
-     * GEMINI_FALLBACK_MODELS on 429 / quota errors.
+     * GEMINI_FALLBACK_MODELS on transient server-side errors.
      */
     private async withFallback<T>(
         requestedModel: string,
@@ -55,13 +86,14 @@ export class GeminiAiProvider implements AiProvider {
                 return { result, modelUsed: modelName };
             } catch (error: any) {
                 lastError = error;
-                if (this.isRateLimitError(error)) {
+                if (isRetryableModelError(error)) {
                     console.warn(
-                        `[Gemini AI] ⚠️ Model "${modelName}" hit rate limit during ${label}, trying next...`,
+                        `[Gemini AI] ⚠️ Model "${modelName}" unavailable during ${label} ` +
+                        `(${error?.status ?? 'unknown status'}), trying next...`,
                     );
                     continue; // try next model
                 }
-                // Non-rate-limit error — don't fallback, throw immediately
+                // Our fault, not the model's (400, bad JSON) — retrying won't help.
                 throw error;
             }
         }
@@ -70,15 +102,15 @@ export class GeminiAiProvider implements AiProvider {
         console.error(`[Gemini AI] ❌ All models exhausted during ${label}`);
         throw new AppError(
             ERROR_CODES.INTERNAL_ERROR,
-            'All AI models are currently rate-limited. Please wait a few minutes and try again.',
-            429,
+            'All AI models are currently busy. Please wait a few minutes and try again.',
+            503,
             lastError,
         );
     }
 
     // ─── Public API ───────────────────────────────────────────────────
     async analyzeOffer(text: string, context?: OfferContext, model?: string): Promise<AnalysisResult> {
-        const requestedModel = model || 'gemini-flash-latest';
+        const requestedModel = model || DEFAULT_GEMINI_MODEL;
         console.log(`[Gemini AI] Starting analysis with model: ${requestedModel}`);
 
         try {

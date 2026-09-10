@@ -29,6 +29,84 @@ This section records what was confirmed by reading and running the code, not inf
 
 **Frontend bundle baseline**: one **1,465 KB** JS chunk, zero code splitting. Target is 200 KB init + 80 KB/route (ADR-002).
 
+---
+
+## Runtime Verification (2026-09-10)
+
+First time this codebase has been run. Postgres 16 + Redis 7 via the repo's `docker-compose.yml`, real Gemini and Cloud Vision providers, `test-security.mjs` driving the API.
+
+### ✅ Phase -1A verified live — 20/20
+
+`node test-security.mjs` passes every assertion. Each one was previously reasoning only:
+
+| Claim | Result |
+|-------|--------|
+| `ol_guest` cookie issued on first request, stable across requests | ✅ |
+| A second browser gets a **different** identity | ✅ (the original bug) |
+| Owning guest can read its own offer | ✅ |
+| A different guest gets **404** on offer, analysis, and PDF report | ✅ |
+| A caller with no cookie gets **404** | ✅ |
+| Identical text from another guest gets its **own** offer ID | ✅ (A3) |
+| Guest offer claimed into an account on signup | ✅ |
+| The old guest cookie can **no longer** read a claimed offer | ✅ (the `!offer.userId` condition) |
+| Another logged-in user **cannot** delete someone's offer | ✅ (was: anyone could) |
+| The owner still can | ✅ |
+
+Schema confirmed against the live DB: the global `text_hash` unique constraint is gone, both composite indexes exist. **`db:migrate` from empty produces a correct schema**, so the migration chain does work — one input to the C11 decision.
+
+Also verified: the Phase 1 task 0 model fix works. Workers ran on `gemini-2.5-flash` with no 503 and no fallback needed.
+
+### 🔴 The analysis pipeline is worse than the audit inferred
+
+The audit said output was "unvalidated". Running it shows the output is **entirely discarded**, and the failure is silent.
+
+A deliberately red-flag-heavy offer letter (non-compete, IP assignment, termination-without-notice, 90-day notice) produced:
+
+```
+score = 70   score_label = 'fair'   scoring_method = 'standard'
+extracted_data = {}          red_flags = []      red_flags_discarded = 0
+ai_metadata = { modelUsed: 'unknown', processingNote: 'Metadata missing from AI response' }
+```
+
+**Gemini was not at fault.** Replaying the app's exact `buildPrompt()` shows the model extracted everything correctly — company name, role, location, ₹24,00,000 CTC, and it *did* catch the non-compete with a severity and a recommendation. It simply returned its own key names:
+
+| Gemini returned | Code reads (`normalizeAiResult`) |
+|---|---|
+| `company_name`, `role`, `location` | `extractedData` |
+| `red_flags` | `redFlags` |
+| `salary` | `salaryComparison` |
+| `summary` | *(nothing reads this)* |
+| — | `negotiationSuggestions`, `takeHome`, `metadata` — all absent |
+
+Only `benefits` matched, by luck of the name. Everything else fell through to `|| {}` / `|| []`.
+
+This is the direct consequence of the prompt never containing the schema. **Confirms Phase 1 tasks 3-5 as the highest-value work in this plan**: the extraction quality is already there and is being thrown away.
+
+Worse than a crash: the offer is marked `COMPLETED` and the user is shown a confident **70/100 "fair"** derived from nothing at all. The score is the `70` baseline with no adjustment, because there were no flags and no percentile to adjust with.
+
+### 🔴 Two more contract breaks on the results path
+
+Found while tracing why the score read `n/a`:
+
+**The API never returns the score.** The worker computes and stores `score` and `scoreLabel`, but `AnalysisService.getAnalysis()` returns only `extractedData`, `redFlags`, `salaryComparison`, `negotiationSuggestions`, `benefits`, `takeHome`, `metadata`. The product's headline number never leaves the database.
+
+**`ResultsPage` reads a third, different shape.** There is no adapter — `const a = analysis` is the raw response. It reads flat fields the API does not send:
+
+| ResultsPage reads | API actually sends | Effect |
+|---|---|---|
+| `a.score`, `a.scoreMethod` | *(not returned)* | Gauge renders **0** |
+| `a.company`, `a.role`, `a.location` | nested in `extractedData` | Header shows literal "Company" / "Role" |
+| `a.negotiationTips` | `negotiationSuggestions` | `a.negotiationTips.map(...)` is **unguarded → the page throws** |
+| `a.redFlags`, `a.benefits` | same names | ✅ work |
+
+So the main results screen currently cannot render a completed analysis. Add to **-1B** as B6 — same bug class as B1/B2, and the contract test in B4 would not catch it because it only checks route existence, not response shape.
+
+### 🟡 Smaller runtime notes
+
+- `POST /offers` is **multipart-only**. The route walks `req.body` for `{ type: 'file' | 'field' }` objects, so a JSON client gets a misleading `"File or text is required"` 400. Worth accepting JSON or documenting it.
+- `db:push` **hangs** on an interactive confirmation because `drizzle.config.ts` sets `strict: true`. Use `db:migrate` in scripts, or pass `--force`.
+- `docker-compose.yml` warns that the `version:` attribute is obsolete. Harmless, one line to delete.
+
 **Already implemented from this plan**: the red-flag hallucination guard is live in `analysis.worker.ts` — flags whose `matchedText` is absent from the raw text are discarded and counted in `redFlagsDiscarded`. Nothing else below has been started.
 
 ---
@@ -52,6 +130,8 @@ graph LR
 | `responseSchema` not set | `gemini.ai.ts` sets `responseMimeType: 'application/json'` only | The sole structural guarantee is "it is JSON" |
 | No validation of AI output | `normalizeAiResult()` in `analysis.worker.ts` coerces whatever arrives into shape with defaults. No Zod anywhere on the response path | A garbage response becomes a confident-looking analysis |
 | No retry on malformed JSON | `JSON.parse` failure is not a rate-limit error, so `withFallback()` rethrows immediately | Contradicts roadmap's "retry once with a stricter prompt" |
+| **Fallback chain never engages on 503** | `isRateLimitError()` matches only 429 / quota / rate limit / RESOURCE_EXHAUSTED. Google returns **503 Service Unavailable** when a model is overloaded, so `withFallback()` throws instead of trying the next model | **Verified live 2026-09-09**: the default model `gemini-flash-latest` returned 503 while two configured fallbacks answered fine. Every analysis fails outright whenever the default is busy — the exact scenario the fallback list exists for |
+| **Half the fallback model list is invalid** | 3 of the 6 entries in `GEMINI_FALLBACK_MODELS` are unusable | **Verified live**: `gemini-2.0-flash` and `gemini-2.0-flash-lite` are absent from ListModels; `gemini-2.5-flash-lite` is listed but 404s on `generateContent`. Only `gemini-2.5-flash` and `gemini-flash-lite-latest` actually work, plus `gemini-flash-latest` when not overloaded |
 | Salary data hallucinated | `salaryComparison` always `ai_estimated` | Users make career decisions on fabricated numbers |
 | Crowdsourced salary DB exists but is never used | `SalaryService.getStats()` is functional, never called by the worker. Threshold is `data.length < 5`, not 10 | Real data wasted |
 | Score formula is trivial | `70 base ± flags ± percentile`, `analysis.worker.ts` | Doesn't reflect actual offer quality |
@@ -653,7 +733,9 @@ Three currently-broken or latent frontend↔backend mismatches, plus the test th
 | B1 | **Salary contract**: align the path (`/salaries` vs `/salary`), rename `annualCtc`→`ctc`, send `companyType`. Without this the crowdsourced DB can never fill up, which blocks Stage 2a from ever having data | 🔴 P0 |
 | B2 | Collapse the three experience-level vocabularies down to the DB seed; bind the upload form to `GET /metadata/experience-levels` | 🟠 P1 |
 | B3 | Delete the dead `OFFER_ANALYZE` endpoint constant | 🟡 P2 |
-| B4 | **Contract test**: assert every `ENDPOINTS` entry resolves to a registered Fastify route | 🟠 P1 |
+| B4 | **Contract test**: assert every `ENDPOINTS` entry resolves to a registered Fastify route. Note this checks *paths only* — it would not have caught B6, where the path is right and the response shape is wrong. Consider asserting response keys too | 🟠 P1 |
+| B5 | **Update `test-m2.mjs` / `test-m3.mjs` for cookie identity.** Both send `x-fingerprint` and keep no cookie jar, so after A1 every request looks like a brand-new guest. Guest read-back and signup migration will fail in these scripts — a harness problem, not an app problem. Also fix the stale `/salaries` paths and the 200-vs-201 assertion. **Partly superseded**: `test-security.mjs` now covers the guest/auth paths properly with a cookie jar and can be copied from | 🟠 P1 |
+| B6 | **Fix the results-path contract** (found live, see Runtime Verification). Return `score` + `scoreLabel` from `AnalysisService.getAnalysis()`, and reconcile `ResultsPage`'s flat field reads (`a.company`, `a.role`, `a.location`, `a.negotiationTips`) against the API's nested `extractedData` and `negotiationSuggestions`. `a.negotiationTips.map()` is unguarded, so the main results screen currently throws on a completed analysis | 🔴 P0 |
 
 > [!TIP]
 > B1, B2, and B3 are all the same bug class — `constants/api.ts` and the route definitions drifted with nothing watching. B4 would have caught all three and is cheaper than fixing them one at a time as they surface. That is why it is in this group rather than deferred.
@@ -692,6 +774,7 @@ No user-visible behaviour change. Safe to defer past -1A/-1B if needed.
 
 | # | Task | Impact |
 |---|------|--------|
+| 0 | **Fix `isRateLimitError` to treat 503/UNAVAILABLE (and 500) as retryable, and prune the 3 dead entries from `GEMINI_FALLBACK_MODELS`.** Verified live: the default model 503s while working fallbacks sit unused, so analysis fails whenever the default is busy. Smallest high-impact fix in the whole plan — do it first | Analysis stops failing on transient overload |
 | 1 | Add prompt-injection sanitization for AI input (strip control chars, injection patterns). **Note**: general XSS/SQLi sanitization is recovered separately in task -1p from v1's commit `83a456a` — this task is only the AI-prompt-specific layer | Security |
 | 2 | Wire `SalaryService.getStats()` into analysis worker | Real salary data |
 | 3 | Add `responseSchema` to Gemini extraction call | Consistent JSON output |

@@ -5,6 +5,7 @@ import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 import { requireRegistered } from '@/middleware/authenticate.js';
 import { loadAuthorizedOffer } from '@/shared/access/offer-guard.js';
+import { DEFAULT_GEMINI_MODEL } from '@/config/constants.js';
 
 export async function offerRoutes(fastify: FastifyInstance) {
     const guestService = new GuestService();
@@ -66,7 +67,7 @@ export async function offerRoutes(fastify: FastifyInstance) {
             experienceLevel: fields.experienceLevel,
             city: fields.city,
             currentCtc: fields.currentCtc ? Number(fields.currentCtc) : undefined,
-            model: fields.model || 'gemini-flash-latest',
+            model: fields.model || DEFAULT_GEMINI_MODEL,
         };
 
         console.log('[Offer Routes] Creating offer with input:', {

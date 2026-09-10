@@ -16,6 +16,7 @@ import { MockOcrProvider } from '@/providers/ocr/mock.ocr.js';
 import { GeminiAiProvider } from '@/providers/ai/gemini.ai.js';
 import { MockAiProvider } from '@/providers/ai/mock.ai.js';
 import { config } from '@/config/index.js';
+import { DEFAULT_GEMINI_MODEL } from '@/config/constants.js';
 import { resolveDedupScope } from './offer.dedup.js';
 
 export class OfferService {
@@ -137,7 +138,7 @@ export class OfferService {
             await ocrQueue.add('process-text', {
                 offerId,
                 text: input.text,
-                model: input.model || 'gemini-flash-latest',
+                model: input.model || DEFAULT_GEMINI_MODEL,
             });
             console.log('[Offer Service] ✅ Job added to queue successfully');
         } else {
@@ -146,7 +147,7 @@ export class OfferService {
             await ocrQueue.add('process-ocr', {
                 offerId,
                 storedPath,
-                model: input.model || 'gemini-flash-latest',
+                model: input.model || DEFAULT_GEMINI_MODEL,
             });
             console.log('[Offer Service] ✅ Job added to queue successfully');
         }

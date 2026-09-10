@@ -8,7 +8,7 @@ import { GoogleVisionOcrProvider } from '@/providers/ocr/google-vision.ocr.js';
 import { MockOcrProvider } from '@/providers/ocr/mock.ocr.js';
 import { config } from '@/config/index.js';
 import { analysisQueue } from '@/queue/queues.js';
-import { OCR_MIN_CONFIDENCE } from '@/config/constants.js';
+import { OCR_MIN_CONFIDENCE, DEFAULT_GEMINI_MODEL } from '@/config/constants.js';
 
 // Setup provider (should be injected or singleton, but new instance per worker process is fine)
 const ocrProvider: OcrProvider = config.GOOGLE_CLOUD_CREDENTIALS
@@ -72,10 +72,10 @@ export const ocrWorker = new Worker(
             await analysisQueue.add('analyze-offer', {
                 offerId,
                 text,
-                model: model || 'gemini-flash-latest',
+                model: model || DEFAULT_GEMINI_MODEL,
             });
 
-            console.log(`[OCR] Job ${job.id} completed. Enqueued analysis with model: ${model || 'gemini-flash-latest'}`);
+            console.log(`[OCR] Job ${job.id} completed. Enqueued analysis with model: ${model || DEFAULT_GEMINI_MODEL}`);
         } catch (error: any) {
             console.error(`[OCR] Job ${job.id} failed:`, error);
             

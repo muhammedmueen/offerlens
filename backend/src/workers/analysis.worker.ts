@@ -8,6 +8,7 @@ import { AiProvider } from '@/providers/ai/ai.provider.js';
 import { GeminiAiProvider } from '@/providers/ai/gemini.ai.js';
 import { MockAiProvider } from '@/providers/ai/mock.ai.js';
 import { config } from '@/config/index.js';
+import { DEFAULT_GEMINI_MODEL } from '@/config/constants.js';
 import { AnalysisResult } from '@/modules/analysis/analysis.types.js';
 
 const aiProvider: AiProvider = config.GEMINI_API_KEY
@@ -89,7 +90,7 @@ export const analysisWorker = new Worker(
 
             // AI Analysis - use model from job data
             const context = offer.userContext as any; // Cast to OfferContext
-            const rawResult = await aiProvider.analyzeOffer(text, context, model || 'gemini-flash-latest');
+            const rawResult = await aiProvider.analyzeOffer(text, context, model || DEFAULT_GEMINI_MODEL);
 
             // Normalize AI result — models may return varying structures
             const result = normalizeAiResult(rawResult);

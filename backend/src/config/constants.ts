@@ -50,12 +50,30 @@ export const RATE_LIMITS = {
 
 export const APP_VERSION = '1.0.0';
 
-// Ordered by preference — used for auto-fallback on 429 rate limits
+// Ordered by preference — used for auto-fallback on transient model errors
+// (429 rate limit, 503 overloaded, 500 internal).
+//
+// Verified live 2026-09-09 against the ListModels API and real generateContent calls.
+// Removed as unusable:
+//   gemini-2.0-flash        — not present in ListModels
+//   gemini-2.0-flash-lite   — not present in ListModels
+//   gemini-2.5-flash-lite   — listed by ListModels but 404s on generateContent
+//
+// Keep this list verified. A dead entry silently shortens the fallback chain.
 export const GEMINI_FALLBACK_MODELS = [
     'gemini-2.5-flash',
-    'gemini-2.0-flash',
     'gemini-flash-latest',
-    'gemini-2.5-flash-lite',
-    'gemini-2.0-flash-lite',
     'gemini-flash-lite-latest',
 ] as const;
+
+/**
+ * Default model when the caller doesn't pick one.
+ *
+ * Was `gemini-flash-latest`, which is a moving alias and was returning 503 when this
+ * was checked. `gemini-2.5-flash` is a pinned version that answered reliably, so it is
+ * a better default; the alias stays in the fallback chain above.
+ *
+ * Previously this string was duplicated across 8 call sites in routes, services and
+ * both workers.
+ */
+export const DEFAULT_GEMINI_MODEL: string = GEMINI_FALLBACK_MODELS[0];
