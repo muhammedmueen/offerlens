@@ -13,6 +13,24 @@ Job seekers receive offer letters as opaque PDFs with complex compensation struc
 
 ---
 
+## Implementation Status (verified 2026-09-09)
+
+> This roadmap is the **product intent**. The sections below were written before implementation and describe target behaviour. Where the code diverges, a `> [!NOTE] Status:` callout has been added inline. Nothing else in this document has been rewritten — the specs still stand as the goal.
+
+**Where things actually are**: code exists for every M1-M3 module. Both packages typecheck clean. There is effectively no test suite (one placeholder frontend test; no backend tests; two manual `.mjs` integration scripts). Milestone 4 is untouched.
+
+**M1 is not shippable yet.** Three launch-blocking defects, detailed with file citations in [PLAN-analysis-pipeline.md](./PLAN-analysis-pipeline.md):
+
+| Blocker | Effect |
+|---|---|
+| Frontend never sends `X-Fingerprint` | Guest identity collapses to MD5(IP + User-Agent). The 3/day cap is shared across everyone behind a NAT, and **signup can migrate a stranger's offers into a new account** |
+| Missing ownership checks on offer read/delete/report | Any logged-in user can delete any offer; offer text, analysis, and PDF report are readable by ID with no auth |
+| Analysis output is unvalidated | The prompt never contains the schema, `responseSchema` is unset, and there is no Zod validation — malformed AI output is coerced into a confident-looking analysis |
+
+Ownership **is** correctly enforced in the negotiation, benefits, comparison, correction, and career modules. The gap is specific to the offer/analysis routes, not systemic.
+
+---
+
 ## MoSCoW Feature Map
 
 ### 🔴 MUST — Critical for Launch
@@ -132,12 +150,18 @@ gantt
 > **Goal**: A guest user can upload a PDF on the frontend, receive a complete analysis with a score within 30s, and is rate-limited after 3/day.
 
 ### Definition of Done
-- [ ] Guest uploads a PDF → sees complete analysis on results page within 30s
-- [ ] All 16 frontend API endpoints return valid responses
-- [ ] Rate limiting blocks 4th guest upload with upgrade prompt
-- [ ] Guest analysis auto-expires after 24h
-- [ ] All integration tests pass, zero unhandled edge cases
-- [ ] Error states show user-friendly messages (never raw stack traces)
+
+| # | Criterion | Status |
+|---|---|---|
+| 1 | Guest uploads a PDF → sees complete analysis on results page within 30s | ⚠️ Works for **text-based PDFs** (extracted client-side via pdf.js). **Scanned PDFs fail** — the Vision fallback calls `textDetection()`, which does not accept PDF input |
+| 2 | All 16 frontend API endpoints return valid responses | ⚠️ Endpoints exist; 4 have never been exercised end-to-end (see M2 DoD) |
+| 3 | Rate limiting blocks 4th guest upload with upgrade prompt | ⚠️ The 3/day cap is enforced, but keyed on a **shared** identity — it blocks the 4th upload *from that IP+UA*, not from that user |
+| 4 | Guest analysis auto-expires after 24h | ✅ Verified. Hourly `cleanup.worker.ts`; `migrateGuestOffers` correctly nulls `expiresAt` so migrated offers survive |
+| 5 | All integration tests pass, zero unhandled edge cases | ❌ No test suite exists. Manual scripts only, with known failures |
+| 6 | Error states show user-friendly messages (never raw stack traces) | ✅ Central `errorHandler` + `AppError` with typed codes; failure reasons are classified in both workers |
+
+> [!IMPORTANT]
+> Criterion 3 is the one to read carefully. Guest rate limiting is not broken in the "limit doesn't apply" sense — it's broken in the "limit applies to the wrong subject" sense, which is also what causes the offer-migration leak. Both trace to the same missing `X-Fingerprint` header.
 
 ---
 
@@ -172,6 +196,14 @@ gantt
 > **Given** an extremely large image (>20MP)
 > **When** the file is received
 > **Then** it is resized to max 4096px before sending to Cloud Vision
+
+> [!NOTE]
+> **Status: diverges from spec.** The implemented architecture is *hybrid*, not backend-OCR-first: `frontend/src/lib/pdf-extractor.ts` extracts text client-side with pdf.js, and only falls back to `POST /offers/extract-file` (Google Vision) for scanned PDFs and images. Consequences:
+>
+> - **Scanned PDFs fail.** `google-vision.ocr.ts` uses `textDetection()`, which does not accept PDF input — that needs `asyncBatchAnnotateFiles` with GCS. Images work.
+> - **The confidence gate is inert.** `result.fullTextAnnotation?.pages?.[0]?.confidence || 0.85` turns a legitimate `0` into `0.85`. And when it does trip, the offer is **hard-failed** rather than flagged — the spec's `lowConfidence: true` + editable-text warning was not built. `analysis.worker.ts` writes `lowConfidence: false` hardcoded.
+> - Image resizing to 4096px is **not implemented**.
+> - `POST /offers/extract-file` is **unauthenticated**, so anonymous callers can burn Cloud Vision quota.
 
 ---
 
@@ -287,6 +319,15 @@ gantt
 > **When** the same IP is seen with 5+ distinct fingerprints in 1 hour
 > **Then** rate limiting falls back to IP-only mode for that IP, and the incident is logged
 
+> [!WARNING]
+> **Status: mostly unimplemented.** `config/constants.ts` defines 15 per-route limits in `RATE_LIMITS`. `middleware/rate-limiter.ts` registers exactly **one** — `global` at 100/min. Only `guestUpload` is separately enforced, inside `GuestService.checkLimits`.
+>
+> - The "30 API requests per minute" happy path is actually **100/min**, and no `Retry-After` header is set.
+> - `authLogin: { max: 10, window: '15 minutes' }` is **dead config** — login brute-force protection is whatever the global limit allows.
+> - The spoofing detector **can never fire**, because the frontend never sends `X-Fingerprint`, so exactly one fingerprint is ever seen per IP.
+> - `spoofingTracker` is an unbounded in-memory `Map`, so it is single-instance only and leaks across many distinct IPs.
+> - `checkLimits` / `incrementAnalysisCount` is a TOCTOU race — concurrent uploads can both clear the check.
+
 ---
 
 ### M6 & M7 — Metadata & Feature Requests
@@ -298,6 +339,9 @@ See [implementation_plan.md](file:///C:/Users/Mueen/.gemini/antigravity/brain/42
 > **Given** a user submits a feature request with profanity or spam
 > **When** the request is validated
 > **Then** basic keyword filtering rejects it with 400: `"Submission rejected — please rephrase"`
+
+> [!NOTE]
+> **Status: not implemented.** There is no profanity or spam filtering anywhere in the codebase. The same applies to the forum sad path in C3 and the salary moderation in C1. `rejected` exists only as a status enum value and is never set by a content check.
 
 ---
 
@@ -343,6 +387,20 @@ See [implementation_plan.md](file:///C:/Users/Mueen/.gemini/antigravity/brain/42
 - A scheduled BullMQ repeatable job purges expired guest records daily
 - Guest analyses are **read-only** — no corrections, no re-analysis
 
+> [!CAUTION]
+> **Status: the identity mechanism this milestone depends on was never wired up.** The frontend sends no `X-Fingerprint` header — zero occurrences in all of `frontend/src`. `middleware/guest-identifier.ts` therefore always uses its fallback, `MD5(ip + userAgent)`, so **every visitor sharing an IP and User-Agent is the same guest**.
+>
+> Two live consequences:
+>
+> 1. **Shared quota** — an office or campus network gets 3 analyses total, not 3 each.
+> 2. **Cross-user data leak** — `AuthService.migrateGuestOffers(fingerprint, userId)` matches on that fingerprint, so **signup can migrate a stranger's offer letters** (salary, company, name) into a new account. This sits in the primary conversion funnel.
+>
+> Separately, the guest **read** path has no authorization at all: `GET /offers/:id` (returns `rawText`), `GET /offers/:id/analysis`, and `GET /offers/:id/report` are readable by anyone holding the ID. The report endpoint was specified above as `GUEST_RESTRICTED`; it is fully open. And because `offers.textHash` is globally `.unique()`, uploading identical text returns *another user's* offer ID, which those open endpoints will then serve.
+>
+> Fixing this needs a decision, not just a patch: a real client fingerprint, or a signed guest cookie / guest-scoped token. See "Decisions Needed" in [PLAN-analysis-pipeline.md](./PLAN-analysis-pipeline.md).
+>
+> ✅ What does work: the 24h TTL purge. `cleanup.worker.ts` runs hourly and `migrateGuestOffers` nulls `expiresAt`, so migrated offers are not purged.
+
 ---
 
 ### Error & Empty State UX Specs
@@ -361,10 +419,13 @@ See [implementation_plan.md](file:///C:/Users/Mueen/.gemini/antigravity/brain/42
 ## Milestone 2: User Value
 
 ### Definition of Done
-- [ ] Users can sign up (email + Google OAuth), log in, and see their analysis history
-- [ ] Guest analyses migrate to new accounts on signup
-- [ ] Registered users can generate negotiation scripts, calculate benefits, export PDFs, and compare offers
-- [ ] RLHF corrections are saved and logged
+
+| # | Criterion | Status |
+|---|---|---|
+| 1 | Users can sign up (email + Google OAuth), log in, and see their analysis history | ✅ Implemented and exercised by `test-m2.mjs`. ⚠️ Refresh tokens are stored in `localStorage`, against this project's own stated standard of httpOnly cookies |
+| 2 | Guest analyses migrate to new accounts on signup | ⚠️ Mechanically works, but matches on the collapsed fingerprint — **can migrate another person's offers**. See M8 status note |
+| 3 | Registered users can generate negotiation scripts, calculate benefits, export PDFs, and compare offers | ❌ **Never verified end-to-end.** In `test-m2-results.txt` negotiation, benefits, and corrections all returned `OFFER_NOT_READY` and comparison was skipped, because no analysis reached `COMPLETED` during that run. Ownership checks in these modules are correct; the feature paths themselves are untested |
+| 4 | RLHF corrections are saved and logged | ⚠️ Code is complete with ownership checks. Untested for the same reason as 3 |
 
 ---
 
@@ -495,10 +556,13 @@ See [implementation_plan.md](file:///C:/Users/Mueen/.gemini/antigravity/brain/42
 ## Milestone 3: Market Intelligence
 
 ### Definition of Done
-- [ ] Anonymous salary submissions work with moderation (spam/troll filtering)
-- [ ] Salary comparison uses crowdsourced data when 50+ data points exist for a role+city combo
-- [ ] Career path insights generate meaningful 5-year trajectories
-- [ ] Forum supports posting, replying, and viewing with pagination
+
+| # | Criterion | Status |
+|---|---|---|
+| 1 | Anonymous salary submissions work with moderation (spam/troll filtering) | ⚠️ Submission + numeric sanity checks work (`SalaryService.validate` rejects <₹1L with >5 YOE, >40 YOE, >₹20Cr) and a 1-per-hour-per-fingerprint check exists. ❌ **No spam/profanity filtering anywhere in the codebase** — `rejected` is only a status enum value, never set by a content filter. No 3σ outlier rejection, no recency weighting |
+| 2 | Salary comparison uses crowdsourced data when 50+ data points exist for a role+city combo | ❌ **`SalaryService.getStats()` is never called by the analysis worker.** Salary comparison is 100% AI-fabricated. The standalone Salary Explorer page does use it, at a threshold of `n < 5` — not 50 |
+| 3 | Career path insights generate meaningful 5-year trajectories | ⚠️ Endpoint works (`test-m3.mjs` passes) but is called with hardcoded `industry: 'Technology'` / `companyType: 'Unknown'`, so output is generic |
+| 4 | Forum supports posting, replying, and viewing with pagination | ✅ Verified by `test-m3.mjs` — create, list by category, detail, and comment all pass. ❌ No content moderation (see 1) |
 
 ---
 
@@ -531,6 +595,14 @@ See [implementation_plan.md](file:///C:/Users/Mueen/.gemini/antigravity/brain/42
 > **Then** AI-estimated ranges are used with a label: `"Estimated — not enough submissions yet. [Contribute your salary] to improve accuracy."`
 
 **Data Retention**: Submissions are retained indefinitely but fully anonymized — no linkage to user accounts, IPs, or fingerprints after validation.
+
+> [!CAUTION]
+> **Status: the anonymity guarantee is not implemented.** `salary_submissions` has a `user_id` column that is a **live foreign key to `users.id`**, plus a `fingerprint` column. Both are written on submit and never scrubbed. "No PII linkage" and "fully anonymized after validation" are currently false.
+>
+> Also on this section:
+> - The **50-data-point threshold does not exist**. `SalaryService.getStats()` uses `data.length < 5`, and the analysis worker never calls it, so crowdsourced data never reaches an offer analysis regardless of volume.
+> - The **burst-rate spec is inverted in practice.** Implementation is 1 submission per hour per *fingerprint*, not 10 per IP. Stricter on paper — but since fingerprints collapse to IP+UA, it means **one person per network per hour** can contribute.
+> - Numeric sanity checks work: `<₹1L with >5 YOE`, `>40 YOE`, `>₹20Cr` are rejected. No 3σ outlier rejection or recency weighting (Phase 4, task 24).
 
 ---
 
@@ -604,6 +676,18 @@ See [monetization.md](file:///C:/Users/Mueen/.gemini/antigravity/brain/42766cda-
 
 ## Privacy & Compliance
 
+> [!CAUTION]
+> **Status: two of these policies are not true of the current code.** These are user-facing promises, so they need either an implementation or a wording change before a privacy policy ships publicly.
+>
+> | Policy | Reality |
+> |---|---|
+> | "Uploaded PDFs deleted from storage after OCR extraction" | ❌ **False.** Nothing deletes a file post-extraction. Files are removed only on guest TTL expiry or explicit `DELETE /offers/:id`. Since `expiresAt` is null for registered users, **their uploads persist indefinitely** |
+> | "Users can request a full data export (`GET /account/export`)" | ❌ **Not implemented.** No such route exists |
+> | "Right to delete" | ✅ `DELETE /users/me` and `DELETE /offers/:id` both work and clean up stored files. Note the paths differ from the `/account` ones named below |
+> | "Guest data auto-purged after 24h" | ✅ Verified working |
+> | "Salary crowdsourcing fully anonymized" | ⚠️ `salarySubmissions` retains `userId` and `fingerprint` columns and they are written on submit. The stated policy is "no linkage after validation passes" — no scrubbing step exists |
+> | Raw offer text retention | ⚠️ Retained indefinitely. The 90-day retention + PII redaction policy is Phase 4 task 27 in [PLAN-analysis-pipeline.md](./PLAN-analysis-pipeline.md), not built |
+
 | Concern | Policy |
 |---|---|
 | **Uploaded PDFs** | Deleted from storage after OCR extraction. Only extracted text is retained. |
@@ -618,10 +702,15 @@ See [monetization.md](file:///C:/Users/Mueen/.gemini/antigravity/brain/42766cda-
 
 ## Architecture Overview
 
+> [!NOTE]
+> **Status: diagram corrected to match the code.** The frontend is a **Vite + React SPA** (react-router), not Next.js — so there is no SSR and the rendering-strategy assumptions that come with Next.js do not apply. Text extraction also happens client-side in the browser before upload, which the original diagram did not show.
+
 ```mermaid
 flowchart TB
     subgraph Frontend
-        A[Next.js App]
+        A["Vite + React SPA<br/>(react-router)"]
+        A2["pdf.js<br/>client-side text extraction"]
+        A --> A2
     end
 
     subgraph Backend
@@ -642,17 +731,22 @@ flowchart TB
     end
 
     A -->|REST API| B
+    A2 -->|"text (happy path)"| B
+    A2 -->|"scanned/image fallback"| B
     B --> E
     B --> F
     B --> G
     B -->|Enqueue| F
     C -->|Dequeue| F
-    C --> H
+    C -.->|"mostly bypassed —<br/>text arrives pre-extracted"| H
     C --> I
     C --> E
-    D -->|Daily cleanup| E
+    D -->|Hourly cleanup| E
     D -->|Delete expired files| G
 ```
+
+> [!NOTE]
+> Because the browser pre-extracts text, the backend OCR worker's Cloud Vision branch is bypassed on the happy path — shown dotted above. Files are stored but **only deleted on guest expiry or explicit offer deletion**; see the Privacy note below.
 
 ---
 
@@ -671,16 +765,35 @@ flowchart TB
 
 ## Risk Register
 
+### 🔴 Realized — these are no longer risks, they are current defects
+
+| Was logged as | What actually happened | Action |
+|---|---|---|
+| **Guest fingerprint spoofing** — "Low likelihood, mitigated by IP fallback" | Inverted. Nobody needs to spoof: the header is never sent, so **everyone** already shares one identity. The IP-fallback mitigation *is* the failure mode, and the 5-fingerprint detector can never fire | Phase -1a |
+| **AI hallucination** — "mitigated by hallucination guard" | The red-flag guard works, but it was the *narrow* case. Salary benchmarks (`p25/p50/p75/p90`) are fabricated wholesale with no guard, and the prompt never contains the schema | Phase 1 |
+| **GCP cost overrun** — "mitigated by rate limiting" | Per-route rate limiting was never registered. `POST /offers/extract` (Gemini) and `/extract-file` (Vision) are unauthenticated behind a single 100/min global limit | Phase -1e, -1f |
+| **Cloud Vision OCR accuracy** — "mitigated by showing confidence score" | The confidence score never reaches the UI: `\|\| 0.85` masks a real `0`, low confidence hard-fails instead of warning, and `lowConfidence` is hardcoded `false` | Phase 3, 21d |
+| **Low crowdsourced salary data** — "mitigated by AI fallback with source label" | Moot — the crowdsourced path is never consulted during analysis at all, so it is *always* the AI fallback, and the `dataSource` label is not surfaced | Phase 1 |
+
+### 🟡 Newly identified
+
 | Risk | Impact | Likelihood | Mitigation |
 |---|---|---|---|
-| **Gemini API rate limits** | Analysis delays | Medium | Queue with exponential backoff; fallback to cached market data |
-| **AI hallucination** — invents non-existent red flags | User makes bad decisions | Medium | Hallucination guard: verify `matchedText` exists in raw offer text; discard unverified flags |
-| **Cloud Vision OCR accuracy on poor scans** | Bad extraction → bad analysis | Medium | Show confidence score; editable text field; "paste manually" fallback |
-| **GCP cost overrun** | Unexpected bills | Low | Budget alerts; rate limiting; usage tracking dashboard |
-| **Vendor lock-in** — heavy reliance on GCP | Expensive migration | Low | Abstract OCR and AI behind service interfaces; keep prompts portable |
-| **Offer format diversity** — Indian vs US vs EU structures | AI misinterprets locale-specific terms | High | Locale-aware prompts; detect currency/format; test with diverse sample offers |
-| **Guest abuse** (no auth) | Resource drain | Medium | Fingerprint + IP + cookie tracking; 3/day cap; 24h TTL auto-cleanup |
-| **Guest fingerprint spoofing** | Bypasses rate limits | Low | Fall back to IP-only mode if 5+ fingerprints seen per IP/hour |
-| **Storage bloat from expired guest files** | Disk/S3 costs | Low | Daily cleanup job deletes expired files + DB records |
-| **Scope creep** — 11+ user-selected features | Delays MVP launch | High | Strict milestone boundaries; M1 must ship before any M2 work begins |
-| **Low crowdsourced salary data initially** | Unreliable comparisons | High | AI-estimated ranges as fallback; show data source label; incentivize submissions |
+| **No test suite** | Any refactor silently breaks behaviour; the pipeline rewrite is unverifiable | High | Phase 0 eval corpus + field-level accuracy harness, before Phase 1 |
+| **Privacy policy overstates deletion** | Compliance exposure — the doc promises post-OCR file deletion and a data-export endpoint, neither of which exist | Medium | Implement, or correct the wording before publishing a policy |
+| **Salary submissions are not anonymous** | Contradicts a stated privacy guarantee; `userId` is a live FK to `users.id` | Medium | Add a scrubbing step post-validation, or restate the policy |
+| **Phantom dependency** — `uuid` imported but undeclared | Build breaks if `bullmq` drops it or hoisting changes | Low | Declare it, or use `crypto.randomUUID()` |
+| **Stuck offers never recover** | `PROCESSING` is terminal on worker crash; `ANALYSIS_TIMEOUT_MS` is defined but unreferenced | Medium | Phase 3, 21a |
+| **pdf.js worker loaded from public CDN** | Third-party runtime dependency on the critical upload path; supply-chain and availability exposure | Medium | Self-host the worker (`vite-plugin-static-copy` is already installed but unused) |
+| **Refresh tokens in `localStorage`** | XSS-exfiltratable, 7-day lifetime | Medium | Move to httpOnly cookies per the project's own standard |
+
+### ⚪ Still open as written
+
+| Risk | Impact | Likelihood | Mitigation |
+|---|---|---|---|
+| **Gemini API rate limits** | Analysis delays | Medium | ✅ Partly handled — `withFallback()` walks 6 models on 429. Queue retries exist. "Cached market data" fallback does not |
+| **Vendor lock-in** — heavy reliance on GCP | Expensive migration | Low | ✅ Holding up. `AiProvider` / `OcrProvider` / storage interfaces with mock implementations are in place |
+| **Offer format diversity** — Indian vs US vs EU structures | AI misinterprets locale-specific terms | High | Locale-aware prompts; detect currency/format; test with diverse sample offers — **not started**, and Phase 0's corpus is the prerequisite |
+| **Guest abuse** (no auth) | Resource drain | Medium | 3/day cap and 24h TTL work; the identity they key on does not (see Realized) |
+| **Storage bloat from expired guest files** | Disk/S3 costs | Low | ✅ Hourly cleanup job verified working. Note registered users' files are never purged |
+| **Scope creep** — 11+ user-selected features | Delays MVP launch | High | ⚠️ Partly realized: M1-M3 code all landed before M1 was verified shippable, which is how these defects accumulated unnoticed |

@@ -4,6 +4,26 @@
 
 ---
 
+## Verified State (2026-09-09)
+
+This section records what was confirmed by reading and running the code, not inferred from planning docs.
+
+| Check | Result |
+|-------|--------|
+| `backend`: `tsc --noEmit` | ✅ passes clean |
+| `frontend`: `tsc --noEmit -p tsconfig.app.json` | ✅ passes clean |
+| `frontend`: `npm test` | ✅ 1 passed — but the only test is `expect(true).toBe(true)` |
+| `backend`: automated tests | ❌ none exist |
+| Integration verification | Manual scripts only: `test-m2.mjs`, `test-m3.mjs` |
+| Pipeline refactor progress | ❌ not started — worker still single-pass |
+| Working tree | clean, `main` synced with origin |
+
+**Manual test script status**: `test-m2-results.txt` shows negotiation, benefits, and corrections all returning `OFFER_NOT_READY`, and comparison skipped, because no analysis reached `COMPLETED` during that run. Those four features have never been exercised end-to-end. `test-m3-results.txt` shows salary stats returning "not enough data" at n=2.
+
+**Already implemented from this plan**: the red-flag hallucination guard is live in `analysis.worker.ts` — flags whose `matchedText` is absent from the raw text are discarded and counted in `redFlagsDiscarded`. Nothing else below has been started.
+
+---
+
 ## Current System Audit
 
 ### Core Analysis Pipeline
@@ -19,12 +39,17 @@ graph LR
 
 | Problem | Where | Impact |
 |---------|-------|--------|
-| Single vague prompt, no JSON schema | `buildPrompt()` — just says "output compliant JSON" | Inconsistent structure, AI guesses |
+| Prompt never contains the schema | `gemini.ai.ts` → `buildPrompt()` ends with "Output compliant JSON matching the AnalysisResult interface." The interface is never included in the prompt text | The model is asked to conform to a TypeScript type it has never seen |
+| `responseSchema` not set | `gemini.ai.ts` sets `responseMimeType: 'application/json'` only | The sole structural guarantee is "it is JSON" |
+| No validation of AI output | `normalizeAiResult()` in `analysis.worker.ts` coerces whatever arrives into shape with defaults. No Zod anywhere on the response path | A garbage response becomes a confident-looking analysis |
+| No retry on malformed JSON | `JSON.parse` failure is not a rate-limit error, so `withFallback()` rethrows immediately | Contradicts roadmap's "retry once with a stricter prompt" |
 | Salary data hallucinated | `salaryComparison` always `ai_estimated` | Users make career decisions on fabricated numbers |
-| Crowdsourced salary DB exists but is never used | `SalaryService.getStats()` is functional, never called by analysis | Real data wasted |
-| Score formula is trivial | `70 base ± flags ± percentile` in worker | Doesn't reflect actual offer quality |
+| Crowdsourced salary DB exists but is never used | `SalaryService.getStats()` is functional, never called by the worker. Threshold is `data.length < 5`, not 10 | Real data wasted |
+| Score formula is trivial | `70 base ± flags ± percentile`, `analysis.worker.ts` | Doesn't reflect actual offer quality |
 | Red flag detection is AI-only | No rules engine | Misses obvious flags, invents others |
-| No confidence signals | Every field treated as fact | Users can't tell what's reliable vs guessed |
+| No confidence signals | `lowConfidence` is hardcoded `false` when the analysis row is inserted | Users can't tell what's reliable vs guessed |
+| Author's scratch reasoning left in source | ~25 lines of unresolved stream-of-consciousness comments above the scoring block in `analysis.worker.ts` | Obscures intent for the next reader |
+| `processingTimeMs` is wrong | Computed as `Date.now() - offer.updatedAt`, which is not job start time | Metric is meaningless |
 
 ### Feature-Level Problems
 
@@ -32,10 +57,108 @@ graph LR
 |---------|-----------------|---------|
 | **Salary Comparison** | AI fabricates `p25/p50/p75/p90` from training data | 100% hallucinated. `SalaryService` with crowdsourced data exists but is never connected |
 | **Negotiation Script** | Feeds AI-hallucinated `salaryComparison` into negotiation prompt | Garbage-in-garbage-out — negotiation points based on fake market data |
-| **Benefits Valuation** | ✅ `benefits.calculator.ts` does real math (PTO × daily rate, etc.) | Decent, but depends on AI-extracted benefit names being correct |
+| **Benefits Valuation** | ⚠️ **Corrected assessment.** `benefits.calculator.ts` structures benefits and does PTO × daily-rate math, but `extractNumber()` strips currency symbols and takes the first number with **no unit handling** | "₹5 lakh" → `5`. "₹2.5L" → `2.5`. "10 LPA" → `10`. Monetary values can be wrong by 5-6 orders of magnitude, and they feed `totalCompensation`. Also grabs the low end of ranges ("18-24 days" → `18`) |
 | **Offer Comparison** | Deterministic ranking by score/flags/percentile | Good structure, but all inputs (score, percentile) are AI-fabricated |
 | **Career Path** | Calls `ai.generateCareerPath()` with hardcoded `industry: 'Technology'`, `companyType: 'Unknown'` | No real context. Completely generic AI generation |
 | **Take-Home Estimate** | AI guesses monthly take-home with "assumptions" | Should be deterministic tax math, not AI speculation |
+
+---
+
+## Defects Outside the Pipeline
+
+> This plan was originally scoped to AI accuracy only. A code-level pass surfaced a separate class of defect — authorization, guest identity, rate limiting, and dead code paths — that blocks launch independently of pipeline quality. These are **not** fixed by the multi-stage refactor and need their own phase.
+
+### 🔴 P0 — Guest identity collapses across users
+
+**The frontend never sends `X-Fingerprint`.** Zero occurrences in all of `frontend/src`. So `middleware/guest-identifier.ts` always falls through to:
+
+```ts
+const fallbackFingerprint = CryptoJS.MD5(`${ip}-${userAgent}`).toString();
+```
+
+Every visitor sharing an IP and User-Agent becomes one guest identity. Two consequences, neither requiring an attacker:
+
+1. **Shared quota** — the 3-analyses-per-day guest limit is per IP+UA, so an office or campus network gets 3 total, not 3 each.
+2. **Cross-user data leak** — `AuthService.migrateGuestOffers(fingerprint, userId)` matches guest offers by that fingerprint. On signup a user **inherits strangers' offer letters** (salary, company, name) if they shared an IP and browser. This is in the guest→account funnel, which is the product's primary conversion path.
+
+Side effect: the spoofing detector can never fire (one fingerprint per IP, threshold is 5), so that code is inert.
+
+**Fix options**: send a real client-generated fingerprint, or drop fingerprint-based migration in favour of a signed guest cookie.
+
+### 🔴 P0 — Missing ownership checks
+
+Ownership enforcement is **correct** in `negotiation`, `benefits`, `comparison`, `correction`, and `career` — all check `offer.userId !== userId` and 403. The gaps are concentrated in the offer and analysis routes:
+
+| Endpoint | Current | Problem |
+|----------|---------|---------|
+| `DELETE /offers/:id` | `requireRegistered`, no ownership check | **Any logged-in user can delete any other user's offer by ID.** `OfferService.delete()` only verifies existence |
+| `GET /offers/:id` | no auth, no ownership | Returns `rawText` — the full offer letter |
+| `GET /offers/:id/analysis` | no auth, no ownership | Full analysis exposed by ID |
+| `GET /offers/:id/report` | no auth, no ownership | Roadmap specified registered-only (`GUEST_RESTRICTED`); it is fully open |
+
+Root cause: `requireRegistered` in `middleware/authenticate.ts` proves *authentication* and never *ownership*. Fix it in one guard rather than per-route.
+
+Compounding this: `offers.textHash` is `.unique()` **globally**, and `OfferService.create()` returns the existing offer's ID on a hash hit. Identical text from a different person hands you their offer ID, which the unauthenticated GETs then serve. Dedup should be scoped per user/guest.
+
+### 🟠 P1 — Per-route rate limits are dead config
+
+`config/constants.ts` defines 15 per-route limits in `RATE_LIMITS`. `middleware/rate-limiter.ts` registers exactly **one**: `global` at 100/min. Only `guestUpload` is separately enforced, inside `GuestService.checkLimits`.
+
+So `authLogin: { max: 10, window: '15 minutes' }` is unused — login brute-force protection is 100/min, keyed on the IP+UA hash above. Same for `featureRequestCreate`, `negotiate`, `compare`, `corrections`, `benefits`, and the rest.
+
+`POST /offers/extract` (Gemini) and `POST /offers/extract-file` (Google Vision) are **unauthenticated** with only that global limit between an anonymous caller and the GCP bill.
+
+### 🟠 P1 — Path traversal on temp files
+
+`OfferService.extractTextFromFile()` and `extractMetadata()` write ``temp-${uuidv4()}-${file.filename}`` to the process CWD with `file.filename` **unsanitized**.
+
+### 🟠 P1 — Scanned PDFs cannot work
+
+Actual OCR architecture is hybrid, and differs from what earlier docs imply:
+
+```mermaid
+graph LR
+    F["File"] --> FE["frontend: pdf.js<br/>client-side extract"]
+    FE -->|"text PDF: success"| TXT["text → POST /offers"]
+    FE -->|"scanned PDF / image<br/>needsOCR"| BE["POST /offers/extract-file"]
+    BE --> GV["Google Vision<br/>textDetection()"]
+    GV -->|"image: ✅"| TXT
+    GV -->|"PDF: ❌ unsupported"| ERR["fails"]
+
+    style ERR fill:#ff6b6b,stroke:#333
+```
+
+`google-vision.ocr.ts` calls `client.textDetection(filePath)`. Vision's `textDetection` **does not accept PDF input** — that requires `asyncBatchAnnotateFiles` with a GCS bucket. Images work; scanned PDFs fail, which is precisely the case the fallback exists to serve.
+
+Because the client-side path covers text PDFs, `ocr.worker.ts`'s Vision branch is largely bypassed in the real flow.
+
+### 🟠 P1 — OCR confidence gate is inert
+
+```ts
+const confidence = result.fullTextAnnotation?.pages?.[0]?.confidence || 0.85;
+```
+
+A legitimate `0` becomes `0.85`. And when the gate does trip, `ocr.worker.ts` **hard-fails** the offer, where the spec called for `lowConfidence: true` plus an editable-text warning. `analysis.worker.ts` then writes `lowConfidence: false` hardcoded, so the signal never reaches the UI by either route.
+
+### 🟡 P2 — Missing reliability paths from the roadmap
+
+| Roadmap requirement | Status |
+|---------------------|--------|
+| Stale job reaper (`PROCESSING` > 5 min → `FAILED`) | ❌ Not implemented. `ANALYSIS_TIMEOUT_MS` is defined and never referenced. Stuck offers stay stuck forever |
+| Redis-down fallback to synchronous processing | ❌ Not implemented. `ocrQueue.add()` throws |
+| Guest TTL purge | ✅ Works. `cleanup.worker.ts` runs hourly; `migrateGuestOffers` correctly nulls `expiresAt` so migrated offers are not purged |
+
+### 🟡 P2 — Smaller items
+
+| Item | Detail |
+|------|--------|
+| Phantom dependency | `uuid` is imported in `offer.service.ts` and `guest-identifier.ts` but absent from `package.json`. `npm ls uuid` shows it resolving only via `bullmq`. Node 22 has `crypto.randomUUID()` — the dep is unnecessary as well as undeclared |
+| Refresh tokens in `localStorage` | `services/api.ts`, 7-day lifetime, against the project's own stated standard of httpOnly cookies |
+| pdf.js worker from CDN | `pdf-extractor.ts` loads the worker from `cdn.jsdelivr.net` at runtime. `vite-plugin-static-copy` is installed but absent from `vite.config.ts`, so self-hosting was likely intended |
+| TOCTOU on guest limit | `checkLimits` runs before the transaction, `incrementAnalysisCount` inside it. Concurrent uploads can both clear the check |
+| `spoofingTracker` memory | Unbounded in-memory `Map` keyed by IP, pruned only on window reset for that IP. Single-instance only |
+| Dead code | `ANALYSIS_TIMEOUT_MS` unreferenced; `uuidv4` imported but unused in `guest-identifier.ts`; `vite-plugin-static-copy` unused |
+| Duplicated extraction logic | `OfferService` has three near-identical methods (`extractTextFromFile`, `extractMetadata`, `extractMetadataFromText`) with **inconsistent provider gating** — one checks `NODE_ENV === 'production'`, the others don't |
 
 ---
 
@@ -226,9 +349,10 @@ graph TD
 
 ### 2d. Benefits Calculator (Existing — Enhance)
 
-**Current**: `benefits.calculator.ts` already does PTO valuation, insurance detection, equity categorization. ✅
+**Current**: `benefits.calculator.ts` does PTO valuation, insurance detection, and equity categorization — the *structure* is sound. The *numbers* are not: `extractNumber()` is unit-blind (see the corrected row in Feature-Level Problems above).
 
 **Enhancements**:
+- **Fix `extractNumber()` first** — handle lakh / L / LPA / Cr / crore multipliers, and decide range policy (take the low end, or return a range). This is a prerequisite, not an enhancement
 - Add a **standard benefits checklist** (health insurance, PF, gratuity, leave encashment, WFH allowance, learning budget) — flag missing ones
 - Add **industry-standard comparison** (e.g., "most product companies offer 18-24 days PTO, your offer has 12")
 - Connect `BenefitBreakdown` totals into the scoring rubric
@@ -428,6 +552,22 @@ Option B is simplest and works with existing polling architecture.
 
 ## Implementation Phases
 
+### Phase -1: Correctness & Security (1-2 days) — Blocks Launch
+
+These are small, self-contained diffs and independent of the pipeline work. They ship first because two of them are live data-integrity problems, not quality problems.
+
+| # | Task | Severity |
+|---|------|----------|
+| -1a | Send `X-Fingerprint` from the frontend, **or** replace fingerprint-based migration with a signed guest cookie | 🔴 P0 |
+| -1b | Add an ownership check to `DELETE /offers/:id` — fix in the shared guard, not per-route | 🔴 P0 |
+| -1c | Decide and apply the auth story for `GET /offers/:id`, `/analysis`, `/report` (guests need to poll their own offer, so this needs a guest-scoped token, not blanket `requireRegistered`) | 🔴 P0 |
+| -1d | Scope `textHash` dedup per user/guest instead of globally | 🔴 P0 |
+| -1e | Wire the per-route `RATE_LIMITS` that already exist, starting with `authLogin` | 🟠 P1 |
+| -1f | Gate `POST /offers/extract` and `/extract-file` behind auth or a strict limit | 🟠 P1 |
+| -1g | Sanitize `file.filename` before temp-file writes | 🟠 P1 |
+| -1h | Fix the benefits `extractNumber()` unit handling (lakh / L / LPA / Cr) | 🟠 P1 |
+| -1i | Declare `uuid` in `package.json`, or switch to `crypto.randomUUID()` | 🟡 P2 |
+
 ### Phase 0: Evaluation Framework (1 day) — Do This First
 
 | # | Task | Why |
@@ -475,6 +615,11 @@ Option B is simplest and works with existing polling architecture.
 | 19 | Update comparison to use rubric sub-scores | Dimension-by-dimension |
 | 20 | Enhance career path with real context + salary progression | Realistic trajectories |
 | 21 | Add negotiation template library | Non-AI fallback |
+| 21a | Stale job reaper — `PROCESSING` > 5 min → `FAILED` (use the existing `ANALYSIS_TIMEOUT_MS`) | Stuck offers currently never recover |
+| 21b | Redis-down fallback to synchronous processing | Roadmap requirement, not implemented |
+| 21c | Scanned-PDF OCR via `asyncBatchAnnotateFiles` + GCS, or a different provider | Scanned PDFs currently fail outright |
+| 21d | Make the OCR confidence signal real: drop the `\|\| 0.85` default, surface `lowConfidence` instead of hard-failing | Confidence gate is currently inert end-to-end |
+| 21e | Consolidate `OfferService`'s three duplicate extraction methods into one with consistent provider gating | Removes divergent `NODE_ENV` behaviour |
 
 ### Phase 4: Data Flywheel (Ongoing)
 
@@ -501,20 +646,32 @@ Option B is simplest and works with existing polling architecture.
 | **Negotiation** | AI script based on fake salary data | AI script grounded in real market data + rule-engine talking points |
 | **Comparison** | Deterministic but AI-sourced inputs | Real scores, dimension-by-dimension, weighted preferences |
 | **Career Path** | `industry: 'Technology'`, hardcoded | Extracted industry + company context + real salary progression |
-| **Benefits** | ✅ Already deterministic | + Standard checklist, industry comparison |
+| **Benefits** | Deterministic structure, but unit-blind number parsing (₹5 lakh → `5`) | Unit-aware parsing + standard checklist, industry comparison |
 | **Confidence** | None | Per-field confidence with 4 levels + UI badges |
-| **Security** | Raw text in prompt | Input sanitization, system instruction isolation, sanity checks |
+| **Prompt security** | Raw text in prompt | Input sanitization, system instruction isolation, sanity checks |
 | **Failure** | All or nothing | Per-stage fallback, partial results |
 | **Measurement** | None | Test corpus + field-level accuracy tracking |
+| **Authorization** | Ownership enforced on 5 feature modules; absent on offer read/delete/report | Single guard covering ownership for every offer-scoped route |
+| **Guest identity** | Collapses to MD5(IP + User-Agent) — quota and migration shared across users | Per-browser identity, no cross-user inheritance |
+| **Rate limiting** | One global 100/min; 15 per-route limits defined but unused | Per-route limits actually registered |
 
 ---
 
 ## Decisions Needed
 
-1. **Phase priority**: Start with Phase 0 (evaluation) + Phase 1 (quick wins), or jump to full pipeline?
-2. **Tax calculator scope**: Indian-only for now, or plan for multi-country?
-3. **Salary data seeding**: Import a public dataset, or start from scratch with crowdsourced data?
-4. **Scoring weights**: Are 35/25/20/10/10 (salary/flags/benefits/growth/transparency) reasonable?
-5. **Role synonym map**: Manual mapping or use AI to normalize role names?
-6. **Progressive UX approach**: SSE, polling with partial results, or simpler approach?
-7. **Frontend scope**: How much UI work in this plan, or keep backend-focused?
+### On the security phase (new — blocks everything)
+
+1. **Guest identity**: real client fingerprint sent as `X-Fingerprint`, or signed guest cookie? The cookie is more robust and removes the spoofing-detection code entirely.
+2. **Read access to offers**: how should a guest poll their own offer without an account? Options: guest-scoped JWT issued on first visit, or a per-offer unguessable access token returned at upload.
+3. **Migration safety**: given the fingerprint collapse already in production-shaped code, do any existing records need auditing for wrongly-migrated offers before the fix ships?
+
+### On the pipeline
+
+4. **Phase priority**: Phase -1 → Phase 0 (evaluation) → Phase 1 (quick wins), or something else?
+5. **Tax calculator scope**: Indian-only for now, or plan for multi-country?
+6. **Salary data seeding**: Import a public dataset, or start from scratch with crowdsourced data?
+7. **Scoring weights**: Are 35/25/20/10/10 (salary/flags/benefits/growth/transparency) reasonable?
+8. **Role synonym map**: Manual mapping or use AI to normalize role names?
+9. **Progressive UX approach**: SSE, polling with partial results, or simpler approach?
+10. **Frontend scope**: How much UI work in this plan, or keep backend-focused?
+11. **Testing**: there is currently no real test suite. Does Phase 0's eval harness double as the entry point for backend unit tests, or is a test setup its own task?
