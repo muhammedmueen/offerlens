@@ -1,47 +1,52 @@
 import { FastifyInstance } from 'fastify';
 import { SalaryService } from './salary.service.js';
-import { AppError } from '@/shared/errors/app-error.js';
-import { ERROR_CODES } from '@/shared/errors/error-codes.js';
+import { submitSalarySchema, getSalaryStatsSchema } from './salary.schema.js';
 
 export async function salaryRoutes(fastify: FastifyInstance) {
     const salaryService = new SalaryService();
 
-    // POST /salary — Submit salary data
-    fastify.post('/salary', async (req, reply) => {
-        const body = req.body as {
-            role: string;
-            city: string;
-            experienceYears: number;
-            ctc: number;
-            companyType: 'product' | 'service' | 'startup' | 'mnc' | 'other';
-            companySize?: '1-10' | '11-50' | '51-200' | '201-1000' | '1000+';
-        };
+    // POST /salaries — Submit salary data
+    //
+    // Was `/salary`. The frontend has always called `/salaries` and `/salaries/stats`,
+    // so the Salary Explorer 404'd on both submit and read. Aligned to the plural
+    // resource convention used by every other collection in this API.
+    fastify.post('/salaries', {
+        schema: submitSalarySchema,
+        handler: async (req, reply) => {
+            const body = req.body as {
+                role: string;
+                city: string;
+                experienceYears: number;
+                ctc: number;
+                companyType: 'product' | 'service' | 'startup' | 'mnc' | 'other';
+                companySize?: '1-10' | '11-50' | '51-200' | '201-1000' | '1000+';
+            };
 
-        await salaryService.submit({
-            ...body,
-            userId: req.userId,
-            fingerprint: req.guestId,
-        });
+            await salaryService.submit({
+                ...body,
+                userId: req.userId,
+                fingerprint: req.guestId,
+            });
 
-        return reply.status(201).send({
-            success: true,
-            data: { message: 'Salary submitted successfully' },
-        });
+            return reply.status(201).send({
+                success: true,
+                data: { message: 'Salary submitted successfully' },
+            });
+        },
     });
 
-    // GET /salary — Get salary statistics
-    fastify.get('/salary', async (req, reply) => {
-        const { role, city } = req.query as { role?: string; city?: string };
+    // GET /salaries/stats — Aggregate statistics for a role + city
+    fastify.get('/salaries/stats', {
+        schema: getSalaryStatsSchema,
+        handler: async (req, reply) => {
+            const { role, city } = req.query as { role: string; city: string };
 
-        if (!role || !city) {
-            throw new AppError(ERROR_CODES.INVALID_INPUT, 'Role and city are required', 400);
-        }
+            const stats = await salaryService.getStats(role, city);
 
-        const stats = await salaryService.getStats(role, city);
-
-        return reply.send({
-            success: true,
-            data: stats,
-        });
+            return reply.send({
+                success: true,
+                data: stats,
+            });
+        },
     });
 }

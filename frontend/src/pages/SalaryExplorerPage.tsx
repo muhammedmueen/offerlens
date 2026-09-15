@@ -9,8 +9,21 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Search, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+
+// Both mirror NOT NULL enum columns on salary_submissions. Free text here becomes a
+// constraint violation on insert.
+const COMPANY_TYPES = [
+  { value: "product", label: "Product" },
+  { value: "service", label: "Service / Consulting" },
+  { value: "startup", label: "Startup" },
+  { value: "mnc", label: "MNC" },
+  { value: "other", label: "Other" },
+] as const;
+
+const COMPANY_SIZES = ["1-10", "11-50", "51-200", "201-1000", "1000+"] as const;
 
 const SalaryExplorerPage = () => {
   const { toast } = useToast();
@@ -25,6 +38,7 @@ const SalaryExplorerPage = () => {
   const [subExp, setSubExp] = useState("");
   const [subCtc, setSubCtc] = useState("");
   const [subSize, setSubSize] = useState("");
+  const [subType, setSubType] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
 
   const { data, isLoading, error, refetch } = useQuery({
@@ -34,13 +48,27 @@ const SalaryExplorerPage = () => {
   });
 
   const submitMutation = useMutation({
-    mutationFn: () => api.post(ENDPOINTS.SALARIES, { role: subRole, city: subCity, experienceYears: Number(subExp), annualCtc: Number(subCtc), companySize: subSize }),
+    // Field names must match the server: `ctc` (not annualCtc), and `companyType` is
+    // NOT NULL. companySize is a fixed set of buckets, not free text.
+    mutationFn: () => api.post(ENDPOINTS.SALARIES, {
+      role: subRole,
+      city: subCity,
+      experienceYears: Number(subExp),
+      ctc: Number(subCtc),
+      companyType: subType,
+      companySize: subSize || undefined,
+    }),
     onSuccess: () => { toast({ title: "Submitted!", description: "Your anonymous salary data was added." }); setDialogOpen(false); queryClient.invalidateQueries({ queryKey: ["salary-stats"] }); },
     onError: (err: any) => {
       if (err.response?.status === 429) toast({ title: "Rate limited", description: "Too many submissions. Please try again later.", variant: "destructive" });
       else toast({ title: "Error", description: "Submission failed.", variant: "destructive" });
     },
   });
+
+  // Stats are only usable once enough submissions exist. Below the threshold the API
+  // returns { count, message, data: null } — truthy, which previously rendered a chart
+  // with undefined values.
+  const hasStats = typeof data?.p50 === "number";
 
   return (
     <PageShell>
@@ -57,19 +85,28 @@ const SalaryExplorerPage = () => {
 
         {isLoading && <LoadingState rows={2} />}
 
-        {data && (
+        {hasStats && (
           <div className="rounded-xl border border-border bg-card p-6 space-y-4">
-            <SalaryBar min={data.min} p25={data.p25} median={data.median} p75={data.p75} max={data.max} />
+            <SalaryBar p25={data.p25} p50={data.p50} p75={data.p75} p90={data.p90} />
             <p className="text-xs text-muted-foreground">
-              {data.sampleSize ? `Based on ${data.sampleSize} submissions` : "AI-estimated"}
+              Based on {data.count} verified submission{data.count === 1 ? "" : "s"}
             </p>
           </div>
         )}
 
-        {searched && !isLoading && !data && (
+        {searched && !isLoading && !hasStats && (
           <div className="text-center py-12">
-            <p className="text-muted-foreground">No data for this combination yet.</p>
-            <Button variant="link" onClick={() => setDialogOpen(true)} className="text-primary cursor-pointer">Be the first to contribute</Button>
+            <p className="text-muted-foreground">
+              {data?.message ?? "No data for this combination yet."}
+            </p>
+            {typeof data?.count === "number" && data.count > 0 && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {data.count} submission{data.count === 1 ? "" : "s"} so far — a few more and we can show a range.
+              </p>
+            )}
+            <Button variant="link" onClick={() => setDialogOpen(true)} className="text-primary cursor-pointer">
+              Contribute yours
+            </Button>
           </div>
         )}
 
@@ -85,9 +122,35 @@ const SalaryExplorerPage = () => {
                 <div className="space-y-2"><Label>City</Label><Input value={subCity} onChange={(e) => setSubCity(e.target.value)} required /></div>
                 <div className="space-y-2"><Label>Experience (years)</Label><Input type="number" value={subExp} onChange={(e) => setSubExp(e.target.value)} required /></div>
                 <div className="space-y-2"><Label>Annual CTC (₹)</Label><Input type="number" value={subCtc} onChange={(e) => setSubCtc(e.target.value)} required /></div>
-                <div className="space-y-2"><Label>Company Size</Label><Input value={subSize} onChange={(e) => setSubSize(e.target.value)} placeholder="e.g. 100-500" /></div>
+                <div className="space-y-2">
+                  <Label htmlFor="company-type">Company Type</Label>
+                  <Select value={subType} onValueChange={setSubType} required>
+                    <SelectTrigger id="company-type" className="cursor-pointer">
+                      <SelectValue placeholder="Select type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {COMPANY_TYPES.map((t) => (
+                        <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="company-size">Company Size (optional)</Label>
+                  <Select value={subSize} onValueChange={setSubSize}>
+                    <SelectTrigger id="company-size" className="cursor-pointer">
+                      <SelectValue placeholder="Select size" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {COMPANY_SIZES.map((s) => (
+                        <SelectItem key={s} value={s}>{s} employees</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <p className="text-xs text-muted-foreground">🔒 Your submission is fully anonymous</p>
-                <Button type="submit" disabled={submitMutation.isPending} className="w-full brand-gradient text-primary-foreground hover:opacity-90 cursor-pointer rounded-xl skeu-btn">
+                <Button type="submit" disabled={submitMutation.isPending || !subType} className="w-full brand-gradient text-primary-foreground hover:opacity-90 cursor-pointer rounded-xl skeu-btn">
+
                   {submitMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} Submit
                 </Button>
               </form>

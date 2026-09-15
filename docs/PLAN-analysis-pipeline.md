@@ -728,14 +728,35 @@ The only group that touches data integrity. Do this first and in order; A2 depen
 
 Three currently-broken or latent frontend↔backend mismatches, plus the test that stops the next one.
 
-| # | Task | Severity |
-|---|------|----------|
-| B1 | **Salary contract**: align the path (`/salaries` vs `/salary`), rename `annualCtc`→`ctc`, send `companyType`. Without this the crowdsourced DB can never fill up, which blocks Stage 2a from ever having data | 🔴 P0 |
-| B2 | Collapse the three experience-level vocabularies down to the DB seed; bind the upload form to `GET /metadata/experience-levels` | 🟠 P1 |
-| B3 | Delete the dead `OFFER_ANALYZE` endpoint constant | 🟡 P2 |
-| B4 | **Contract test**: assert every `ENDPOINTS` entry resolves to a registered Fastify route. Note this checks *paths only* — it would not have caught B6, where the path is right and the response shape is wrong. Consider asserting response keys too | 🟠 P1 |
+| # | Task | Severity | Status |
+|---|------|----------|--------|
+| B1 | **Salary contract**: align the path (`/salaries` vs `/salary`), rename `annualCtc`→`ctc`, send `companyType`. Without this the crowdsourced DB can never fill up, which blocks Stage 2a from ever having data | 🔴 P0 | ✅ Done — plus two extras found en route, below |
+| B2 | Collapse the three experience-level vocabularies down to the DB seed; bind the upload form to `GET /metadata/experience-levels` | 🟠 P1 | ✅ Done — smaller than expected: `UploadPage` **already** read the live list, so the 8-value `EXPERIENCE_LEVELS` constant was dead code. Deleted |
+| B3 | Delete the dead `OFFER_ANALYZE` endpoint constant | 🟡 P2 | ✅ Done |
+| B4 | **Contract test**: assert every `ENDPOINTS` entry resolves to a registered Fastify route, *and* that `AnalysisResponse` carries the keys the results view reads — a path-only check would not have caught B6 | 🟠 P1 | ✅ Done — `src/app.contract.test.ts`, 35 endpoints. Registers routes without the plugin stack so it needs no Postgres or Redis |
 | B5 | **Update `test-m2.mjs` / `test-m3.mjs` for cookie identity.** Both send `x-fingerprint` and keep no cookie jar, so after A1 every request looks like a brand-new guest. Guest read-back and signup migration will fail in these scripts — a harness problem, not an app problem. Also fix the stale `/salaries` paths and the 200-vs-201 assertion. **Partly superseded**: `test-security.mjs` now covers the guest/auth paths properly with a cookie jar and can be copied from | 🟠 P1 |
-| B6 | **Fix the results-path contract** (found live, see Runtime Verification). Return `score` + `scoreLabel` from `AnalysisService.getAnalysis()`, and reconcile `ResultsPage`'s flat field reads (`a.company`, `a.role`, `a.location`, `a.negotiationTips`) against the API's nested `extractedData` and `negotiationSuggestions`. `a.negotiationTips.map()` is unguarded, so the main results screen currently throws on a completed analysis | 🔴 P0 |
+| B6 | **Fix the results-path contract** (found live). Return `score` + `scoreLabel` from `AnalysisService.getAnalysis()`, and reconcile `ResultsPage`'s flat field reads against the API's nested shape | 🔴 P0 | ✅ Done |
+
+#### -1B outcome
+
+`GET /offers/:id/analysis` now returns an `AnalysisResponse`: the domain payload plus `score`, `scoreLabel`, `scoringMethod`, `lowConfidence`, `redFlagsDiscarded`, and the offer context the view needs (`offerStatus`, `expiresAt`, `ocrConfidence`). `AnalysisResult` stays the AI provider's contract, unpolluted.
+
+`ResultsPage` now reads the real shape — `extractedData.companyName`/`.role`/`.location`, `salaryComparison.marketRange`, `redFlags[].matchedText`, and `negotiationSuggestions` rendered as component / suggested ask / rationale instead of a non-existent `.suggestion`.
+
+**Three further defects surfaced while fixing these:**
+
+| Found | Detail |
+|-------|--------|
+| `SalaryBar` asked for fields nobody returns | Props were `min`/`p50 as median`/`max`. Neither `salaryComparison.marketRange` nor `/salaries/stats` produces min or max, so **three of five bars rendered `undefined` at both call sites**. Props are now `p25`/`p50`/`p75`/`p90` |
+| **`salary.schema.ts` was an empty stub** and the routes never validated | `POST /salaries` cast `req.body` and passed it to the insert, so a missing `companyType` (NOT NULL enum) became a database error rather than a 400. Schema written and wired. Verified: missing/invalid `companyType`, invalid `companySize` bucket, negative `ctc`, absurd `experienceYears` and missing `role` all now return 400 |
+| The take-home panel read four non-existent fields | It rendered a `gross`/`tax`/`pf`/`net` grid; the API returns `{ monthlyEstimate, assumptions }`. Now shows what exists — the full breakdown arrives with the Phase 2 tax calculator |
+
+Also: `ACCEPTED_FILE_TYPES` was missing `text/plain`, so `.txt` was rejected client-side despite the backend accepting it and `pdf-extractor.ts` handling it.
+
+**Verified**: backend and frontend `tsc` clean, frontend build succeeds, 36 backend unit tests pass, the -1A suite still passes 20/20 (no regression), and a live run confirmed the score reaches the API (`score: 70`, `scoreLabel: 'fair'`) with `negotiationSuggestions` as an array.
+
+> [!NOTE]
+> The results screen can now *render*, but it renders an empty analysis — company and role are blank and there are no red flags, because the pipeline still discards Gemini's output over the key-name mismatch. -1B fixed the plumbing; **Phase 1 tasks 3-5 fill the pipe.**
 
 > [!TIP]
 > B1, B2, and B3 are all the same bug class — `constants/api.ts` and the route definitions drifted with nothing watching. B4 would have caught all three and is cheaper than fixing them one at a time as they surface. That is why it is in this group rather than deferred.

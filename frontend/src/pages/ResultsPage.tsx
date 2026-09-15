@@ -69,6 +69,14 @@ const ResultsPage = () => {
 
   const a = analysis;
 
+  // The API returns the domain shape: company/role/location live under extractedData,
+  // and market percentiles under salaryComparison.marketRange. This page previously read
+  // flat aliases (a.company, a.score, a.negotiationTips) that the server never sent, so
+  // the header rendered placeholders and the negotiation section threw on undefined.
+  const extracted = a.extractedData ?? {};
+  const market = a.salaryComparison?.marketRange;
+  const negotiationSuggestions = a.negotiationSuggestions ?? [];
+
   return (
     <PageShell>
       <div className="container mx-auto max-w-4xl px-4 py-8 pb-28 space-y-8">
@@ -85,29 +93,40 @@ const ResultsPage = () => {
         <div className="flex flex-col items-center gap-4 rounded-2xl p-8 md:flex-row md:items-start md:gap-8 skeu-card">
           <ScoreGauge score={a.score ?? 0} />
           <div className="flex-1 text-center md:text-left">
-            <h1 className="text-xl font-bold text-foreground">{a.company || "Company"}</h1>
-            <p className="text-muted-foreground">{a.role || "Role"}{a.location ? ` · ${a.location}` : ""}</p>
-            {a.scoreMethod === "estimated" && (
+            <h1 className="text-xl font-bold text-foreground">{extracted.companyName || "Company"}</h1>
+            <p className="text-muted-foreground">
+              {extracted.role || "Role"}{extracted.location ? ` · ${extracted.location}` : ""}
+            </p>
+            {a.scoreLabel && (
+              <p className="mt-1 text-sm font-medium capitalize text-foreground">{a.scoreLabel}</p>
+            )}
+            {a.scoringMethod === "fallback" && (
               <p className="mt-2 text-xs text-muted-foreground italic">Estimated score — limited market data</p>
             )}
           </div>
         </div>
 
         {/* Salary Comparison */}
-        {a.salaryComparison && (
+        {market && (
           <section className="rounded-2xl p-6 skeu-card">
             <h2 className="font-semibold mb-4 text-foreground">Salary Comparison</h2>
             <SalaryBar
-              min={a.salaryComparison.min}
-              p25={a.salaryComparison.p25}
-              median={a.salaryComparison.median}
-              p75={a.salaryComparison.p75}
-              max={a.salaryComparison.max}
-              userSalary={a.salaryComparison.userSalary}
-              label={a.salaryComparison.percentile ? `Your offer is at the ${a.salaryComparison.percentile}th percentile` : undefined}
+              p25={market.p25}
+              p50={market.p50}
+              p75={market.p75}
+              p90={market.p90}
+              userSalary={extracted.compensation?.totalCTC ?? undefined}
+              label={
+                a.salaryComparison?.offerPercentile
+                  ? `Your offer is at the ${a.salaryComparison.offerPercentile}th percentile`
+                  : undefined
+              }
             />
             <p className="mt-2 text-xs text-muted-foreground">
-              {a.salaryComparison.source || "AI-estimated range"}
+              {a.salaryComparison?.dataSource === "crowdsourced"
+                ? "Based on crowdsourced submissions"
+                : "AI-estimated range — not benchmarked against real submissions"}
+              {a.salaryComparison?.disclaimer ? ` · ${a.salaryComparison.disclaimer}` : ""}
             </p>
           </section>
         )}
@@ -128,8 +147,11 @@ const ResultsPage = () => {
                       </span>
                       <h3 className="font-medium text-sm text-foreground">{rf.title}</h3>
                     </div>
-                    {rf.excerpt && <p className="text-xs text-muted-foreground italic mb-1">"{rf.excerpt}"</p>}
+                    {rf.matchedText && <p className="text-xs text-muted-foreground italic mb-1">"{rf.matchedText}"</p>}
                     <p className="text-sm text-muted-foreground">{rf.explanation}</p>
+                    {rf.suggestion && (
+                      <p className="mt-2 text-sm text-foreground"><span className="font-medium">Suggestion:</span> {rf.suggestion}</p>
+                    )}
                   </div>
                 );
               })}
@@ -143,12 +165,26 @@ const ResultsPage = () => {
         </section>
 
         {/* Negotiation Tips */}
-        {a.negotiationTips?.length > 0 && (
+        {negotiationSuggestions.length > 0 && (
           <section className="rounded-2xl p-6 skeu-card">
             <h2 className="font-semibold mb-4 text-foreground">Negotiation Tips</h2>
-            <ul className="space-y-2">
-              {a.negotiationTips.map((t: any, i: number) => (
-                <li key={i} className="text-sm text-muted-foreground">• {t.suggestion || t}</li>
+            <ul className="space-y-3">
+              {negotiationSuggestions.map((t: any, i: number) => (
+                <li key={i} className="text-sm">
+                  <p className="font-medium text-foreground">
+                    {t.component}
+                    {t.priority && (
+                      <span className="ml-2 text-xs uppercase text-muted-foreground">{t.priority} priority</span>
+                    )}
+                  </p>
+                  {t.suggestedAsk && (
+                    <p className="text-muted-foreground">
+                      Ask for <span className="text-foreground">{t.suggestedAsk}</span>
+                      {t.currentValue ? ` (currently ${t.currentValue})` : ""}
+                    </p>
+                  )}
+                  {t.rationale && <p className="text-xs text-muted-foreground">{t.rationale}</p>}
+                </li>
               ))}
             </ul>
             <Button
@@ -162,23 +198,22 @@ const ResultsPage = () => {
           </section>
         )}
 
-        {/* Take-Home Breakdown */}
-        {a.takeHome && (
+        {/* Take-Home Estimate
+            The API returns { monthlyEstimate, assumptions }. The previous four-box
+            gross/tax/PF/net grid read fields that do not exist — that breakdown arrives
+            with the deterministic tax calculator in Phase 2. */}
+        {typeof a.takeHome?.monthlyEstimate === "number" && (
           <section className="rounded-2xl p-6 skeu-card">
-            <h2 className="font-semibold mb-4 text-foreground">Take-Home Breakdown</h2>
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-              {[
-                { label: "Gross", value: a.takeHome.gross },
-                { label: "Tax", value: a.takeHome.tax },
-                { label: "PF", value: a.takeHome.pf },
-                { label: "Net Take-Home", value: a.takeHome.net },
-              ].map((item) => (
-                <div key={item.label} className="rounded-xl p-4 text-center skeu-inset">
-                  <p className="text-xs text-muted-foreground">{item.label}</p>
-                  <p className="text-lg font-bold text-foreground">₹{(item.value ?? 0).toLocaleString()}</p>
-                </div>
-              ))}
+            <h2 className="font-semibold mb-4 text-foreground">Estimated Take-Home</h2>
+            <div className="rounded-xl p-4 text-center skeu-inset">
+              <p className="text-xs text-muted-foreground">Per month</p>
+              <p className="text-2xl font-bold text-foreground">
+                ₹{a.takeHome.monthlyEstimate.toLocaleString("en-IN")}
+              </p>
             </div>
+            {a.takeHome.assumptions && (
+              <p className="mt-3 text-xs text-muted-foreground">{a.takeHome.assumptions}</p>
+            )}
           </section>
         )}
 

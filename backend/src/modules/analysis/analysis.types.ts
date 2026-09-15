@@ -69,6 +69,32 @@ export interface Benefit {
     isStandard: boolean;
 }
 
+/**
+ * What `GET /offers/:id/analysis` returns.
+ *
+ * `AnalysisResult` is the AI provider's output contract, so it deliberately carries no
+ * score and no offer context. The results view needs both: the score is computed by the
+ * worker after the AI returns, and `expiresAt` / `ocrConfidence` / `status` live on the
+ * offer row.
+ *
+ * Previously the route returned bare `AnalysisResult`, so the score — the product's
+ * headline number — was computed, stored, and then never sent to the browser.
+ */
+export interface AnalysisResponse extends AnalysisResult {
+    /** 0-100 composite. Computed in the analysis worker, not by the AI. */
+    score: number;
+    scoreLabel: string;
+    /** 'standard' | 'fallback' — 'fallback' means the UI should say "estimated". */
+    scoringMethod: string;
+    lowConfidence: boolean;
+    /** Red flags dropped by the hallucination guard because their quote wasn't in the text. */
+    redFlagsDiscarded: number;
+    /** Offer-level context the results view needs. */
+    offerStatus: string;
+    expiresAt: Date | null;
+    ocrConfidence: number | null;
+}
+
 export interface ScoreBreakdown {
     salaryScore: number;
     redFlagScore: number;

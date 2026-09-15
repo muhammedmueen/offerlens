@@ -16,7 +16,6 @@ export const ENDPOINTS = {
   // Offers
   OFFERS: "/offers",
   OFFER: (id: string) => `/offers/${id}`,
-  OFFER_ANALYZE: (id: string) => `/offers/${id}/analyze`,
   OFFER_ANALYSIS: (id: string) => `/offers/${id}/analysis`,
   OFFER_REPORT: (id: string) => `/offers/${id}/report`,
   OFFER_NEGOTIATE: (id: string) => `/offers/${id}/negotiate`,
@@ -54,11 +53,22 @@ export const GUEST_TTL_HOURS = 24;
 export const POLLING_INTERVAL_MS = 3000;
 export const ITEMS_PER_PAGE = 20;
 
-export const ACCEPTED_FILE_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
+// Mirrors SUPPORTED_FILE_TYPES in the backend, including text/plain — pdf-extractor.ts
+// already handles it, but it was missing here so .txt was rejected before upload.
+export const ACCEPTED_FILE_TYPES = [
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "text/plain",
+];
 export const MAX_FILE_SIZE_MB = 10;
 export const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
-export const EXPERIENCE_LEVELS = ["Entry Level", "Mid Level", "Senior", "Lead", "Manager", "Director", "VP", "C-Level"] as const;
+// EXPERIENCE_LEVELS removed. It hardcoded 8 labels ("Entry Level", "Mid Level", …) that
+// disagreed with both the DB seed and the AI extraction prompt, which use 6 banded labels
+// ("Fresher (0-1 yrs)", …). Nothing imported it — the upload form already reads the real
+// list from GET /metadata/experience-levels. Fetch that rather than reintroducing a copy.
 
 export const OFFER_STATUS = {
   QUEUED: "QUEUED",

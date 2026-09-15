@@ -3,7 +3,7 @@ import { offers } from '@/db/schema/offers.js';
 import { analyses, NewAnalysis } from '@/db/schema/analyses.js';
 import { eq } from 'drizzle-orm';
 import { FastifyInstance } from 'fastify';
-import { AnalysisResult, ScoreBreakdown } from './analysis.types.js'; // Ensure correct import path
+import { AnalysisResult, AnalysisResponse, ScoreBreakdown } from './analysis.types.js';
 import { analysisQueue } from '@/queue/queues.js'; // Ensure correct import path
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
@@ -11,18 +11,32 @@ import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 export class AnalysisService {
     constructor(private fastify: FastifyInstance) { }
 
-    async getAnalysis(offerId: string): Promise<AnalysisResult | null> {
+    async getAnalysis(offerId: string): Promise<AnalysisResponse | null> {
         const analysis = await db.query.analyses.findFirst({
             where: eq(analyses.offerId, offerId),
         });
 
         if (!analysis) return null;
 
-        // Transform DB record to AnalysisResult type (if structure matches perfectly, cast)
-        // DB stores jsonb, so it comes back as object.
-        // We need to ensure types match.
-        // The DB schema fields map 1:1 to AnalysisResult apart from `id`, `offerId`, `createdAt`.
+        // The results view also needs offer-level context: the guest expiry banner and
+        // the low-OCR-confidence warning both live on the offer, not the analysis.
+        const offer = await db.query.offers.findFirst({
+            where: eq(offers.id, offerId),
+        });
+
         return {
+            // Score is computed by the worker after the AI returns, so it is not part of
+            // AnalysisResult. It was previously stored and never returned.
+            score: analysis.score,
+            scoreLabel: analysis.scoreLabel,
+            scoringMethod: analysis.scoringMethod,
+            lowConfidence: analysis.lowConfidence,
+            redFlagsDiscarded: analysis.redFlagsDiscarded,
+
+            offerStatus: offer?.status ?? 'COMPLETED',
+            expiresAt: offer?.expiresAt ?? null,
+            ocrConfidence: offer?.ocrConfidence ?? null,
+
             extractedData: analysis.extractedData as AnalysisResult['extractedData'],
             redFlags: analysis.redFlags as AnalysisResult['redFlags'],
             salaryComparison: analysis.salaryComparison as AnalysisResult['salaryComparison'],

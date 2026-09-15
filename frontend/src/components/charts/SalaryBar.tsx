@@ -1,28 +1,35 @@
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 
+/**
+ * Props mirror the percentiles the API actually produces.
+ *
+ * This previously asked for `min`, `median` and `max`. Neither the analysis
+ * `salaryComparison.marketRange` nor `GET /salaries/stats` returns those, so three of
+ * the five bars silently rendered `undefined` at both call sites.
+ */
 interface SalaryBarProps {
-  min: number;
   p25: number;
-  median: number;
+  p50: number;
   p75: number;
-  max: number;
+  p90: number;
+  /** The user's own offer, drawn as a reference line. */
   userSalary?: number;
   label?: string;
 }
 
-const SalaryBar: React.FC<SalaryBarProps> = ({ min, p25, median, p75, max, userSalary, label }) => {
+const SalaryBar: React.FC<SalaryBarProps> = ({ p25, p50, p75, p90, userSalary, label }) => {
   const data = [
-    { name: "Min", value: min },
     { name: "P25", value: p25 },
-    { name: "Median", value: median },
+    { name: "Median", value: p50 },
     { name: "P75", value: p75 },
-    { name: "Max", value: max },
+    { name: "P90", value: p90 },
   ];
 
   const fmt = (v: number) => {
+    if (v >= 10000000) return `${(v / 10000000).toFixed(1)}Cr`;
     if (v >= 100000) return `${(v / 100000).toFixed(1)}L`;
     if (v >= 1000) return `${(v / 1000).toFixed(0)}K`;
-    return v.toString();
+    return String(v);
   };
 
   return (
@@ -34,12 +41,12 @@ const SalaryBar: React.FC<SalaryBarProps> = ({ min, p25, median, p75, max, userS
           <YAxis tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={fmt} />
           <Tooltip
             contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, color: "hsl(var(--foreground))" }}
-            formatter={(value: number) => [`₹${value.toLocaleString()}`, "Salary"]}
+            formatter={(value: number) => [`₹${value.toLocaleString("en-IN")}`, "Salary"]}
           />
           <Bar dataKey="value" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-          {userSalary && (
+          {userSalary ? (
             <ReferenceLine y={userSalary} stroke="hsl(var(--cta))" strokeDasharray="4 4" label={{ value: "Your Offer", fill: "hsl(var(--cta))", fontSize: 11 }} />
-          )}
+          ) : null}
         </BarChart>
       </ResponsiveContainer>
     </div>
