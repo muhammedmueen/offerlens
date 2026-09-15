@@ -25,6 +25,7 @@
     },
     "include": [
         "src/**/*.ts",
+        "eval/**/*.ts",
         "drizzle.config.ts"
     ],
     "exclude": [

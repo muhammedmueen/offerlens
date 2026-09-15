@@ -5,3 +5,6 @@ dist/
 uploads/
 *.log
 coverage/
+# Eval run output — regenerate with 
+pm run eval -- --save; baseline numbers live in eval/README.md
+eval/results/

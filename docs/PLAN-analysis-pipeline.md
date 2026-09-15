@@ -829,17 +829,63 @@ Two changes did it. `pdfjs-dist` (435 KB raw / 128 KB gzip) is now imported on d
 | C11 | ✅ **Resolved — keep generated migrations.** `db:migrate` was run against an empty database and produced a correct 16-table schema, so the chain works despite the drift. CI now has a `migrations` job that applies it from empty on every push, which is what stops the journal silently falling behind again. Use `db:migrate` in scripts, not `db:push` — the latter **hangs** on an interactive prompt because `drizzle.config.ts` sets `strict: true`. Original note: | 🟠 P1 |
 | C11-old | **Decide the migration workflow.** Found while generating A3's migration: the Drizzle journal was badly out of date — snapshot `0000` predates the entire M2/M3 schema, so `0001` had to create `users`, `refresh_tokens`, `corrections`, `forum_posts`, `forum_comments`, `salary_submissions` and add `offers.user_id` alongside the dedup change. That means the schema has been evolving via `db:push` while `db:migrate` sat unused. Pick one: either commit to generated migrations (and accept that `0001` is a large catch-up), or drop the migration files and standardise on `push` for pre-launch. Mixing the two is how a deploy discovers a missing column | 🟠 P1 |
 
-### Phase 0: Evaluation Framework (1 day) — Do This First
+### Phase 0: Evaluation Framework — ✅ Done
 
-| # | Task | Why |
-|---|------|-----|
-| 0a | Collect 15-20 anonymized offer letters as test corpus | Can't improve what you can't measure |
-| 0b | Manually annotate ground truth (company, role, CTC, benefits, red flags) | Baseline for accuracy comparison |
-| 0c | Build test harness: run extraction → compare vs ground truth → report field-level accuracy | Tracks regression on every change |
+| # | Task | Status |
+|---|------|--------|
+| 0a | Collect 15-20 offer letters as a corpus | ✅ 16 cases in `backend/eval/corpus.ts` — **synthetic, see caveat below** |
+| 0b | Annotate ground truth (company, role, CTC, benefits, red flags) | ✅ Inline `expected` per case, plus a `probes` note so a failure is diagnosable |
+| 0c | Harness: run extraction → compare vs ground truth → report field-level accuracy | ✅ `npm run eval`. Scorer is pure and covered by 19 unit tests |
 
-**Target metrics**:
-- Structured fields (company, role, CTC): > 90% accuracy
-- Nuanced fields (benefits, clauses): > 75% accuracy
+> [!WARNING]
+> **The corpus is synthetic, and that is a real limitation.** The letters were written for
+> this purpose, by the same kind of model whose extraction they measure, so they risk
+> being unrepresentatively easy. The score is trustworthy for *"did this change make
+> extraction better or worse"* and **not** for *"extraction is N% accurate"*. Swap in real
+> anonymised letters when any exist; the harness does not care where text comes from.
+>
+> Variety was added deliberately to blunt this: multiple currencies and locales, Indian
+> magnitude words, monthly figures needing annualisation, simulated OCR damage,
+> non-standard titles, deliberately incomplete letters, and differently-phrased clauses.
+
+#### Baseline — measured 2026-09-15, current single-pass prompt
+
+| Metric | Baseline | Target | |
+|--------|----------|--------|---|
+| **Structured** (company, role, CTC) | **4.2%** | 90% | ❌ |
+| **Nuanced** (benefits, red-flag types, F1) | **51.3%** | 75% | ❌ |
+
+Per field: `companyName` 12.5%, `role` **0.0%**, `totalCTC` **0.0%**, `location` 6.3%,
+`currency` 0.0%, `noticePeriod` 12.5%, `probationPeriod` 56.3%, benefits F1 65.2%,
+red flags F1 37.5%.
+
+**The shape diagnostic is the finding.** Across 16 cases the model returned **16 different
+response shapes, and not one matched what the code reads.** A sample:
+
+```
+candidate_name, company_name, compensation, employment_terms, location, position, red_flags
+annual_compensation, benefits, bond_amount, candidate_name, designation, notice_period
+benefits, clauses, compensation, jobDetails, negotiationPoints, redFlags, summary
+baseLocation, benefits, designation, employeeName, employer, redFlags, salaryDetails, terms
+```
+
+`role` and `totalCTC` score exactly **0%** — not because the model failed to read them,
+but because it returns `job_title` / `designation` / `position` and `salary` /
+`annual_compensation` / `annual_ctc`, never `extractedData.role` or
+`extractedData.compensation.totalCTC`.
+
+The tell is `benefits` at 65% F1: it scores far better than everything else purely because
+`benefits` happens to be the key name the model naturally reaches for. **Where the names
+coincide, extraction is decent. The model understands these letters; the code cannot read
+its answer.**
+
+That quantifies the diagnosis and sizes the prize. Phase 1 tasks 3-5 are not incremental
+prompt polish — they are the difference between 4% and whatever the model is genuinely
+capable of.
+
+Also confirmed live during the run: the Phase 1 task 0 fallback fix works. Requests hit
+429 on `gemini-2.5-flash`, then 503 on `gemini-flash-latest`, and completed on
+`gemini-flash-lite-latest`. Before that fix the 503 would have thrown.
 
 ### Phase 1: Quick Wins (1-2 days)
 

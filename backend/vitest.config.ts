@@ -6,7 +6,8 @@ export default defineConfig({
     test: {
         // Colocated with source so `tsc --noEmit` typechecks them too.
         // (tsconfig only excludes **/__tests__/**, so *.test.ts under src/ is covered.)
-        include: ['src/**/*.test.ts'],
+        // `eval/` holds the extraction accuracy harness; its scorer is unit-tested here.
+        include: ['src/**/*.test.ts', 'eval/**/*.test.ts'],
         environment: 'node',
     },
 });
