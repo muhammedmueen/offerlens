@@ -28,11 +28,13 @@ export class CareerService {
             throw new AppError(ERROR_CODES.INVALID_INPUT, 'Cannot generate career path: Role not identified in offer', 400);
         }
 
-        // Generate via AI
+        // Task 7: industry and companyType are now extracted from the letter. These were
+        // hardcoded to 'Technology' and 'Unknown', which is why every career path read as
+        // generic regardless of the actual role — a teaching post got a tech trajectory.
         const path = await this.fastify.ai.generateCareerPath({
             role: extracted.role,
-            companyType: 'Unknown', // Could extract from company metadata if available
-            industry: 'Technology', // Defaulting for MVP
+            companyType: extracted.companyType || 'Unknown',
+            industry: extracted.industry || 'Unknown',
         });
 
         return path;

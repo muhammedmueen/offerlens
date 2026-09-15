@@ -11,6 +11,8 @@ export class MockAiProvider implements AiProvider {
                 department: 'Engineering',
                 joiningDate: '2026-03-01',
                 location: context?.city || 'Bangalore',
+                industry: 'Technology',
+                companyType: 'product',
                 employmentType: 'full-time',
                 compensation: {
                     currency: context?.currency || 'INR',

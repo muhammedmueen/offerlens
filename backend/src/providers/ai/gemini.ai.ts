@@ -1,6 +1,10 @@
 import { AiProvider, OfferContext } from './ai.provider.js';
 import { AnalysisResult } from '@/modules/analysis/analysis.types.js';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import {
+    analysisResultSchema, GEMINI_RESPONSE_SCHEMA, type ValidatedAnalysis,
+} from '@/modules/analysis/analysis.zod.js';
+import { SYSTEM_INSTRUCTION, buildAnalysisPrompt } from './analysis.prompt.js';
+import { GoogleGenerativeAI, type GenerativeModel } from '@google/generative-ai';
 import { config } from '@/config/index.js';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
@@ -114,28 +118,33 @@ export class GeminiAiProvider implements AiProvider {
         console.log(`[Gemini AI] Starting analysis with model: ${requestedModel}`);
 
         try {
-            const { result } = await this.withFallback(
+            const { result, modelUsed } = await this.withFallback(
                 requestedModel,
                 async (modelName) => {
                     const analysisModel = this.genAI.getGenerativeModel({
                         model: modelName,
                         generationConfig: {
                             responseMimeType: 'application/json',
-                            temperature: 0.3,
+                            // Enforced at the model, so the reply is structurally correct
+                            // before we see it. Without this the model invented its own
+                            // key names on every request — 16 different shapes across 16
+                            // eval cases, none of which this code could read.
+                            responseSchema: GEMINI_RESPONSE_SCHEMA,
+                            temperature: 0.2,
                             maxOutputTokens: 8192,
                         },
+                        systemInstruction: SYSTEM_INSTRUCTION,
                     });
 
-                    const prompt = this.buildPrompt(text, context);
-                    const genResult = await analysisModel.generateContent(prompt);
-                    const response = await genResult.response;
-                    const jsonString = response.text();
-                    return JSON.parse(jsonString) as AnalysisResult;
+                    return this.generateValidated(analysisModel, buildAnalysisPrompt(text, context));
                 },
                 'analysis',
             );
 
-            return result;
+            // Stamp the model that actually served the request. This was previously left as
+            // the literal string 'unknown' because the AI was asked to report it itself.
+            result.metadata.modelUsed = modelUsed;
+            return result as AnalysisResult;
         } catch (error: any) {
             if (error instanceof AppError) throw error;
 
@@ -205,10 +214,20 @@ export class GeminiAiProvider implements AiProvider {
     }
 
     async generateCareerPath(input: { role: string; companyType: string; industry: string }): Promise<any> {
+        const industry = input.industry && input.industry !== 'Unknown'
+            ? `the ${input.industry} industry`
+            : 'their industry';
+        const companyContext = input.companyType && input.companyType !== 'Unknown'
+            ? ` at a ${input.companyType} company`
+            : '';
+
         const prompt = `
             Act as a career counselor.
-            Create a 5-year career trajectory for a ${input.role} in the ${input.industry} industry.
-            
+            Create a 5-year career trajectory for a ${input.role} in ${industry}${companyContext}.
+
+            Ground the progression in that specific field. Do not default to a software
+            engineering ladder unless the role is actually in software.
+
             Output JSON with this structure:
             {
                 "timeline": [
@@ -313,21 +332,57 @@ export class GeminiAiProvider implements AiProvider {
         }
     }
 
-    private buildPrompt(text: string, context?: OfferContext): string {
-        return `
-      You are an expert HR compensation analyst and legal advisor.
-      Analyze the following offer letter text and extract structured data.
-      
-      User Context: ${JSON.stringify(context || {})}
-      
-      Offer Text:
-      """
-      ${text}
-      """
-      
-      Output compliant JSON matching the AnalysisResult interface.
-      Ensure strict adherence to the schema.
-      Check for red flags, benefits, and salary details.
-    `;
+    /**
+     * Generate, then validate with Zod. One retry, with the validation errors fed back.
+     *
+     * Previously the response was `JSON.parse`d and trusted. A parse failure was not a
+     * rate-limit error, so `withFallback` rethrew immediately and no retry happened at
+     * all — contradicting the roadmap's "retry once with a stricter prompt".
+     */
+    private async generateValidated(
+        model: GenerativeModel,
+        prompt: string,
+    ): Promise<ValidatedAnalysis> {
+        let lastIssue = '';
+
+        for (let attempt = 1; attempt <= 2; attempt++) {
+            const promptForAttempt = attempt === 1
+                ? prompt
+                : `${prompt}\n\nYour previous response was rejected by validation:\n${lastIssue}\n`
+                  + 'Return the corrected JSON. Use exactly the field names in the schema.';
+
+            const genResult = await model.generateContent(promptForAttempt);
+            const raw = genResult.response.text();
+
+            let parsed: unknown;
+            try {
+                parsed = JSON.parse(raw);
+            } catch (err: any) {
+                lastIssue = `Response was not valid JSON: ${err.message}`;
+                console.warn(`[Gemini AI] attempt ${attempt}: ${lastIssue}`);
+                continue;
+            }
+
+            const validation = analysisResultSchema.safeParse(parsed);
+            if (validation.success) {
+                if (attempt > 1) console.log('[Gemini AI] ✅ validation passed on retry');
+                return validation.data;
+            }
+
+            lastIssue = validation.error.issues
+                .slice(0, 8)
+                .map((i) => `- ${i.path.join('.') || '(root)'}: ${i.message}`)
+                .join('\n');
+            console.warn(`[Gemini AI] attempt ${attempt} failed validation:\n${lastIssue}`);
+        }
+
+        // Both attempts failed. Throwing marks the offer FAILED, which is correct — an
+        // empty analysis presented as a confident score is worse than a visible failure.
+        throw new AppError(
+            ERROR_CODES.INTERNAL_ERROR,
+            'Analysis could not be completed. Please try again.',
+            500,
+            lastIssue,
+        );
     }
 }

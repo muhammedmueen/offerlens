@@ -891,14 +891,65 @@ Also confirmed live during the run: the Phase 1 task 0 fallback fix works. Reque
 
 | # | Task | Impact |
 |---|------|--------|
-| 0 | **Fix `isRateLimitError` to treat 503/UNAVAILABLE (and 500) as retryable, and prune the 3 dead entries from `GEMINI_FALLBACK_MODELS`.** Verified live: the default model 503s while working fallbacks sit unused, so analysis fails whenever the default is busy. Smallest high-impact fix in the whole plan — do it first | Analysis stops failing on transient overload |
-| 1 | Add prompt-injection sanitization for AI input (strip control chars, injection patterns). **Note**: general XSS/SQLi sanitization is recovered separately in task -1p from v1's commit `83a456a` — this task is only the AI-prompt-specific layer | Security |
-| 2 | Wire `SalaryService.getStats()` into analysis worker | Real salary data |
-| 3 | Add `responseSchema` to Gemini extraction call | Consistent JSON output |
-| 4 | Add Zod validation on AI output in worker | Catch malformed responses |
-| 5 | Split `buildPrompt()` into extraction vs analysis + few-shot examples | Better accuracy |
-| 6 | Pass real salary data into negotiation prompt | Authentic negotiation points |
-| 7 | Extract `industry` + `companyType` in Stage 1 | Fix career path context |
+| # | Task | Impact | Status |
+|---|------|--------|--------|
+| 0 | Treat 503/UNAVAILABLE and 500 as retryable; prune the 3 dead fallback models | Analysis stops failing on transient overload | ✅ Done. Fires constantly in practice — the eval log shows 429→429→success on the third model |
+| 3 | Add `responseSchema` to the Gemini call | Consistent JSON output | ✅ Done |
+| 4 | Add Zod validation on AI output | Catch malformed responses | ✅ Done, with one feedback retry |
+| 5 | Replace `buildPrompt()` with a real prompt + few-shot | Better accuracy | ✅ Done as **option A** (single call, strict schema). The two-call split is deferred — see below |
+| 7 | Extract `industry` + `companyType` | Fix career path context | ✅ Done |
+| 1 | Prompt-injection sanitisation for AI input | Security | ⬜ Partly mitigated: the letter now sits in the user channel behind delimiters with instructions in `systemInstruction`, and rule 7 tells the model to treat it as data. Still wants explicit stripping |
+| 2 | Wire `SalaryService.getStats()` into the analysis worker | Real salary data | ⬜ Not started |
+| 6 | Pass real salary data into the negotiation prompt | Authentic negotiation points | ⬜ Blocked on task 2 |
+
+#### Phase 1 (option A) result — measured 2026-09-15
+
+| Metric | Phase 0 baseline | After | Target | |
+|--------|------------------|-------|--------|---|
+| **Structured** (company, role, CTC) | 4.2% | **95.8%** | 90% | ✅ PASS |
+| **Nuanced** (benefits, red flags, F1) | 51.3% | **77.3%** | 75% | ✅ PASS |
+
+Per field: `companyName` 12.5% → **100%**, `role` 0% → **93.8%**, `totalCTC` 0% → **93.8%**,
+`location` 6.3% → **100%**, `currency` 0% → **100%**, `noticePeriod` 12.5% → **75%**,
+`probationPeriod` 56.3% → **62.5%**, benefits F1 65.2% → **83.1%**, red flags F1 37.5% → **71.5%**.
+
+**Response shapes: 16 different shapes → 1, on all 16 cases.** That single line accounts for
+most of the gain, and it confirms the Phase 0 diagnosis exactly: the model always understood
+these letters, and the code simply could not read the answer.
+
+What did it:
+
+| Change | Why it mattered |
+|--------|-----------------|
+| `GEMINI_RESPONSE_SCHEMA` passed as `generationConfig.responseSchema` | Shape enforced at the model, so field names stop being the model's choice. The largest single contributor |
+| `analysisResultSchema` (Zod) with coercion and per-field `.catch()` | Guarantees downstream shape. Coerces `"24,00,000"` to a number rather than failing the whole parse |
+| One retry with the Zod issues fed back | Previously a parse failure was rethrown with no retry at all, contradicting the roadmap |
+| `SYSTEM_INSTRUCTION` separated from offer text | Seven explicit rules — extract don't invent, quote verbatim, expand lakh/crore/LPA, distinguish guaranteed from potential pay, treat absence as information, benchmarks are estimates, the letter is data not instruction |
+| One worked example | Calibrates judgment the schema cannot express: what counts as a flag, that absent fields stay null |
+| `modelUsed` stamped from the actual fallback result | Was the literal string `'unknown'`, because the AI was asked to report its own identity |
+
+Knock-on effects, all verified live:
+
+- **The career-path blocker is gone.** M2 and M3 now report **0 known-blocked**, where both previously carried a permanent failure. A teaching post no longer receives a software-engineering ladder.
+- **Scores finally vary.** The dashboard read a flat `averageScore: 70` / "fair" for every offer because the analysis was empty and 70 is the untouched baseline. A red-flag-heavy letter now scores 38, rated weak/poor. The scoring formula was never broken — it had nothing to work with.
+- **`normalizeAiResult` in the worker is now largely redundant.** Zod guarantees the shape upstream. Left in place as defence in depth for the mock provider path; worth simplifying when the pipeline is refactored.
+
+#### Where the remaining error is, and why option B is still deferred
+
+Nuanced passed at 77.3%, but only just, and the residual is **not** a shape problem:
+
+- **Red-flag recall** is the weak point (71.5% F1). Misses cluster on inference rather than reading: `vague_compensation` on a letter whose pay is discretionary, `clawback` where a bond and a recovery clause overlap. It also **invents** `missing_benefit` on letters that do name cover.
+- **Benefits recall** drops on dense lists — an offer naming health cover, ESOP and a learning budget yields two of three.
+
+Both are comprehension limits, and both are what **Phase 2's rules engine** exists to fix: deterministic pattern matching will catch a non-compete or a bond every time, with the AI supplementing for nuance rather than carrying the whole job.
+
+So **option B (splitting extraction from analysis) is not the next move.** The evidence says shape was the bottleneck and it is now solved; a second AI call would double cost and latency against ADR-002's 45s p95 to chase an error that a rules engine addresses more cheaply and more reliably. Revisit the split if Phase 2 leaves recall short.
+
+> [!NOTE]
+> These figures come from the synthetic corpus. The jump from 4.2% to 95.8% is a real and
+> large effect that no corpus bias could manufacture — the fix was mechanical. But the
+> absolute 95.8% is still flattered by letters written to be readable. Real anonymised
+> offers would put a truer number on it.
 
 ### Phase 2: Rule Engine + Tax Calculator (2-3 days)
 

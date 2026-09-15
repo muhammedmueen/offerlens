@@ -6,6 +6,9 @@ export interface AnalysisResult {
         department: string | null;
         joiningDate: string | null;
         location: string | null;
+        /** Task 7: CareerService was called with a hardcoded 'Technology' before these existed. */
+        industry: string | null;
+        companyType: string | null;
         employmentType: 'full-time' | 'part-time' | 'contract' | 'intern';
         compensation: Compensation;
         noticePeriod: string | null;
