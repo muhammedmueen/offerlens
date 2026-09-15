@@ -1,4 +1,4 @@
-import { Worker, WorkerOptions } from 'bullmq';
+import { WorkerOptions } from 'bullmq';
 import { config } from '@/config/index.js';
 
 export const connection = {

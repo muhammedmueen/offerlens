@@ -1,4 +1,7 @@
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api/v1";
+// Default must match the backend's PORT default (8000, see backend/src/config/env.schema.ts).
+// This pointed at 5000, so a fresh checkout failed every request until VITE_API_BASE_URL
+// was set by hand.
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api/v1";
 
 export const ENDPOINTS = {
   // Auth

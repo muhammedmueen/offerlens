@@ -1,7 +1,7 @@
 import { db } from '@/db/index.js';
 import { guests } from '@/db/schema/guests.js';
 import { eq, sql } from 'drizzle-orm';
-import { GuestIdentity, GuestLimits } from './guest.types.js';
+import { GuestIdentity } from './guest.types.js';
 import { RATE_LIMITS } from '@/config/constants.js';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';

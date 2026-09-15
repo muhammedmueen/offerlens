@@ -1,5 +1,5 @@
 import { db } from '@/db/index.js';
-import { metadataRoles, metadataCities, metadataExperienceLevels } from '@/db/schema/metadata.js';
+import { metadataRoles, metadataCities } from '@/db/schema/metadata.js';
 import { eq, ilike, and } from 'drizzle-orm';
 
 export class MetadataService {

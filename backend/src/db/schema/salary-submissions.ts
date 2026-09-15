@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, timestamp, boolean, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, integer, timestamp, index } from 'drizzle-orm/pg-core';
 import { users } from './users.js';
 
 export const salarySubmissions = pgTable('salary_submissions', {

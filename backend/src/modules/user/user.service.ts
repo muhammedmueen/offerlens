@@ -2,8 +2,7 @@ import { db } from '@/db/index.js';
 import { users } from '@/db/schema/users.js';
 import { offers } from '@/db/schema/offers.js';
 import { analyses } from '@/db/schema/analyses.js';
-import { refreshTokens } from '@/db/schema/refresh-tokens.js';
-import { eq, desc, asc, count, avg, sql } from 'drizzle-orm';
+import { eq, desc, count, avg } from 'drizzle-orm';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 

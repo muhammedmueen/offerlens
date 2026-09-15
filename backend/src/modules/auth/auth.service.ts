@@ -1,13 +1,13 @@
 import { db } from '@/db/index.js';
-import { users, NewUser } from '@/db/schema/users.js';
+import { users } from '@/db/schema/users.js';
 import { refreshTokens } from '@/db/schema/refresh-tokens.js';
 import { offers } from '@/db/schema/offers.js';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { config } from '@/config/index.js';
-import { ACCESS_TOKEN_EXPIRY, REFRESH_TOKEN_EXPIRY, REFRESH_TOKEN_EXPIRY_MS } from '@/config/constants.js';
+import { ACCESS_TOKEN_EXPIRY, REFRESH_TOKEN_EXPIRY_MS } from '@/config/constants.js';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 import { AuthTokens, AuthResponse, JwtPayload, SignupInput, LoginInput, GoogleAuthInput } from './auth.types.js';

@@ -1,6 +1,5 @@
 import { db, conn } from './index.js';
 import { metadataRoles, metadataCities, metadataExperienceLevels } from './schema/metadata.js';
-import { sql } from 'drizzle-orm';
 
 const ROLES = [
     { name: 'Software Engineer', category: 'engineering' },

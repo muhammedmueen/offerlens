@@ -8,18 +8,38 @@ import ProtectedRoute from "@/routes/ProtectedRoute";
 import { AnimatePresence } from "framer-motion";
 import PageTransition from "@/components/layout/PageTransition";
 
+import { lazy, Suspense } from "react";
+import LoadingState from "@/components/common/LoadingState";
+
+// The landing page is eagerly imported — it is the most common entry point, so lazy
+// loading it would only add a round trip.
 import Index from "./pages/Index";
-import NotFound from "./pages/NotFound";
-import UploadPage from "./pages/UploadPage";
-import ProcessingPage from "./pages/ProcessingPage";
-import ResultsPage from "./pages/ResultsPage";
-import LoginPage from "./pages/LoginPage";
-import SignupPage from "./pages/SignupPage";
-import DashboardPage from "./pages/DashboardPage";
-import ComparePage from "./pages/ComparePage";
-import SalaryExplorerPage from "./pages/SalaryExplorerPage";
-import ForumListPage, { ForumPostPage } from "./pages/ForumPage";
-import FeatureRequestsPage from "./pages/FeatureRequestsPage";
+
+/**
+ * Every other route is code-split (ADR-002).
+ *
+ * The build was a single 1,465 KB chunk against a 200 KB initial budget. Splitting per
+ * route also pulls `recharts` out of the critical path: it is only used by ScoreGauge,
+ * SalaryBar and BenefitsPie, which live on Results, Compare and Salary Explorer.
+ *
+ * `framer-motion` is deliberately NOT split — PageTransition wraps every route, so it is
+ * genuinely in the critical path and deferring it would just delay first paint.
+ */
+const NotFound = lazy(() => import("./pages/NotFound"));
+const UploadPage = lazy(() => import("./pages/UploadPage"));
+const ProcessingPage = lazy(() => import("./pages/ProcessingPage"));
+const ResultsPage = lazy(() => import("./pages/ResultsPage"));
+const LoginPage = lazy(() => import("./pages/LoginPage"));
+const SignupPage = lazy(() => import("./pages/SignupPage"));
+const DashboardPage = lazy(() => import("./pages/DashboardPage"));
+const ComparePage = lazy(() => import("./pages/ComparePage"));
+const SalaryExplorerPage = lazy(() => import("./pages/SalaryExplorerPage"));
+const FeatureRequestsPage = lazy(() => import("./pages/FeatureRequestsPage"));
+// ForumPage exports the list as default and the detail view as a named export.
+const ForumListPage = lazy(() => import("./pages/ForumPage"));
+const ForumPostPage = lazy(() =>
+  import("./pages/ForumPage").then((m) => ({ default: m.ForumPostPage })),
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -35,6 +55,13 @@ const AnimatedRoutes = () => {
 
   return (
     <AnimatePresence mode="wait">
+      <Suspense
+        fallback={
+          <div className="container mx-auto max-w-4xl px-4 py-12">
+            <LoadingState rows={4} />
+          </div>
+        }
+      >
       <Routes location={location} key={location.pathname}>
         <Route path="/" element={<PageTransition><Index /></PageTransition>} />
         <Route path="/upload" element={<PageTransition><UploadPage /></PageTransition>} />
@@ -50,6 +77,7 @@ const AnimatedRoutes = () => {
         <Route path="/feature-requests" element={<PageTransition><FeatureRequestsPage /></PageTransition>} />
         <Route path="*" element={<PageTransition><NotFound /></PageTransition>} />
       </Routes>
+      </Suspense>
     </AnimatePresence>
   );
 };

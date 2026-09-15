@@ -3,7 +3,7 @@ import { defaultWorkerOptions } from './worker.js';
 import { db } from '@/db/index.js';
 import { offers } from '@/db/schema/offers.js';
 import { offerFiles } from '@/db/schema/offer-files.js';
-import { lt, and, eq, isNotNull } from 'drizzle-orm';
+import { lt, and, eq } from 'drizzle-orm';
 import { LocalStorageProvider } from '@/providers/storage/local.storage.js';
 
 const storage = new LocalStorageProvider();

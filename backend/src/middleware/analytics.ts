@@ -42,7 +42,8 @@ export const trackEvent = async (
     }
 };
 
-// Middleware for specific routes if needed, but mostly used as a utility function
-export const analyticsMiddleware = async (req: FastifyRequest, reply: FastifyReply) => {
-    // Can be used to track page views or API hits globally
+// Placeholder hook, currently a no-op. Params are named for the eventual implementation
+// (page views / API hit tracking); underscore-prefixed so lint does not flag them.
+export const analyticsMiddleware = async (_req: FastifyRequest, _reply: FastifyReply) => {
+    // Intentionally empty.
 };

@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { AuthService } from './auth.service.js';
+import { routeLimit } from '@/middleware/rate-limiter.js';
 import { signupSchema, loginSchema, googleAuthSchema, refreshTokenSchema } from './auth.schema.js';
 
 export async function authRoutes(fastify: FastifyInstance) {
@@ -7,6 +8,7 @@ export async function authRoutes(fastify: FastifyInstance) {
 
     // POST /auth/signup
     fastify.post('/signup', {
+        ...routeLimit('authSignup'),
         schema: signupSchema,
         handler: async (req, reply) => {
             const body = req.body as { offerIds?: string[] };
@@ -33,7 +35,10 @@ export async function authRoutes(fastify: FastifyInstance) {
     });
 
     // POST /auth/login
+    // Brute-force protection: 10 attempts per 15 minutes. This limit has been defined in
+    // RATE_LIMITS since the start and was never registered (C1).
     fastify.post('/login', {
+        ...routeLimit('authLogin'),
         schema: loginSchema,
         handler: async (req, reply) => {
             const result = await authService.login(req.body as any);
@@ -47,6 +52,7 @@ export async function authRoutes(fastify: FastifyInstance) {
 
     // POST /auth/google
     fastify.post('/google', {
+        ...routeLimit('authLogin'),
         schema: googleAuthSchema,
         handler: async (req, reply) => {
             const body = req.body as { offerIds?: string[] };

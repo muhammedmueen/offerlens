@@ -1,6 +1,6 @@
 import { db } from '@/db/index.js';
 import { salarySubmissions } from '@/db/schema/salary-submissions.js';
-import { eq, and, desc, sql, count } from 'drizzle-orm';
+import { eq, and, desc, sql } from 'drizzle-orm';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 

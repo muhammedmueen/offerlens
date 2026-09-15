@@ -1,0 +1,6 @@
+dist
+drizzle
+node_modules
+uploads
+coverage
+*.md

@@ -2,7 +2,7 @@ import { db } from '@/db/index.js';
 import { offers } from '@/db/schema/offers.js';
 import { analyses } from '@/db/schema/analyses.js';
 import { corrections } from '@/db/schema/corrections.js';
-import { eq, and } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 import { assertOfferAccess } from '@/shared/access/offer-access.js';

@@ -1,7 +1,7 @@
 import { db } from '@/db/index.js';
 import { offers } from '@/db/schema/offers.js';
 import { analyses } from '@/db/schema/analyses.js';
-import { eq, inArray } from 'drizzle-orm';
+import { inArray } from 'drizzle-orm';
 import { FastifyInstance } from 'fastify';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';

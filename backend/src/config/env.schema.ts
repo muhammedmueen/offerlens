@@ -3,7 +3,9 @@ import { z } from 'zod';
 export const envSchema = z.object({
     PORT: z.coerce.number().default(8000),
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-    CORS_ORIGIN: z.string().default('http://localhost:3000'),
+    // Must match the frontend dev server, which Vite serves on 8080. Defaulted to 3000,
+    // so credentialed requests were blocked by CORS out of the box.
+    CORS_ORIGIN: z.string().default('http://localhost:8080'),
 
     DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
     REDIS_URL: z.string().default('redis://localhost:6379'),

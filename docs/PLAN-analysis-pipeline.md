@@ -791,20 +791,43 @@ Also: `ACCEPTED_FILE_TYPES` was missing `text/plain`, so `.txt` was rejected cli
 
 No user-visible behaviour change. Safe to defer past -1A/-1B if needed.
 
-| # | Task | Severity |
-|---|------|----------|
-| C1 | Wire the per-route `RATE_LIMITS` that already exist, starting with `authLogin`. **[ADR-003]** No regression risk — v1 disabled these for local testing convenience, not because of an incident | 🟠 P1 |
-| C2 | Gate `POST /offers/extract` and `/extract-file` behind auth or a strict limit | 🟠 P1 |
-| C3 | Sanitize `file.filename` before temp-file writes | 🟠 P1 |
-| C4 | Fix the benefits `extractNumber()` unit handling (lakh / L / LPA / Cr) | 🟠 P1 |
+| # | Task | Severity | Status |
+|---|------|----------|--------|
+| C1 | Wire the per-route `RATE_LIMITS` that already exist, starting with `authLogin` | 🟠 P1 | ✅ Added `routeLimit()` helper; applied to signup, login, google, negotiate, compare, benefits |
+| C2 | Gate `POST /offers/extract` and `/extract-file` behind auth or a strict limit | 🟠 P1 | ✅ Kept unauthenticated by design (the upload form pre-fills before signup) but given their own tight limits — 20/hr and 10/hr — plus a 100k-char payload cap on `/extract` |
+| C3 | Sanitize `file.filename` before temp-file writes | 🟠 P1 | ✅ Plus moved scratch writes from the process CWD to `os.tmpdir()` |
+| C4 | Fix the benefits `extractNumber()` unit handling (lakh / L / LPA / Cr) | 🟠 P1 | ✅ Split into `extractMoney()` (unit-aware) and `extractCount()` (never scaled) |
 | C5 | Fix `.env.example` (add JWT secrets, drop duplicate keys), align the frontend API port default with 8000 and `CORS_ORIGIN` with 8080, add `frontend/.env.example` and gitignore `frontend/.env` | 🟠 P1 |
 | C6 | Declare `uuid` in `package.json`, or switch to `crypto.randomUUID()` | 🟡 P2 |
 | C4a | **Live evidence for C4**: "18 days of paid leave annually" was valued at ₹18, giving `totalCompensation: 500018` on a ₹24,00,000 offer. Beyond unit parsing, the PTO branch falls through to the generic case whenever base salary is unknown, so days become rupees. Fix both | 🟠 P1 |
 | C7 | **[ADR-003]** Rewrite or delete `.github/workflows/ci.yml` — a stale v1 artifact targeting Prisma and the old directory names; cannot pass | 🟠 P1 |
 | C8 | **[ADR-003]** Recover v1's input sanitization module from commit `83a456a` instead of writing it fresh in Phase 1 | 🟠 P1 |
 | C9 | **[ADR-003]** Restore ESLint + Prettier — `lint` is currently only `tsc --noEmit` | 🟡 P2 |
-| C10 | **[decision 11]** Split `pdfjs-dist`, `recharts`, and `framer-motion` into dynamic imports — 1,465 KB single chunk against a 200 KB budget (ADR-002) | 🟠 P1 |
-| C11 | **Decide the migration workflow.** Found while generating A3's migration: the Drizzle journal was badly out of date — snapshot `0000` predates the entire M2/M3 schema, so `0001` had to create `users`, `refresh_tokens`, `corrections`, `forum_posts`, `forum_comments`, `salary_submissions` and add `offers.user_id` alongside the dedup change. That means the schema has been evolving via `db:push` while `db:migrate` sat unused. Pick one: either commit to generated migrations (and accept that `0001` is a large catch-up), or drop the migration files and standardise on `push` for pre-launch. Mixing the two is how a deploy discovers a missing column | 🟠 P1 |
+| C10 | Split the heavy frontend imports — 1,465 KB single chunk against a 200 KB budget (ADR-002) | 🟠 P1 | ✅ **184.4 KB gzip initial, within budget.** See below |
+
+#### -1C outcome
+
+**Initial bundle: 1,465 KB raw / single chunk → 184.4 KB gzip across 31 chunks.** Under the 200 KB budget from ADR-002.
+
+Two changes did it. `pdfjs-dist` (435 KB raw / 128 KB gzip) is now imported on demand inside `extractTextFromPDF`, so it downloads only when someone picks a PDF rather than on every landing-page visit. And every route except the landing page is `React.lazy`-loaded, which also pulls `recharts` (359 KB raw / 99 KB gzip) out of the critical path — it is only used by `ScoreGauge`, `SalaryBar` and `BenefitsPie`, which live on Results, Compare and Salary Explorer.
+
+`framer-motion` was **deliberately not split**: `PageTransition` wraps every route, so it is genuinely critical-path and deferring it would only delay first paint. `chunkSizeWarningLimit` is set to 600 KB so regression is noisy rather than silent.
+
+**C8 was narrowed, contradicting ADR-003's "recover rather than rewrite".** Having read v1's `sanitization.ts`, only `sanitizeFilename` was worth recovering:
+
+- `sanitizeSql` stripped SQL keywords from user input. That corrupts legitimate data — an offer letter containing "select", a company called "Alter" — while providing no real protection, because Drizzle already parameterises every query. Restoring it would have been a downgrade.
+- `sanitizeText` / `sanitizeHtml` HTML-escaped on the way *in*. Escaping belongs at render time and React does it by default; storing `&lt;` causes double-escaping. Regex-based HTML sanitisation is also unreliable.
+- `sanitizeEmail` silently deleted invalid characters where Zod already rejects bad addresses. Rejecting beats quietly altering what someone typed.
+
+**C9 found 29 real problems on first run** — all dead imports and unused variables across 16 files, now removed. The config is deliberately conservative: `no-explicit-any` is off on the backend and a warning on the frontend, because those annotations cover AI-derived JSON and API response shapes that only become typeable once Phase 1 adds Zod schemas. Tightening first would produce a wave of suppressions that hide the actual work. Frontend `src/components/ui/**` is ignored as generated shadcn code.
+
+**Frontend lint went from 26 errors to 0 errors / 25 warnings.** The warnings are real debt, left visible rather than suppressed.
+
+**Also fixed while in the area:** `POST /offers/extract` had no input validation beyond a truthiness check, and no length bound on text going into a paid API.
+
+**Verified**: backend `tsc` + ESLint clean, 55 unit tests, frontend `tsc` + ESLint clean, frontend build succeeds, and all three integration suites still pass (security 20/0, M2 24/0/1, M3 18/0/1).
+| C11 | ✅ **Resolved — keep generated migrations.** `db:migrate` was run against an empty database and produced a correct 16-table schema, so the chain works despite the drift. CI now has a `migrations` job that applies it from empty on every push, which is what stops the journal silently falling behind again. Use `db:migrate` in scripts, not `db:push` — the latter **hangs** on an interactive prompt because `drizzle.config.ts` sets `strict: true`. Original note: | 🟠 P1 |
+| C11-old | **Decide the migration workflow.** Found while generating A3's migration: the Drizzle journal was badly out of date — snapshot `0000` predates the entire M2/M3 schema, so `0001` had to create `users`, `refresh_tokens`, `corrections`, `forum_posts`, `forum_comments`, `salary_submissions` and add `offers.user_id` alongside the dedup change. That means the schema has been evolving via `db:push` while `db:migrate` sat unused. Pick one: either commit to generated migrations (and accept that `0001` is a large catch-up), or drop the migration files and standardise on `push` for pre-launch. Mixing the two is how a deploy discovers a missing column | 🟠 P1 |
 
 ### Phase 0: Evaluation Framework (1 day) — Do This First
 

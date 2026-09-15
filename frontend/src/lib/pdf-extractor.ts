@@ -1,7 +1,29 @@
-import * as pdfjsLib from 'pdfjs-dist';
+import type * as PdfjsLib from 'pdfjs-dist';
 
-// Set worker source using jsdelivr CDN (more reliable)
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+/**
+ * pdf.js is loaded on demand.
+ *
+ * It is by far the heaviest dependency in the app and is only needed once someone
+ * actually selects a PDF — but a static import put it in the initial chunk, so every
+ * visitor downloaded it just to see the landing page. Part of bringing the 1,465 KB
+ * initial bundle back toward the 200 KB budget (ADR-002).
+ */
+let pdfjsPromise: Promise<typeof PdfjsLib> | null = null;
+
+function loadPdfjs(): Promise<typeof PdfjsLib> {
+    if (!pdfjsPromise) {
+        pdfjsPromise = import('pdfjs-dist').then((lib) => {
+            // ponytail: the worker is fetched from a public CDN. It should be self-hosted
+            // (vite-plugin-static-copy is already a devDependency for exactly this) —
+            // right now an outage or a tampered CDN breaks or compromises PDF parsing.
+            // Tracked separately; left as-is here to keep this change to bundle size only.
+            lib.GlobalWorkerOptions.workerSrc =
+                `https://cdn.jsdelivr.net/npm/pdfjs-dist@${lib.version}/build/pdf.worker.min.mjs`;
+            return lib;
+        });
+    }
+    return pdfjsPromise;
+}
 
 const MIN_TEXT_LENGTH = 100; // Minimum characters to consider extraction successful
 
@@ -23,6 +45,7 @@ export async function extractTextFromPDF(file: File): Promise<ExtractionResult> 
     const arrayBuffer = await file.arrayBuffer();
     console.log('[PDF Extractor] File loaded into memory', { bufferSize: arrayBuffer.byteLength });
     
+    const pdfjsLib = await loadPdfjs();
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
     console.log('[PDF Extractor] PDF document loaded', { numPages: pdf.numPages });
     

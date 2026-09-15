@@ -2,7 +2,7 @@ import { AiProvider, OfferContext } from './ai.provider.js';
 import { AnalysisResult } from '@/modules/analysis/analysis.types.js';
 
 export class MockAiProvider implements AiProvider {
-    async analyzeOffer(text: string, context?: OfferContext, model?: string): Promise<AnalysisResult> {
+    async analyzeOffer(_text: string, context?: OfferContext, model?: string): Promise<AnalysisResult> {
         // Return sample analysis
         return {
             extractedData: {
@@ -53,7 +53,8 @@ export class MockAiProvider implements AiProvider {
         };
     }
 
-    async extractMetadata(text: string): Promise<any> {
+    // Mock ignores the input; the param exists to satisfy AiProvider.
+    async extractMetadata(_text: string): Promise<any> {
         return {
             role: 'Mock Software Engineer',
             city: 'Mock City',

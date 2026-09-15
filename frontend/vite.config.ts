@@ -17,7 +17,9 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
-  optimizeDeps: {
-    include: ['pdfjs-dist']
-  }
+  build: {
+    // The initial chunk was 1,465 KB against a 200 KB budget (ADR-002). Warn loudly if a
+    // chunk creeps back over, rather than discovering it in a Lighthouse run.
+    chunkSizeWarningLimit: 600,
+  },
 }));

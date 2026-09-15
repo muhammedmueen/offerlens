@@ -1,12 +1,9 @@
 import { db } from '@/db/index.js';
 import { offers } from '@/db/schema/offers.js';
-import { analyses, NewAnalysis } from '@/db/schema/analyses.js';
+import { analyses } from '@/db/schema/analyses.js';
 import { eq } from 'drizzle-orm';
 import { FastifyInstance } from 'fastify';
-import { AnalysisResult, AnalysisResponse, ScoreBreakdown } from './analysis.types.js';
-import { analysisQueue } from '@/queue/queues.js'; // Ensure correct import path
-import { AppError } from '@/shared/errors/app-error.js';
-import { ERROR_CODES } from '@/shared/errors/error-codes.js';
+import { AnalysisResult, AnalysisResponse } from './analysis.types.js';
 
 export class AnalysisService {
     constructor(private fastify: FastifyInstance) { }

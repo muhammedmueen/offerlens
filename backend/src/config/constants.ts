@@ -21,6 +21,11 @@ export const REFRESH_TOKEN_EXPIRY = '7d';
 
 export const OCR_MIN_CONFIDENCE = 0.6; // 60%
 
+// Upper bound on text sent to POST /offers/extract. Gemini cost scales with input length,
+// and the provider truncates to 10k anyway — better to reject loudly than analyse a
+// fraction of a huge paste and return confident nonsense.
+export const MAX_EXTRACT_TEXT_CHARS = 100_000;
+
 export const QUEUE_RETRY_ATTEMPTS = 3;
 export const QUEUE_RETRY_BACKOFF_MS = 1_000; // 1s base, exponential
 
@@ -32,6 +37,10 @@ export const GUEST_COOKIE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
 export const RATE_LIMITS = {
     guestUpload: { max: 3, window: '1 day' },
+    // Both call paid third-party APIs (Gemini and Cloud Vision) and are reachable without
+    // an account, so they are the cheapest way to run up someone else's bill. Tight (C2).
+    offerExtractText: { max: 20, window: '1 hour' },
+    offerExtractFile: { max: 10, window: '1 hour' },
     offerPolling: { max: 60, window: '1 minute' },
     analysisGet: { max: 30, window: '1 minute' },
     offerDelete: { max: 10, window: '1 minute' },

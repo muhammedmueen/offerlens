@@ -1,7 +1,6 @@
 import { db } from '@/db/index.js';
 import { offers, NewOffer } from '@/db/schema/offers.js';
 import { offerFiles, NewOfferFile } from '@/db/schema/offer-files.js';
-import { analyses } from '@/db/schema/analyses.js';
 import { eq, and } from 'drizzle-orm';
 import { FastifyInstance } from 'fastify';
 import { CreateOfferInput, OfferResponse } from './offer.types.js';
@@ -10,7 +9,8 @@ import { ocrQueue } from '@/queue/queues.js';
 import crypto from 'crypto';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
+import { sanitizeFilename } from '@/shared/sanitize.js';
 import { GoogleVisionOcrProvider } from '@/providers/ocr/google-vision.ocr.js';
 import { MockOcrProvider } from '@/providers/ocr/mock.ocr.js';
 import { GeminiAiProvider } from '@/providers/ai/gemini.ai.js';
@@ -18,6 +18,20 @@ import { MockAiProvider } from '@/providers/ai/mock.ai.js';
 import { config } from '@/config/index.js';
 import { DEFAULT_GEMINI_MODEL } from '@/config/constants.js';
 import { resolveDedupScope } from './offer.dedup.js';
+import os from 'node:os';
+import path from 'node:path';
+
+/**
+ * Build a scratch path for an uploaded file.
+ *
+ * Two problems with the previous ``temp-${uuid}-${file.filename}``: the filename came
+ * straight from the multipart request, so `../../evil.txt` escaped the directory, and it
+ * was relative — writing scratch files into the process working directory, which is the
+ * repo in development and may be read-only in a container.
+ */
+function buildTempPath(originalName: string): string {
+    return path.join(os.tmpdir(), `offerlens-${randomUUID()}-${sanitizeFilename(originalName)}`);
+}
 
 export class OfferService {
     constructor(
@@ -95,7 +109,7 @@ export class OfferService {
         }
 
         // 4. Create Database Records (Transaction)
-        const offerId = uuidv4();
+        const offerId = randomUUID();
 
         const newOffer: NewOffer = {
             id: offerId,
@@ -207,7 +221,7 @@ export class OfferService {
         const buffer = await file.toBuffer();
         this.fastify.log.info({ bufferSize: buffer.length }, 'File buffer loaded');
         
-        const tempPath = `temp-${uuidv4()}-${file.filename}`;
+        const tempPath = buildTempPath(file.filename);
         this.fastify.log.info({ tempPath }, 'Writing temp file');
 
         const fs = await import('fs/promises');
@@ -249,7 +263,7 @@ export class OfferService {
         // Let's check OcrProvider interface.
         // Assuming it takes path. We need to save file temporarily.
         const buffer = await file.toBuffer();
-        const tempPath = `temp-${uuidv4()}-${file.filename}`;
+        const tempPath = buildTempPath(file.filename);
 
         // This is a bit hacky for temp file. Better: rely on storage provider or fs.
         // Let's use fs to write temp file

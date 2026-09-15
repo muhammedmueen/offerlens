@@ -5,8 +5,8 @@ import { eq } from 'drizzle-orm';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 import { assertOfferAccess } from '@/shared/access/offer-access.js';
-import { AnalysisResult, Benefit, Compensation } from '@/modules/analysis/analysis.types.js';
-import { calculateBenefitValues, BenefitBreakdown } from './benefits.calculator.js';
+import { AnalysisResult, Benefit } from '@/modules/analysis/analysis.types.js';
+import { calculateBenefitValues } from './benefits.calculator.js';
 
 export class BenefitsService {
     async calculate(offerId: string, userId: string, overrides?: Record<string, number>) {

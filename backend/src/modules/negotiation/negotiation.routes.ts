@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify';
+import { routeLimit } from '@/middleware/rate-limiter.js';
 import { NegotiationService } from './negotiation.service.js';
 import { requireRegistered } from '@/middleware/authenticate.js';
 import { negotiateSchema } from './negotiation.schema.js';
@@ -8,6 +9,7 @@ export async function negotiationRoutes(fastify: FastifyInstance) {
 
     // POST /offers/:id/negotiate
     fastify.post('/offers/:id/negotiate', {
+        ...routeLimit('negotiate'),
         preHandler: [requireRegistered],
         schema: negotiateSchema,
         handler: async (req, reply) => {

@@ -1,4 +1,3 @@
-import { Guest } from '@/db/schema/guests.js';
 
 export interface GuestIdentity {
     fingerprint: string;

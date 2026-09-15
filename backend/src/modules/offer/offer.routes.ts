@@ -5,7 +5,8 @@ import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 import { requireRegistered } from '@/middleware/authenticate.js';
 import { loadAuthorizedOffer } from '@/shared/access/offer-guard.js';
-import { DEFAULT_GEMINI_MODEL } from '@/config/constants.js';
+import { routeLimit } from '@/middleware/rate-limiter.js';
+import { DEFAULT_GEMINI_MODEL, MAX_EXTRACT_TEXT_CHARS } from '@/config/constants.js';
 
 export async function offerRoutes(fastify: FastifyInstance) {
     const guestService = new GuestService();
@@ -89,52 +90,71 @@ export async function offerRoutes(fastify: FastifyInstance) {
     });
 
     // POST /offers/extract — Extract metadata from text
-    fastify.post('/extract', async (req, reply) => {
-        const body = req.body as { text: string };
-        
-        if (!body || !body.text) {
-            throw new AppError(ERROR_CODES.VALIDATION_ERROR, 'Text is required', 400);
-        }
+    //
+    // Calls Gemini, and is deliberately reachable without an account because the upload
+    // form pre-fills role/city from the pasted text before signup. That makes it a cost
+    // vector, so it carries its own tight limit rather than relying on the 100/min global.
+    fastify.post('/extract', {
+        ...routeLimit('offerExtractText'),
+        handler: async (req, reply) => {
+            const body = req.body as { text?: unknown };
 
-        const result = await offerService.extractMetadataFromText(body.text);
-
-        return reply.send({
-            success: true,
-            data: result,
-        });
-    });
-
-    // POST /offers/extract-file — Extract text from file using OCR (fallback for scanned docs)
-    fastify.post('/extract-file', async (req, reply) => {
-        try {
-            fastify.log.info('Extract-file endpoint called');
-            
-            const data = await req.file();
-            
-            fastify.log.info({ 
-                hasFile: !!data, 
-                filename: data?.filename, 
-                mimetype: data?.mimetype 
-            }, 'File data received');
-            
-            if (!data) {
-                fastify.log.warn('No file found in request');
-                throw new AppError(ERROR_CODES.VALIDATION_ERROR, 'File is required', 400);
+            if (typeof body?.text !== 'string' || body.text.trim().length === 0) {
+                throw new AppError(ERROR_CODES.VALIDATION_ERROR, 'Text is required', 400);
             }
 
-            fastify.log.info('Calling extractTextFromFile service');
-            const result = await offerService.extractTextFromFile(data);
-            
-            fastify.log.info({ textLength: result.length }, 'Text extraction complete');
+            // Cap the payload: the whole string goes into a Gemini prompt, and cost scales
+            // with input length. The provider truncates to 10k internally; reject clearly
+            // rather than silently analysing a fraction of a huge paste.
+            if (body.text.length > MAX_EXTRACT_TEXT_CHARS) {
+                throw new AppError(
+                    ERROR_CODES.VALIDATION_ERROR,
+                    `Text is too long (${body.text.length} characters, limit ${MAX_EXTRACT_TEXT_CHARS})`,
+                    400,
+                );
+            }
+
+            const result = await offerService.extractMetadataFromText(body.text);
 
             return reply.send({
                 success: true,
-                data: { text: result },
+                data: result,
             });
-        } catch (error) {
-            fastify.log.error({ error }, 'Extract-file endpoint error');
-            throw error;
-        }
+        },
+    });
+
+    // POST /offers/extract-file — Extract text from file using OCR (fallback for scanned docs)
+    //
+    // Calls Cloud Vision, which is billed per page. Same reasoning as /extract: needed
+    // pre-signup, so it gets a tighter limit instead of an auth requirement (C2).
+    fastify.post('/extract-file', {
+        ...routeLimit('offerExtractFile'),
+        handler: async (req, reply) => {
+            try {
+                const data = await req.file();
+
+                fastify.log.info({
+                    hasFile: !!data,
+                    filename: data?.filename,
+                    mimetype: data?.mimetype,
+                }, 'Extract-file request received');
+
+                if (!data) {
+                    throw new AppError(ERROR_CODES.VALIDATION_ERROR, 'File is required', 400);
+                }
+
+                const result = await offerService.extractTextFromFile(data);
+                fastify.log.info({ textLength: result.length }, 'Text extraction complete');
+
+                return reply.send({
+                    success: true,
+                    data: { text: result },
+                });
+            } catch (error) {
+                fastify.log.error({ error }, 'Extract-file endpoint error');
+                throw error;
+            }
+        },
     });
 
     // GET /offers/:id — Get offer by ID (owner or owning guest only)

@@ -15,7 +15,10 @@
         "db:migrate": "tsx node_modules/drizzle-kit/bin.cjs migrate",
         "db:push": "tsx node_modules/drizzle-kit/bin.cjs push",
         "db:seed": "tsx src/db/seed.ts",
-        "lint": "tsc --noEmit",
+        "lint": "tsc --noEmit && eslint src",
+        "lint:eslint": "eslint src",
+        "format": "prettier --write \"src/**/*.ts\"",
+        "format:check": "prettier --check \"src/**/*.ts\"",
         "workers": "tsx watch src/workers/index.ts"
     },
     "keywords": [
@@ -50,15 +53,19 @@
         "zod": "^4.3.6"
     },
     "devDependencies": {
+        "@eslint/js": "^9.39.1",
         "@types/bcryptjs": "^2.4.6",
         "@types/crypto-js": "^4.2.2",
         "@types/jsonwebtoken": "^9.0.10",
         "@types/node": "^25.2.3",
         "@types/pdfkit": "^0.17.5",
         "drizzle-kit": "^0.31.9",
+        "eslint": "^9.39.1",
         "pino-pretty": "^13.1.3",
+        "prettier": "^3.6.2",
         "tsx": "^4.21.0",
         "typescript": "^5.9.3",
+        "typescript-eslint": "^8.46.4",
         "vite-tsconfig-paths": "^6.1.1",
         "vitest": "^4.0.18"
     }
