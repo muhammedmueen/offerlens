@@ -20,7 +20,8 @@ export function calculateBenefitValues(
         : 0;
 
     return benefits.map((benefit): BenefitBreakdown => {
-        const name = benefit.name.toLowerCase();
+        // Defensive: this is fed AI-derived data. A non-string name threw a 500 here.
+        const name = String(benefit?.name ?? '').toLowerCase();
         const overrideValue = overrides?.[benefit.name];
 
         if (overrideValue !== undefined) {

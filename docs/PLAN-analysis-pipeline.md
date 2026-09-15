@@ -734,7 +734,33 @@ Three currently-broken or latent frontend↔backend mismatches, plus the test th
 | B2 | Collapse the three experience-level vocabularies down to the DB seed; bind the upload form to `GET /metadata/experience-levels` | 🟠 P1 | ✅ Done — smaller than expected: `UploadPage` **already** read the live list, so the 8-value `EXPERIENCE_LEVELS` constant was dead code. Deleted |
 | B3 | Delete the dead `OFFER_ANALYZE` endpoint constant | 🟡 P2 | ✅ Done |
 | B4 | **Contract test**: assert every `ENDPOINTS` entry resolves to a registered Fastify route, *and* that `AnalysisResponse` carries the keys the results view reads — a path-only check would not have caught B6 | 🟠 P1 | ✅ Done — `src/app.contract.test.ts`, 35 endpoints. Registers routes without the plugin stack so it needs no Postgres or Redis |
-| B5 | **Update `test-m2.mjs` / `test-m3.mjs` for cookie identity.** Both send `x-fingerprint` and keep no cookie jar, so after A1 every request looks like a brand-new guest. Guest read-back and signup migration will fail in these scripts — a harness problem, not an app problem. Also fix the stale `/salaries` paths and the 200-vs-201 assertion. **Partly superseded**: `test-security.mjs` now covers the guest/auth paths properly with a cookie jar and can be copied from | 🟠 P1 |
+| B5 | Update `test-m2.mjs` / `test-m3.mjs` for cookie identity, and fix their stale assertions | 🟠 P1 | ✅ Done — and it uncovered two crashes, below |
+
+#### B5 outcome — the scripts were lying about the product
+
+Extracted a shared `test-client.mjs` (cookie jar, multipart upload, analysis polling, pass/fail reporting with a non-zero exit) and rewrote all three scripts on it. Results went from **16 passed / 8 failed** to **24 passed / 0 failed / 1 known-blocked** on M2, and 18/0/1 on M3.
+
+Almost none of that came from fixing the app. **The fixtures were wrong.**
+
+| What the old scripts did | Consequence |
+|---|---|
+| Sent an `x-fingerprint` header, kept no cookies | Every request looked like a new guest after ADR-001 |
+| Uploaded plain text inside a `Blob` typed `application/pdf` | Routed to Cloud Vision, failed OCR, offer stuck at `FAILED` — **this is why negotiation, benefits, corrections and comparison reported `OFFER_NOT_READY`.** They were recorded as product defects in earlier status reports; they were fixture defects |
+| Never exited non-zero | Could not gate anything |
+| Skipped comparison entirely with a `console.log` | Comparison had never been executed once |
+
+With a real text fixture, negotiation, corrections, PDF export and comparison all pass on first execution. **Correction to earlier reporting:** those four features were never broken.
+
+**Two genuine crashes did surface, both from unvalidated AI output:**
+
+1. **`(raw.benefits || []).map is not a function`** — `normalizeAiResult` assumed arrays. When the model returned `benefits` as an object, the worker threw and the offer was marked `FAILED`. Nondeterministic: the same prompt produced an array on one request and an object on the next, so one offer failed while the next succeeded. Added `asArray()` coercion with a warning log.
+2. **Intermittent 500 on `POST /offers/:id/benefits`** — `BenefitsService` calls `name.toLowerCase()` on AI-derived data. A non-string name threw. Added `asText()` coercion in the worker plus a defensive `String()` in the calculator.
+
+Both are marked `ponytail:` damage control. The real fix is Phase 1 — schema in the prompt, `responseSchema`, Zod validation — so the shape is known before anything downstream touches it.
+
+**C4 now has live numbers.** A benefit reading "18 days of paid leave annually" was valued at **₹18**, producing `totalCompensation: 500018` for a ₹24,00,000 offer. Two compounding faults: `extractNumber()` is unit-blind, and the PTO branch silently falls through to the generic case when base salary is unknown (`dailyRate` is 0), so days get treated as rupees.
+
+**Reporter gained a `known()` state** for failures with planned work — kept out of the exit code deliberately, because a permanently-red suite gets ignored and then a real regression hides in it. Career path is the only current entry: it reads `extractedData.role`, which is `{}` until Phase 1.
 | B6 | **Fix the results-path contract** (found live). Return `score` + `scoreLabel` from `AnalysisService.getAnalysis()`, and reconcile `ResultsPage`'s flat field reads against the API's nested shape | 🔴 P0 | ✅ Done |
 
 #### -1B outcome
@@ -773,6 +799,7 @@ No user-visible behaviour change. Safe to defer past -1A/-1B if needed.
 | C4 | Fix the benefits `extractNumber()` unit handling (lakh / L / LPA / Cr) | 🟠 P1 |
 | C5 | Fix `.env.example` (add JWT secrets, drop duplicate keys), align the frontend API port default with 8000 and `CORS_ORIGIN` with 8080, add `frontend/.env.example` and gitignore `frontend/.env` | 🟠 P1 |
 | C6 | Declare `uuid` in `package.json`, or switch to `crypto.randomUUID()` | 🟡 P2 |
+| C4a | **Live evidence for C4**: "18 days of paid leave annually" was valued at ₹18, giving `totalCompensation: 500018` on a ₹24,00,000 offer. Beyond unit parsing, the PTO branch falls through to the generic case whenever base salary is unknown, so days become rupees. Fix both | 🟠 P1 |
 | C7 | **[ADR-003]** Rewrite or delete `.github/workflows/ci.yml` — a stale v1 artifact targeting Prisma and the old directory names; cannot pass | 🟠 P1 |
 | C8 | **[ADR-003]** Recover v1's input sanitization module from commit `83a456a` instead of writing it fresh in Phase 1 | 🟠 P1 |
 | C9 | **[ADR-003]** Restore ESLint + Prettier — `lint` is currently only `tsc --noEmit` | 🟡 P2 |

@@ -23,17 +23,58 @@ console.log('[Analysis Worker] NODE_ENV:', config.NODE_ENV);
  * Normalize AI response to match DB schema expectations.
  * Different models may return varying structures.
  */
+/**
+ * Coerce a field that should be a list into one.
+ *
+ * `(raw.benefits || []).map(...)` threw `.map is not a function` in production when the
+ * model returned `benefits` as an object instead of an array — killing the whole job and
+ * marking the offer FAILED. Observed live, and nondeterministically: the same prompt
+ * produced an array on one request and an object on the next.
+ *
+ * ponytail: this is damage control, not a fix. The real fix is Phase 1 — put the schema
+ * in the prompt, set responseSchema, and validate with Zod so the shape is known before
+ * we reach this function.
+ */
+function asArray(value: unknown, field: string): any[] {
+    if (Array.isArray(value)) return value;
+    if (value === null || value === undefined) return [];
+    console.warn(
+        `[Analysis] AI returned "${field}" as ${typeof value}, expected array — coercing to empty.`,
+    );
+    return [];
+}
+
+/**
+ * Coerce a field that should be text into a string, or null.
+ *
+ * Objects and arrays become null rather than "[object Object]" — a wrong-but-plausible
+ * string is worse than an absent one, because it reaches the UI looking like real data.
+ */
+function asText(value: unknown): string | null {
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    return null;
+}
+
 function normalizeAiResult(raw: any): AnalysisResult {
     // Normalize benefits — models sometimes return string[] instead of Benefit[]
-    const benefits = (raw.benefits || []).map((b: any) => {
+    const benefits = asArray(raw.benefits, 'benefits').map((b: any) => {
         if (typeof b === 'string') {
             return { name: b, value: null, details: null, isStandard: true };
         }
-        return { name: b.name || 'Unknown', value: b.value ?? null, details: b.details ?? null, isStandard: b.isStandard ?? true };
+        // Coerce to strings. Downstream, BenefitsService calls name.toLowerCase(), which
+        // threw a 500 when the model returned a non-string name. Intermittent, because it
+        // depends on the shape the model happens to choose that request.
+        return {
+            name: asText(b?.name) ?? 'Unknown',
+            value: asText(b?.value),
+            details: asText(b?.details),
+            isStandard: typeof b?.isStandard === 'boolean' ? b.isStandard : true,
+        };
     });
 
     // Normalize red flags
-    const redFlags = (raw.redFlags || []).map((f: any) => ({
+    const redFlags = asArray(raw.redFlags, 'redFlags').map((f: any) => ({
         type: f.type || 'other',
         severity: f.severity || 'medium',
         title: f.title || 'Unnamed flag',
@@ -43,7 +84,7 @@ function normalizeAiResult(raw: any): AnalysisResult {
     }));
 
     // Normalize negotiation suggestions
-    const negotiationSuggestions = (raw.negotiationSuggestions || []).map((s: any) => ({
+    const negotiationSuggestions = asArray(raw.negotiationSuggestions, 'negotiationSuggestions').map((s: any) => ({
         component: s.component || 'General',
         currentValue: s.currentValue || '',
         suggestedAsk: s.suggestedAsk || '',
@@ -100,7 +141,7 @@ export const analysisWorker = new Worker(
             // We will trust the provider for now or add simple verification here.
             // Let's implement simple check if red flags have matched text in raw text.
 
-            const verifiedRedFlags = (result.redFlags || []).filter(flag => {
+            const verifiedRedFlags = asArray(result.redFlags, 'redFlags').filter(flag => {
                 if (!flag.matchedText) return false;
                 // Simple includes check, case insensitive, simplified whitespace
                 const normalizedText = text.toLowerCase().replace(/\s+/g, ' ');

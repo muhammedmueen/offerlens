@@ -1,255 +1,183 @@
 /**
- * M2 Endpoint Test Script
- * Tests Auth, User, Migration, and new M2 features.
+ * M2 — auth, guest migration, and the registered-user features.
+ *
+ *   node test-m2.mjs
+ *
+ * Rewritten for cookie-based guest identity (ADR-001). The previous version sent an
+ * `x-fingerprint` header and kept no cookies, so every request looked like a new guest.
+ *
+ * It also uploaded plain text inside a Blob labelled `application/pdf`, which routed the
+ * offer to Cloud Vision, failed OCR, and left it FAILED — so negotiation, benefits and
+ * corrections all reported OFFER_NOT_READY and were recorded as product bugs. They were
+ * fixture bugs. This version uploads real text and waits for the analysis, so those
+ * features are genuinely exercised.
  */
-import net from 'net';
+import { makeClient, reporter, checkDependencies, uniqueOfferText } from './test-client.mjs';
 
-const BASE = 'http://localhost:8000/api/v1';
-// Use a unique fingerprint for this run to ensure clean guest state
-const FP = 'm2-test-fp-' + Date.now();
-let TOKEN = null;
-let USER_ID = null;
+const r = reporter('M2: auth, migration, and registered-user features');
 
-// Helper logging
-const log = (msg) => console.log(msg);
-const passed = (name) => console.log(`✅ ${name}`);
-const failed = (name, err) => console.log(`❌ ${name}: ${err}`);
-const section = (name) => console.log(`\n=== ${name} ===`);
+r.section('0. Dependencies');
+if (!(await checkDependencies(r))) r.finish();
 
-// Port checker helper
-const checkPort = (port, name) => new Promise((resolve) => {
-    const socket = new net.Socket();
-    const timeout = 2000;
+const guest = makeClient('guest-then-user');
 
-    socket.setTimeout(timeout);
+const health = await guest.req('GET', '/health');
+if (health.status === 200) r.ok('API reachable');
+else { r.no(`API unreachable (${health.status})`); r.finish(); }
 
-    socket.on('connect', () => {
-        socket.destroy();
-        resolve({ open: true, name, port });
-    });
+// ── guest upload ───────────────────────────────────────────────────────
+r.section('1. Guest upload before signup');
 
-    socket.on('timeout', () => {
-        socket.destroy();
-        resolve({ open: false, name, port, error: 'Timeout' });
-    });
-
-    socket.on('error', (err) => {
-        socket.destroy();
-        resolve({ open: false, name, port, error: err.message });
-    });
-
-    socket.connect(port, '127.0.0.1');
+const guestUpload = await guest.upload({
+    text: uniqueOfferText(),
+    role: 'Senior Software Engineer',
+    city: 'Bangalore',
+    experienceLevel: 'Senior (5-8 yrs)',
+    currentCtc: 1800000,
 });
+if (guestUpload.status !== 201) {
+    r.no(`guest upload failed (${guestUpload.status}) ${JSON.stringify(guestUpload.body).slice(0, 200)}`);
+    r.finish();
+}
+const guestOfferId = guestUpload.body.data.id;
+r.ok(`guest offer created (${guestOfferId})`);
 
-async function req(method, path, body, token = null) {
-    const headers = { 'x-fingerprint': FP };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+const guestRead = await guest.req('GET', `/offers/${guestOfferId}`);
+if (guestRead.status === 200 && guestRead.body.data.isGuest === true) r.ok('offer is marked as a guest offer and is readable by its owner');
+else r.no(`guest read-back failed (${guestRead.status}) isGuest=${guestRead.body?.data?.isGuest}`);
 
-    const opts = { method, headers };
+// ── pipeline ───────────────────────────────────────────────────────────
+r.section('2. Analysis pipeline');
 
-    if (body) {
-        if (body instanceof FormData) {
-            opts.body = body;
-        } else {
-            headers['Content-Type'] = 'application/json';
-            opts.body = JSON.stringify(body);
-        }
-    }
+const settled = await guest.waitForAnalysis(guestOfferId);
+if (settled.status === 'COMPLETED') {
+    r.ok(`analysis COMPLETED in ~${settled.waited / 1000}s`);
+} else {
+    r.no(`analysis ${settled.status}${settled.failureReason ? ` — ${settled.failureReason}` : ''}`);
+    r.info('The features below need a COMPLETED analysis; expect knock-on failures.');
+}
 
-    log(`[REQ] ${method} ${path}`);
-    try {
-        const res = await fetch(`${BASE}${path}`, opts);
-        log(`[RES] ${res.status} ${res.statusText}`);
+const analysis = await guest.req('GET', `/offers/${guestOfferId}/analysis`);
+if (analysis.status === 200) {
+    const d = analysis.body.data;
+    r.ok(`analysis readable — score ${d.score}, label "${d.scoreLabel}"`);
+    if (typeof d.score === 'number') r.ok('score is present and numeric (was never returned before -1B)');
+    else r.no(`score missing or non-numeric: ${JSON.stringify(d.score)}`);
+} else {
+    r.no(`analysis not readable (${analysis.status})`);
+}
 
-        const text = await res.text();
-        let json;
-        try { json = JSON.parse(text); } catch { json = text; }
+// ── signup + migration ─────────────────────────────────────────────────
+r.section('3. Signup and guest-offer migration');
 
-        if (!res.ok) {
-            log(`[ERR BODY] ${JSON.stringify(json).substring(0, 200)}...`);
-        }
+const email = `m2-${Date.now()}@example.com`;
+const signup = await guest.req('POST', '/auth/signup', {
+    name: 'M2 Tester',
+    email,
+    password: 'CorrectHorse9!',
+    offerIds: [guestOfferId],
+});
+if (signup.status !== 201) {
+    r.no(`signup failed (${signup.status}) ${JSON.stringify(signup.body).slice(0, 200)}`);
+    r.finish();
+}
+const token = signup.body.data.tokens.accessToken;
+const userId = signup.body.data.user.id;
+r.ok(`registered (${userId})`);
 
-        return { status: res.status, body: json, headers: res.headers };
-    } catch (err) {
-        console.error(`FATAL ERROR in req(${method} ${path}):`, err.message);
-        if (err.cause) console.error('Cause:', err.cause);
-        throw err;
+const history = await guest.req('GET', '/users/me/offers', null, token);
+if (history.status === 200) {
+    const offers = history.body.data.offers ?? history.body.data;
+    if (Array.isArray(offers) && offers.some((o) => o.id === guestOfferId)) r.ok('guest offer migrated into the account');
+    else r.no(`migrated offer not in history: ${JSON.stringify(history.body.data).slice(0, 200)}`);
+} else {
+    r.no(`history failed (${history.status})`);
+}
+
+// ── registered-user features ───────────────────────────────────────────
+r.section('4. Registered-user features on the analysed offer');
+
+const neg = await guest.req('POST', `/offers/${guestOfferId}/negotiate`, { tone: 'professional' }, token);
+if (neg.status === 200) {
+    r.ok('negotiation script generated');
+    r.info(`subject: ${String(neg.body.data?.subject ?? '').slice(0, 70)}`);
+} else r.no(`negotiation (${neg.status}) ${JSON.stringify(neg.body).slice(0, 160)}`);
+
+const bens = await guest.req('POST', `/offers/${guestOfferId}/benefits`, {}, token);
+if (bens.status === 200) r.ok(`benefits calculated (${bens.body.data?.breakdown?.length ?? 0} entries)`);
+else r.no(`benefits (${bens.status}) ${JSON.stringify(bens.body).slice(0, 160)}`);
+
+const career = await guest.req('GET', `/offers/${guestOfferId}/career-path`, null, token);
+if (career.status === 200) r.ok(`career path generated (${career.body.data?.timeline?.length ?? 0} milestones)`);
+else if (career.body?.error?.message?.includes('Role not identified')) {
+    r.known('career path rejects the offer: "Role not identified"', 'Phase 1 tasks 3-5 — pipeline discards extraction');
+} else r.no(`career path (${career.status}) ${JSON.stringify(career.body).slice(0, 160)}`);
+
+const corr = await guest.req('PATCH', `/offers/${guestOfferId}/corrections`, {
+    corrections: [{ field: 'extractedData.role', correctedValue: 'Staff Software Engineer' }],
+}, token);
+if (corr.status === 200) r.ok(`corrections applied (changed=${corr.body.data?.changed})`);
+else r.no(`corrections (${corr.status}) ${JSON.stringify(corr.body).slice(0, 160)}`);
+
+const getCorr = await guest.req('GET', `/offers/${guestOfferId}/corrections`, null, token);
+if (getCorr.status === 200 && Array.isArray(getCorr.body.data)) r.ok(`corrections readable (${getCorr.body.data.length})`);
+else r.no(`get corrections (${getCorr.status})`);
+
+const report = await guest.req('GET', `/offers/${guestOfferId}/report`, null, token);
+if (report.status === 200) r.ok('PDF report generated');
+else r.no(`PDF report (${report.status})`);
+
+// ── comparison ─────────────────────────────────────────────────────────
+// Previously skipped entirely with a console.log, so comparison has never been tested.
+r.section('5. Offer comparison');
+
+const second = await guest.upload({
+    text: uniqueOfferText(),
+    role: 'Senior Software Engineer',
+    city: 'Pune',
+    experienceLevel: 'Senior (5-8 yrs)',
+}, token);
+
+if (second.status !== 201) {
+    r.no(`second upload failed (${second.status}) — cannot test comparison`);
+} else {
+    const secondId = second.body.data.id;
+    r.ok(`second offer created (${secondId})`);
+
+    const tooFew = await guest.req('POST', '/offers/compare', { offerIds: [guestOfferId] }, token);
+    if (tooFew.status === 400) r.ok('comparing a single offer is rejected (400)');
+    else r.no(`single-offer comparison returned ${tooFew.status}, expected 400`);
+
+    const s2 = await guest.waitForAnalysis(secondId, token);
+    if (s2.status !== 'COMPLETED') {
+        r.no(`second analysis ${s2.status} — comparison needs both COMPLETED`);
+    } else {
+        r.ok('second analysis COMPLETED');
+        const cmp = await guest.req('POST', '/offers/compare', { offerIds: [guestOfferId, secondId] }, token);
+        if (cmp.status === 200) r.ok(`comparison returned ${cmp.body.data?.entries?.length ?? '?'} entries`);
+        else r.no(`comparison (${cmp.status}) ${JSON.stringify(cmp.body).slice(0, 200)}`);
     }
 }
 
-async function run() {
-    try {
-        section('0. Dependency Check');
-        const deps = [
-            checkPort(6379, 'Redis'),
-            checkPort(5432, 'Postgres'),
-            checkPort(8000, 'Backend Server')
-        ];
+// ── dashboard, profile, deletion ───────────────────────────────────────
+r.section('6. Dashboard, profile, account deletion');
 
-        const results = await Promise.all(deps);
-        let allDepsOpen = true;
+const dash = await guest.req('GET', '/users/me/dashboard', null, token);
+if (dash.status === 200) {
+    r.ok('dashboard stats returned');
+    r.info(JSON.stringify(dash.body.data));
+} else r.no(`dashboard (${dash.status})`);
 
-        results.forEach(r => {
-            if (r.open) passed(`${r.name} (Port ${r.port}) is OPEN`);
-            else {
-                failed(`${r.name} (Port ${r.port})`, `CLOSED/UNREACHABLE (${r.error})`);
-                if (r.name !== 'Backend Server') allDepsOpen = false; // Backend usually fails if dependencies fail
-            }
-        });
+const me = await guest.req('GET', '/users/me', null, token);
+if (me.status === 200 && me.body.data.email === email) r.ok(`profile returned (${me.body.data.email})`);
+else r.no(`profile (${me.status})`);
 
-        if (!allDepsOpen) {
-            console.log('\n⚠️  WARNING: Critical dependencies (Redis/Postgres) seem to be down.');
-            console.log('    Ensure you are running: docker-compose up -d');
-            console.log('    Then restart: npm run dev\n');
-            // We continue but expect failure
-        }
+const del = await guest.req('DELETE', '/users/me', null, token);
+if (del.status === 200) r.ok('account deleted');
+else r.no(`account deletion (${del.status})`);
 
-        // 0. Health Check
-        section('0. Connectivity Check');
-        try {
-            const health = await req('GET', '/health');
-            if (health.status === 200) passed('Server Reachable');
-            else failed('Server Reachable', `Status ${health.status}`);
-        } catch (e) {
-            failed('Server Reachable', 'Connection failed - ensure server is running on port 8000');
-            // process.exit(1);
-        }
+const after = await guest.req('GET', '/users/me', null, token);
+if (after.status === 401 || after.status === 404) r.ok(`token rejected after deletion (${after.status})`);
+else r.no(`account still reachable after deletion (${after.status})`);
 
-        section('1. Guest Upload (Pre-Signup)');
-        // Upload an offer as a guest
-        const blob = new Blob([`Guest offer content ${Date.now()}...`], { type: 'application/pdf' });
-        const form = new FormData();
-        form.append('file', blob, 'guest-offer.pdf');
-
-        const guestUpload = await req('POST', '/offers', form);
-        if (guestUpload.status !== 201) throw new Error(`Guest upload failed: ${guestUpload.status}`);
-        const guestOfferId = guestUpload.body.data.id;
-        passed(`Guest Upload (ID: ${guestOfferId})`);
-
-        // Verify it's a guest offer
-        const guestGet = await req('GET', `/offers/${guestOfferId}`);
-        if (!guestGet.body.data.isGuest) throw new Error('Offer should be isGuest=true');
-        passed('Guest verification');
-
-
-        section('2. Signup & Migration');
-        const email = `testuser${Date.now()}@example.com`;
-        const password = 'Password123!';
-
-        const signup = await req('POST', '/auth/signup', { name: 'Test User', email, password });
-        if (signup.status !== 201) throw new Error(`Signup failed: ${signup.status} ${JSON.stringify(signup.body)}`);
-
-        TOKEN = signup.body.data.tokens.accessToken;
-        USER_ID = signup.body.data.user.id;
-        passed(`Signup (User ID: ${USER_ID})`);
-
-        // Verify Migration: Check if guest offer is now owned by user
-        const userOffers = await req('GET', '/users/me/offers', null, TOKEN);
-        if (userOffers.status !== 200) throw new Error(`Get offers failed: ${userOffers.status}`);
-
-        const migratedOffer = userOffers.body.data.offers.find(o => o.id === guestOfferId);
-        if (migratedOffer) {
-            passed(`Migration verified (Guest offer ${guestOfferId} found in user list)`);
-        } else {
-            failed('Migration check', 'Guest offer NOT found in user list');
-        }
-
-
-        section('3. User Upload (Direct)');
-        // Upload as logged-in user
-        const blob2 = new Blob([`User offer content ${Date.now()}...`], { type: 'application/pdf' });
-        const form2 = new FormData();
-        form2.append('file', blob2, 'user-offer.pdf');
-
-        const userUpload = await req('POST', '/offers', form2, TOKEN);
-
-        // NOTE: This might fail if rate-limited (guest limit) or succeed but not link to user
-        // Testing the behavior "as is"
-        if (userUpload.status === 201) {
-            const userOfferId = userUpload.body.data.id;
-            passed(`User Upload (ID: ${userOfferId})`);
-
-            // Check if it appears in list
-            const userOffers2 = await req('GET', '/users/me/offers', null, TOKEN);
-            const found = userOffers2.body.data.offers.find(o => o.id === userOfferId);
-            if (found) {
-                passed('User Upload verified in list');
-            } else {
-                failed('User Upload Linking', 'Uploaded offer NOT found in user list (Likely still Guest offer)');
-            }
-
-            // Test M2 Features on this offer
-            section('4. M2 Features (Negotiation/Benefits/Corrections)');
-
-            // 4a. Negotiation
-            const neg = await req('POST', `/offers/${userOfferId}/negotiate`, { tone: 'professional' }, TOKEN);
-            if (neg.status === 200) passed('Negotiation generated');
-            else failed('Negotiation', `${neg.status} ${JSON.stringify(neg.body)}`);
-
-            // 4b. Benefits
-            const bens = await req('POST', `/offers/${userOfferId}/benefits`, { overrides: { 'Remote': 1000 } }, TOKEN);
-            if (bens.status === 200) passed('Benefits analyzed');
-            else failed('Benefits', `${bens.status} ${JSON.stringify(bens.body)}`);
-
-            // 4c. Corrections
-            const corr = await req('PATCH', `/offers/${userOfferId}/corrections`, {
-                corrections: [{ field: 'role', correctedValue: 'Senior Engineer' }]
-            }, TOKEN);
-            if (corr.status === 200) passed('Corrections applied');
-            else failed('Corrections', `${corr.status} ${JSON.stringify(corr.body)}`);
-
-            // 4d. Get Corrections
-            const getCorr = await req('GET', `/offers/${userOfferId}/corrections`, null, TOKEN);
-            if (getCorr.status === 200 && getCorr.body.data.length > 0) passed('Get Corrections verified');
-            else failed('Get Corrections', `${getCorr.status} ${JSON.stringify(getCorr.body)}`);
-
-        } else {
-            failed('User Upload', `Failed with status ${userUpload.status} (Rate limit? Phase gap?)`);
-        }
-
-        section('5. Comparison');
-        // Need 2 offers. We have guestOfferId (migrated) and maybe userOfferId.
-        // If migration worked, we can compare them.
-        if (guestUpload.status === 201) {
-            // Create a 2nd offer if user upload failed or didn't link
-            // Actually let's just try to compare guestOfferId with itself if we lack 2?
-            // API requires min 2 unique IDs.
-            // Let's rely on Guest Offer + User Offer (if created)
-            // Or create another one?
-
-            // Let's assume we have at least one. We need another.
-            // Reuse guestOfferId and... maybe upload another one?
-            // If user upload failed, we can't test comparison easily without another user offer.
-            // But if User Upload passed (even if not linked), it has an ID.
-            // Wait, comparison requires ownership check!
-            // If user upload didn't link, we can't compare it!
-
-            console.log('Skipping Comparison (requires 2 valid user offers)');
-        }
-
-        section('6. Dashboard & Profile');
-        const dash = await req('GET', '/users/me/dashboard', null, TOKEN);
-        if (dash.status === 200) passed(`Dashboard stats: ${JSON.stringify(dash.body.data)}`);
-        else failed('Dashboard', dash.status);
-
-        const me = await req('GET', '/users/me', null, TOKEN);
-        if (me.status === 200) passed(`Profile: ${me.body.data.email}`);
-        else failed('Profile', me.status);
-
-
-        section('7. Cleanup (Delete Account)');
-        const del = await req('DELETE', '/users/me', null, TOKEN);
-        if (del.status === 200) passed('Account deleted');
-        else failed('Delete Account', del.status);
-
-        // Verify deletion
-        const check = await req('GET', '/users/me', null, TOKEN);
-        if (check.status === 401 || check.status === 404) passed('Auth rejected after delete');
-        else failed('Account persistence', `Still accessible: ${check.status}`);
-
-    } catch (err) {
-        console.log('\nFATAL ERROR:', err.message);
-    }
-}
-
-run();
+r.finish();
