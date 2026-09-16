@@ -10,6 +10,9 @@ import { MockAiProvider } from '@/providers/ai/mock.ai.js';
 import { config } from '@/config/index.js';
 import { DEFAULT_GEMINI_MODEL } from '@/config/constants.js';
 import { AnalysisResult } from '@/modules/analysis/analysis.types.js';
+import { SalaryService } from '@/modules/salary/salary.service.js';
+
+const salaryService = new SalaryService();
 
 const aiProvider: AiProvider = config.GEMINI_API_KEY
     ? new GeminiAiProvider()
@@ -152,39 +155,81 @@ export const analysisWorker = new Worker(
 
             const discardedCount = (result.redFlags?.length || 0) - verifiedRedFlags.length;
 
-            // Calculate Score (Deterministic based on rubric)
-            // For now, assume AI returned score breakdown or we compute it?
-            // Type AnalysisResult has `ScoreBreakdown`? No, schema has `score` and `scoreLabel` in DB but types `AnalysisResult` has `ScoreBreakdown`?
-            // Wait, `AnalysisResult` in `analysis.types.ts` has `metadata` etc but schema needs integer score.
-            // We need to calculate the score if AI didn't give it, or use what AI gave.
-            // The `AnalysisResult` type in `analysis.types.ts` DOES NOT have `score` at root level.
-            // It has `ScoreBreakdown` type defined but not used in `AnalysisResult` interface?
-            // Checking `analysis.types.ts` content I wrote previously... I missed adding `score` to `AnalysisResult`?
-            // Let's check `analysis.types.ts`.
-            // It has `extractedData`, `redFlags`, `salaryComparison` etc. It does NOT have `score`.
-            // So we must compute score here from the data.
+            // ── Task 2: replace the AI's guessed benchmark with real submissions ──
+            //
+            // Prefer what the letter says over what the user typed on the upload form:
+            // the letter is evidence, the form is a claim. Fall back to the form when
+            // extraction found nothing.
+            const benchRole = result.extractedData?.role || context?.role || null;
+            const benchCity = result.extractedData?.location || context?.city || null;
+            const offerCtc = result.extractedData?.compensation?.totalCTC ?? null;
 
-            // Computing Score (Simplified Logic for MVP):
-            // 100 base
-            // -5 per Med severity flag
-            // -10 per High severity flag
-            // +10 if salary > 50th percentile
-            // +20 if salary > 75th percentile
-            // Cap at 100, min 0.
+            let usedRealSalaryData = false;
 
+            if (benchRole && benchCity) {
+                try {
+                    const benchmark = await salaryService.getBenchmark(benchRole, benchCity, offerCtc);
+                    if (benchmark) {
+                        result.salaryComparison = {
+                            marketRange: benchmark.marketRange,
+                            offerPercentile: benchmark.offerPercentile ?? result.salaryComparison.offerPercentile,
+                            roleUsed: benchmark.roleUsed,
+                            roleMatchConfidence: 1, // Exact role+city match, not a fuzzy one.
+                            locationUsed: benchmark.locationUsed,
+                            dataSource: 'crowdsourced',
+                            disclaimer: `Based on ${benchmark.sampleSize} verified submission`
+                                + `${benchmark.sampleSize === 1 ? '' : 's'} for this role and city.`,
+                        };
+                        usedRealSalaryData = true;
+                        console.log(`[Analysis] Using crowdsourced salary data (n=${benchmark.sampleSize}) for ${benchRole} / ${benchCity}`);
+                    }
+                } catch (err) {
+                    // A benchmark lookup failure must not lose the whole analysis. Keep the
+                    // AI estimate and carry on.
+                    console.warn('[Analysis] Salary benchmark lookup failed, keeping AI estimate:', err);
+                }
+            }
+
+            if (!usedRealSalaryData) {
+                // Guarantee the label is honest regardless of what the model claimed.
+                result.salaryComparison.dataSource = 'ai_estimated';
+                if (!result.salaryComparison.disclaimer) {
+                    result.salaryComparison.disclaimer =
+                        'Estimated from general market knowledge — not benchmarked against verified submissions.';
+                }
+            }
+
+            // ── Score ─────────────────────────────────────────────────────────
+            //
+            // Still the interim `70 ± adjustments` formula. The weighted five-component
+            // rubric (30 flags / 30 salary / 20 benefits / 10 growth / 10 transparency)
+            // is Phase 2 task 10 and is deliberately not attempted here.
+            //
+            // The salary term is only applied when the percentile came from real
+            // submissions. Previously it moved the score by up to 20 points based on a
+            // percentile the AI had invented, which is worse than not scoring salary at
+            // all — it looks like evidence.
             let score = 70; // Baseline
             verifiedRedFlags.forEach(f => {
                 if (f.severity === 'high') score -= 15;
                 if (f.severity === 'medium') score -= 5;
             });
 
-            if (result.salaryComparison?.offerPercentile > 75) score += 20;
-            else if (result.salaryComparison?.offerPercentile > 50) score += 10;
+            if (usedRealSalaryData) {
+                const percentile = result.salaryComparison.offerPercentile;
+                if (percentile > 75) score += 20;
+                else if (percentile > 50) score += 10;
+            }
 
-            // Length of benefits
             if ((result.benefits?.length || 0) > 5) score += 5;
 
             score = Math.max(0, Math.min(100, score));
+
+            // 'fallback' tells the UI to label this an estimate. It will be the common
+            // case until the crowdsourced table has data, and saying so is the point —
+            // ResultsPage renders "Estimated score — limited market data" from this, and
+            // that line could previously never appear because 'standard' was hardcoded.
+            const scoringMethod = usedRealSalaryData ? 'standard' : 'fallback';
 
             let label = 'fair';
             if (score >= 90) label = 'excellent';
@@ -199,7 +244,7 @@ export const analysisWorker = new Worker(
                     offerId,
                     score,
                     scoreLabel: label,
-                    scoringMethod: 'standard',
+                    scoringMethod,
                     extractedData: result.extractedData,
                     redFlags: verifiedRedFlags,
                     salaryComparison: result.salaryComparison || {},

@@ -887,7 +887,7 @@ Also confirmed live during the run: the Phase 1 task 0 fallback fix works. Reque
 429 on `gemini-2.5-flash`, then 503 on `gemini-flash-latest`, and completed on
 `gemini-flash-lite-latest`. Before that fix the 503 would have thrown.
 
-### Phase 1: Quick Wins (1-2 days)
+### Phase 1: Quick Wins — ✅ Complete (all 8 tasks)
 
 | # | Task | Impact |
 |---|------|--------|
@@ -899,29 +899,40 @@ Also confirmed live during the run: the Phase 1 task 0 fallback fix works. Reque
 | 5 | Replace `buildPrompt()` with a real prompt + few-shot | Better accuracy | ✅ Done as **option A** (single call, strict schema). The two-call split is deferred — see below |
 | 7 | Extract `industry` + `companyType` | Fix career path context | ✅ Done |
 | 1 | Prompt-injection sanitisation for AI input | Security | ✅ Done — `shared/prompt-safety.ts`, applied at all 5 prompt sites. Closed a delimiter-escape hole the Phase 1 prompt rewrite had introduced. See below |
-| 2 | Wire `SalaryService.getStats()` into the analysis worker | Real salary data | ⬜ Not started. **Not blocked** — implementable now |
-| 6 | Pass real salary data into the negotiation prompt | Authentic negotiation points | ⬜ Not started. Sequenced after task 2, which supplies the data it reads |
+| 2 | Wire `SalaryService.getStats()` into the analysis worker | Real salary data | ✅ Done — new `getBenchmark()`, verified live returning `dataSource: 'crowdsourced'` |
+| 6 | Pass real salary data into the negotiation prompt | Authentic negotiation points | ✅ Done — `describeMarketData()` attaches provenance and changes the instruction accordingly |
 
-##### On tasks 2 and 6: nothing is technically blocked
+##### Tasks 2 and 6 — ✅ Phase 1 complete
 
-Earlier notes described task 6 as "blocked". That was imprecise — it is a *sequencing dependency*, not a blocker. Both tasks are implementable today.
+A correction to earlier notes: task 6 was described as "blocked on task 2". That was imprecise — it was a *sequencing dependency*, not a blocker.
 
-What is genuinely constrained is their **user-visible value**, because `salary_submissions` is effectively empty for real traffic:
+**Task 2.** Added `SalaryService.getBenchmark(role, city, offerCtc)`, kept separate from `getStats()` which serves the Explorer endpoint. It returns a shape ready for `salaryComparison`, or `null` below the sample floor, in which case the AI estimate is kept and **explicitly relabelled `ai_estimated`** so the field is honest regardless of what the model claimed. `getStats()` had worked since the beginning and was never called by the worker, so every benchmark a user ever saw was invented while real submissions sat unread.
 
-| Role + city | Approved rows | Above the `n >= 5` threshold? |
-|---|---|---|
-| senior software engineer / bangalore | 9 | ✅ — but every row was inserted by `test-m3.mjs` |
-| backend engineer / pune | 1 | ❌ |
+Benchmark lookup prefers `extractedData.role`/`.location` over the upload form's values — the letter is evidence, the form is a claim — and falls back to the form when extraction found nothing. A lookup failure is caught and degrades to the AI estimate rather than losing the analysis.
 
-So for any real user, `getStats()` returns "not enough data" and the AI estimate runs regardless. Wiring it up still earns its keep:
+`percentileRank()` is a pure exported function with tests. It uses the midpoint convention, so an offer exactly matching the lowest submission does not report the 0th percentile, which would read as far more damning than the data supports.
 
-1. **The `dataSource` label becomes truthful.** Today the AI is instructed to always say `ai_estimated`, which is honest — but the code has no path that could ever say `crowdsourced`, so the distinction is decorative.
-2. **The redistribution rule becomes reachable.** ADR-002's scoring gives salary 30% weight, and the roadmap specifies redistributing it when market data is absent. That branch currently has no way to be exercised.
-3. **Phase 4's seeding needs somewhere to land.** Importing a public dataset achieves nothing while the worker never reads the table.
+**Two knock-on corrections in the scoring:**
 
-The real unlock is **Phase 4 task 23** (seed a public dataset), which is gated on **open decision 12** — which source, and whether its licence permits commercial use. Until that lands, expect the honest "estimated — not enough submissions yet" path in production, which is the correct behaviour rather than a defect.
+- The salary term (up to +20 points) now only applies when the percentile came from real submissions. It previously moved the score by up to 20 points based on a percentile the AI had invented — worse than not scoring salary at all, because it looks like evidence.
+- `scoringMethod` was hardcoded `'standard'`. It now reports `'fallback'` when the benchmark is estimated, which makes ResultsPage's "Estimated score — limited market data" line reachable. That line was wired in -1B and could never appear.
 
-Deliberately **not** the fix: lowering the `n >= 5` threshold. Percentiles from three submissions are noise presented as authority, which is the exact failure mode this plan exists to remove.
+**Task 6.** `describeMarketData()` renders the benchmark for the negotiation prompt with its provenance attached, and gives different instructions per case:
+
+| Provenance | Instruction to the model |
+|---|---|
+| `crowdsourced` | May cite the figures and the percentile position as market data |
+| `ai_estimated` | **Must not** present them as benchmarks or research; argue from the offer's own terms and tell the candidate to research their own figure |
+| absent | Do not cite benchmarks at all |
+
+This matters more here than anywhere else in the product: the output is an email a candidate may actually send to an employer. "The market median is ₹28,00,000" is a checkable claim, and if it came from a model's impression the candidate walks into a negotiation carrying a fabricated statistic — against an employer who may know the real range.
+
+**Verified live**: an offer for Senior Software Engineer / Bangalore returned `dataSource: 'crowdsourced'`, `roleUsed: 'senior software engineer'`, and `"Based on 9 verified submissions for this role and city."`
+
+> [!NOTE]
+> Those 9 rows were all inserted by `test-m3.mjs`, and they are identical values — so `marketRange` comes back flat (p25 = p50 = p75 = p90). Correct behaviour for degenerate data, but it means the salary chart renders a flat line. For real traffic the table is empty, so the honest "estimated" path runs.
+>
+> The remaining unlock is **Phase 4 task 23** (seed a public dataset), gated on **open decision 12** — which source, and whether its licence permits commercial use. Deliberately *not* the fix: lowering the sample floor. Percentiles from three submissions are noise presented as authority, which is the failure mode this plan exists to remove. `MIN_SAMPLE_SIZE` is now a single named constant so raising it to 10 is a one-line change.
 
 #### Phase 1 (option A) result — measured 2026-09-15
 

@@ -4,6 +4,36 @@ import { eq, and, desc, sql } from 'drizzle-orm';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 
+/**
+ * Minimum approved submissions before a role+city combination is reported as real data.
+ *
+ * The plan proposes raising this to 10 for noise resistance (Phase 4). Left at 5 for now
+ * so the change is one number in one place rather than scattered comparisons.
+ */
+export const MIN_SAMPLE_SIZE = 5;
+
+/**
+ * Where `value` sits within `sorted`, as a 0-100 percentile rank.
+ *
+ * Uses the midpoint convention: values equal to the offer count as half below. That
+ * avoids reporting the 0th percentile for an offer that exactly matches the lowest
+ * submission, which reads as far more damning than the data supports.
+ *
+ * Pure and exported so it can be tested without a database.
+ */
+export function percentileRank(sorted: number[], value: number): number {
+    if (sorted.length === 0) return 50;
+
+    let below = 0;
+    let equal = 0;
+    for (const v of sorted) {
+        if (v < value) below++;
+        else if (v === value) equal++;
+    }
+
+    return Math.round(((below + equal / 2) / sorted.length) * 100);
+}
+
 interface SalarySubmissionInput {
     role: string;
     city: string;
@@ -57,7 +87,7 @@ export class SalaryService {
             orderBy: desc(salarySubmissions.ctc),
         });
 
-        if (data.length < 5) {
+        if (data.length < MIN_SAMPLE_SIZE) {
             return {
                 count: data.length,
                 message: 'Not enough data for this role/city combination.',
@@ -75,6 +105,49 @@ export class SalaryService {
             p50: this.percentile(ctcs, 50),
             p75: this.percentile(ctcs, 75),
             p90: this.percentile(ctcs, 90),
+        };
+    }
+
+    /**
+     * Benchmark for the analysis pipeline (Phase 1 task 2).
+     *
+     * Separate from `getStats`, which serves the Salary Explorer endpoint. This one
+     * returns a shape ready to drop into `salaryComparison`, or **null** when there is
+     * not enough data — the caller then keeps the AI estimate.
+     *
+     * `getStats()` has existed and worked since the beginning and was never called by
+     * the analysis worker, so every salary benchmark a user has ever seen was invented
+     * by the AI while real submissions sat unread.
+     */
+    async getBenchmark(role: string, city: string, offerCtc: number | null) {
+        const normedRole = role.toLowerCase().trim();
+        const normedCity = city.toLowerCase().trim();
+
+        const rows = await db.query.salarySubmissions.findMany({
+            where: and(
+                eq(salarySubmissions.role, normedRole),
+                eq(salarySubmissions.city, normedCity),
+                eq(salarySubmissions.status, 'approved'),
+            ),
+        });
+
+        // Same floor as getStats. Percentiles from three submissions are noise wearing
+        // the costume of authority, which is the failure mode this plan exists to remove.
+        if (rows.length < MIN_SAMPLE_SIZE) return null;
+
+        const ctcs = rows.map((r) => r.ctc).sort((a, b) => a - b);
+
+        return {
+            marketRange: {
+                p25: Math.round(this.percentile(ctcs, 25)),
+                p50: Math.round(this.percentile(ctcs, 50)),
+                p75: Math.round(this.percentile(ctcs, 75)),
+                p90: Math.round(this.percentile(ctcs, 90)),
+            },
+            offerPercentile: offerCtc === null ? null : percentileRank(ctcs, offerCtc),
+            roleUsed: normedRole,
+            locationUsed: normedCity,
+            sampleSize: rows.length,
         };
     }
 
