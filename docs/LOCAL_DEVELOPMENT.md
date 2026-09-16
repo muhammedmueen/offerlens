@@ -1,0 +1,309 @@
+# Running and testing OfferLens locally
+
+Everything below was executed on a clean Windows machine with Docker. Where a step has a
+gotcha, the gotcha is stated rather than left to be discovered.
+
+---
+
+## 1. Prerequisites
+
+| Tool | Version used | Notes |
+|---|---|---|
+| Node | 22+ | `node --version` |
+| Docker Desktop | any recent | Must be **running**, not just installed |
+| A Gemini API key | — | Optional. Without one the app uses a mock AI provider and returns canned analysis |
+
+Google Cloud Vision credentials are optional too. Without them the app uses a mock OCR
+provider, which is usually what you want locally.
+
+---
+
+## 2. Start Postgres and Redis
+
+```bash
+cd backend
+docker compose up -d
+docker compose ps          # both should read "Up"
+```
+
+That gives you Postgres 16 on `5432` and Redis 7 on `6379`, matching the defaults in
+`.env.example`. You'll see a warning about the `version:` attribute being obsolete —
+harmless.
+
+---
+
+## 3. Configure the backend
+
+```bash
+cd backend
+cp .env.example .env
+```
+
+Then fill in the two **required** secrets. The server refuses to boot without them, by
+design — it validates config at startup rather than failing later:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+```
+
+Run it twice and paste the results into `JWT_SECRET` and `JWT_REFRESH_SECRET`. Add
+`GEMINI_API_KEY` if you have one.
+
+Leave `PORT=8000` and `CORS_ORIGIN=http://localhost:8080` alone unless you know why you're
+changing them — they must match the frontend, and a mismatch produces a browser CORS
+failure rather than a clear error.
+
+---
+
+## 4. Install and prepare the database
+
+```bash
+cd backend
+npm install
+npm run db:migrate     # build the schema
+npm run db:seed        # roles, cities, experience levels
+```
+
+> [!WARNING]
+> Use `db:migrate`, **not** `db:push`. `drizzle.config.ts` sets `strict: true`, so `push`
+> waits on an interactive confirmation and appears to hang forever.
+
+---
+
+## 5. Configure and install the frontend
+
+```bash
+cd frontend
+cp .env.example .env
+npm install
+```
+
+`VITE_API_BASE_URL` defaults to `http://localhost:8000/api/v1`, which matches the backend.
+`VITE_GOOGLE_CLIENT_ID` can stay blank — the Google sign-in button just won't render.
+
+---
+
+## 6. Run it
+
+Three processes, three terminals. The API and the workers are separate: **an offer will
+upload but never get analysed if you forget the workers.**
+
+```bash
+# terminal 1 — API
+cd backend && npm run dev
+
+# terminal 2 — background workers (OCR + analysis + cleanup)
+cd backend && npm run workers
+
+# terminal 3 — frontend
+cd frontend && npm run dev
+```
+
+| Service | URL |
+|---|---|
+| App | http://localhost:8080 |
+| API | http://localhost:8000/api/v1 |
+| API docs (Swagger) | http://localhost:8000/api/v1/docs |
+
+> [!NOTE]
+> `npm run dev` and `npm run workers` use `tsx watch`. Watch mode treats **any keystroke in
+> that terminal as a restart signal**, including a stray Enter — which kills in-flight
+> requests. If you're running the test scripts against it and see `ECONNRESET`, that's
+> usually why. For stable test runs use `npx tsx src/server.ts` and
+> `npx tsx src/workers/index.ts` instead.
+
+Confirm everything is up:
+
+```bash
+curl http://localhost:8000/api/v1/health
+```
+
+---
+
+## 7. Automated test suites
+
+### Unit tests — no services required
+
+```bash
+cd backend && npm test        # 110 tests
+cd frontend && npm test       # 1 placeholder test
+```
+
+These need no database, no Redis and no API key. They cover the pure decision logic:
+access control, guest identity, dedup scoping, AI retry classification, benefits currency
+parsing, filename and prompt sanitisation, salary percentile ranking, and a
+frontend↔backend route contract check.
+
+```bash
+cd backend
+npm run lint          # tsc --noEmit + eslint — passes
+```
+
+> [!NOTE]
+> `npm run format:check` currently **fails on 69 files**. Prettier was added in `-1C` but
+> never applied to the existing code, so the config exists and the codebase predates it.
+> This is cosmetic and not enforced in CI. Fixing it is one command — `npm run format` —
+> but it rewrites nearly every file, so it deserves its own commit rather than being mixed
+> into feature work.
+
+### Integration suites — need the full stack running
+
+Run these with the API **and** workers up. Each is self-contained and creates its own
+users and offers.
+
+```bash
+cd backend
+node test-security.mjs    # 20 assertions — authorization and guest identity
+node test-m2.mjs          # 25 — auth, migration, and registered-user features
+node test-m3.mjs          # 19 — forum, crowdsourced salary, career path
+```
+
+Expected: `0 failed` on all three. They exit non-zero on failure, so they can gate a build.
+
+A result may read `KNOWN` rather than `PASS`. That means a failure that is already
+understood and has planned work, deliberately excluded from the exit code — a permanently
+red suite gets ignored, and then a real regression hides in it. There are currently none.
+
+| Suite | What it proves |
+|---|---|
+| `test-security.mjs` | A second browser gets its own identity; one guest cannot read another's offer, analysis or PDF; identical text gets its own record; guest offers are claimed on signup; a stale guest cookie loses access afterwards; no logged-in user can delete another's offer |
+| `test-m2.mjs` | Guest upload → analysis completes → signup migrates it; negotiation script, benefits, career path, corrections, PDF export, offer comparison, dashboard, account deletion |
+| `test-m3.mjs` | Forum posting and commenting, anonymous posting refused, salary submit + validation + rate limit, stats thresholds, career path |
+
+### Extraction accuracy eval — needs a Gemini key
+
+```bash
+cd backend
+npm run eval                  # all 16 cases
+npm run eval -- --limit 4     # quick loop
+npm run eval -- --save        # write eval/results/<timestamp>.json
+```
+
+Current: **95.8% structured** (target 90%), **79.5% nuanced** (target 75%). Always exits 0
+— it's a measurement, not a gate. See [eval/README.md](../backend/eval/README.md), which
+explains why the absolute number shouldn't be quoted: the corpus is synthetic.
+
+Expect 429s on a free-tier key. The provider falls through to another model automatically
+and logs when it does.
+
+---
+
+## 8. Manual walkthrough
+
+The automated suites cover the API. This covers the browser, which they can't.
+
+### 8.1 Guest analysis — the core journey
+
+1. Open http://localhost:8080 in a normal window and go to **Upload**.
+2. Paste an offer letter into the text box. Use
+   [`backend/eval/corpus.ts`](../backend/eval/corpus.ts) for realistic samples with known
+   red flags — `05-red-flag-heavy` is a good one.
+3. Fill in role, city and experience level. **Expected:** the dropdowns populate from the
+   API. Empty dropdowns mean the API isn't reachable.
+4. Submit. **Expected:** redirect to a processing page, then results within roughly 10-30s.
+5. On the results page, expect a score gauge with a real number, the company name and role
+   as headings, red flags with quoted excerpts, and a benefits list.
+
+> **What "working" looks like:** a red-flag-heavy letter should score **low** (30-40, "weak"
+> or "poor"), not a flat 70. Company and role should be the real values, not the
+> placeholders "Company" and "Role". If you see 70/"fair" with blank headings, the analysis
+> came back empty.
+
+### 8.2 Guest isolation
+
+1. Copy the results URL.
+2. Open it in a **different browser** (or a private window — a new tab shares cookies).
+3. **Expected:** not found. That URL is bound to the first browser's guest cookie.
+
+### 8.3 Guest quota
+
+Upload four offers as a guest. The fourth should be refused with a prompt to create an
+account. Note the limit is now genuinely per-browser — before `-1A` everyone on the same
+network shared one allowance.
+
+### 8.4 Signup and claiming
+
+1. As a guest with at least one analysis, sign up.
+2. **Expected:** the dashboard lists the offer you analysed before registering.
+
+### 8.5 Registered features
+
+From a results page while signed in: **Generate Negotiation Email**, **Calculate Full
+Benefits Value**, **Career**, **Correct**, **PDF**. Each should return content rather than
+an error.
+
+Then **Compare** with two completed offers, and check the dashboard shows a score
+distribution.
+
+### 8.6 Salary Explorer
+
+1. Go to **Salaries**, search a role and city. **Expected:** either percentiles, or an
+   honest "not enough data yet" message. Both are correct — the message is what real
+   traffic sees until the table fills.
+2. Submit a salary. **Expected:** success. A second submission within the hour should be
+   rate-limited.
+
+### 8.7 Forum
+
+Create a post signed in, comment on it, then confirm posting while signed out is refused.
+
+---
+
+## 9. Known limitations — not bugs
+
+Things you may notice that are understood and tracked:
+
+| Behaviour | Why |
+|---|---|
+| Salary benchmarks say "estimated, not enough submissions" | Correct. Real crowdsourced data needs Phase 4 seeding |
+| Score says "Estimated score — limited market data" | Follows from the above. Honest labelling |
+| Salary chart is a flat line locally | The test scripts insert identical values, so all four percentiles match |
+| A **scanned** PDF fails | Cloud Vision's `textDetection` doesn't accept PDF input. Text PDFs and images work |
+| Take-home shows one monthly figure, not a breakdown | The gross/tax/PF breakdown arrives with Phase 2's tax calculator |
+| Red flags occasionally missed or over-reported | Known: ~77% F1. Phase 2's rules engine addresses it |
+| No content moderation on forum or feature requests | Not built |
+| `GET /account/export` doesn't exist | Promised in the privacy policy, not implemented |
+
+---
+
+## 10. Troubleshooting
+
+| Symptom | Cause |
+|---|---|
+| Server exits on boot | `JWT_SECRET` or `JWT_REFRESH_SECRET` missing or under 32 chars |
+| Offers stay `QUEUED` forever | The workers process isn't running |
+| CORS error in the browser console | `CORS_ORIGIN` doesn't match the frontend origin exactly, scheme and port included |
+| Guest features behave oddly across tabs | Expected — identity is a per-browser cookie |
+| `db:push` hangs | Use `db:migrate`. See §4 |
+| `ECONNRESET` mid-test | `tsx watch` restarted from a stray keystroke. See §6 |
+| Analysis fails with a rate-limit message | Gemini free-tier quota. Wait, or set a different key |
+| Dropdowns empty on the upload form | `npm run db:seed` not run, or the API is unreachable |
+
+### Resetting
+
+```bash
+cd backend
+docker compose down -v      # deletes all data
+docker compose up -d
+npm run db:migrate && npm run db:seed
+```
+
+---
+
+## 11. What is verified, and what isn't
+
+Being precise about this, because "the tests pass" is not the same as "the app works".
+
+**Verified by execution:** both packages typecheck and lint clean; 110 backend unit tests;
+the frontend builds; all three integration suites pass against a live stack with a real
+Gemini key; extraction accuracy measured at 95.8%/79.5%; the browser integration seam
+(CORS preflight, credentialed cookies, `HttpOnly`/`SameSite`/`Path`, rejection of unlisted
+origins); the frontend dev server serves and SPA deep routes resolve.
+
+**Not verified:** the UI has never been driven through a real browser by an automated test.
+Every backend behaviour behind the screens is covered, but rendering, form validation and
+navigation have only been checked by reading the code and confirming the data contract.
+§8 exists because a human still needs to click through it.
+
+There are also **no frontend component tests** — the one frontend test is a placeholder.
+That's the largest remaining gap in coverage.
