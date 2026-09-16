@@ -899,8 +899,29 @@ Also confirmed live during the run: the Phase 1 task 0 fallback fix works. Reque
 | 5 | Replace `buildPrompt()` with a real prompt + few-shot | Better accuracy | ✅ Done as **option A** (single call, strict schema). The two-call split is deferred — see below |
 | 7 | Extract `industry` + `companyType` | Fix career path context | ✅ Done |
 | 1 | Prompt-injection sanitisation for AI input | Security | ✅ Done — `shared/prompt-safety.ts`, applied at all 5 prompt sites. Closed a delimiter-escape hole the Phase 1 prompt rewrite had introduced. See below |
-| 2 | Wire `SalaryService.getStats()` into the analysis worker | Real salary data | ⬜ Not started |
-| 6 | Pass real salary data into the negotiation prompt | Authentic negotiation points | ⬜ Blocked on task 2 |
+| 2 | Wire `SalaryService.getStats()` into the analysis worker | Real salary data | ⬜ Not started. **Not blocked** — implementable now |
+| 6 | Pass real salary data into the negotiation prompt | Authentic negotiation points | ⬜ Not started. Sequenced after task 2, which supplies the data it reads |
+
+##### On tasks 2 and 6: nothing is technically blocked
+
+Earlier notes described task 6 as "blocked". That was imprecise — it is a *sequencing dependency*, not a blocker. Both tasks are implementable today.
+
+What is genuinely constrained is their **user-visible value**, because `salary_submissions` is effectively empty for real traffic:
+
+| Role + city | Approved rows | Above the `n >= 5` threshold? |
+|---|---|---|
+| senior software engineer / bangalore | 9 | ✅ — but every row was inserted by `test-m3.mjs` |
+| backend engineer / pune | 1 | ❌ |
+
+So for any real user, `getStats()` returns "not enough data" and the AI estimate runs regardless. Wiring it up still earns its keep:
+
+1. **The `dataSource` label becomes truthful.** Today the AI is instructed to always say `ai_estimated`, which is honest — but the code has no path that could ever say `crowdsourced`, so the distinction is decorative.
+2. **The redistribution rule becomes reachable.** ADR-002's scoring gives salary 30% weight, and the roadmap specifies redistributing it when market data is absent. That branch currently has no way to be exercised.
+3. **Phase 4's seeding needs somewhere to land.** Importing a public dataset achieves nothing while the worker never reads the table.
+
+The real unlock is **Phase 4 task 23** (seed a public dataset), which is gated on **open decision 12** — which source, and whether its licence permits commercial use. Until that lands, expect the honest "estimated — not enough submissions yet" path in production, which is the correct behaviour rather than a defect.
+
+Deliberately **not** the fix: lowering the `n >= 5` threshold. Percentiles from three submissions are noise presented as authority, which is the exact failure mode this plan exists to remove.
 
 #### Phase 1 (option A) result — measured 2026-09-15
 
@@ -1161,7 +1182,7 @@ All P0/P1 findings in this document are therefore **pre-production defects with 
 |---|----------|------|-----------|
 | 4 | Phase priority | Phase -1 → Phase 0 → Phase 1 | Security and correctness before measurement before accuracy |
 | 5 | Tax calculator scope | **India only** | Everything is already ₹/lakh/PF/HRA/Bangalore. Multi-country is speculative. Keep behind an interface keyed on currency so a second country is additive |
-| 6 | Salary data seeding | **Seed with public data**, tagged `dataSource: 'seeded'` | Forced: the submission path is 404-broken, so organic data is zero. Exclude seeded rows from "based on N verified submissions" copy. **Verify dataset licensing before import** |
+| 6 | Salary data seeding | **Seed with public data**, tagged `dataSource: 'seeded'` | Originally justified by the submission path being 404-broken; **that was fixed in -1B**, so organic collection is now possible — just slow, and it cannot help the first users. Seeding remains the answer to the cold start. Exclude seeded rows from "based on N verified submissions" copy. **Verify dataset licensing before import** |
 | 7 | Scoring weights | **30 flags / 30 salary / 20 benefits / 10 growth / 10 transparency** | Revised from 35/25/20/10/10. The original put the largest weight on the least reliable input. Rule-engine flags will be the most trustworthy signal. Implement the redistribution the roadmap already specifies for missing salary data — which is currently always |
 | 8 | Role synonym map | **Manual**, ~30 entries | Covers Indian tech titles. An AI call would add latency and non-determinism to what becomes a Redis cache key |
 | 9 | Progressive UX | **Polling with partial results** (Option B) | Polling already exists; SSE adds infrastructure for a cosmetic gain |
