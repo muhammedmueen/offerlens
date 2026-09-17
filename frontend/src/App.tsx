@@ -10,6 +10,7 @@ import PageTransition from "@/components/layout/PageTransition";
 
 import { lazy, Suspense } from "react";
 import LoadingState from "@/components/common/LoadingState";
+import ErrorBoundary from "@/components/common/ErrorBoundary";
 
 // The landing page is eagerly imported — it is the most common entry point, so lazy
 // loading it would only add a round trip.
@@ -55,6 +56,10 @@ const AnimatedRoutes = () => {
 
   return (
     <AnimatePresence mode="wait">
+      {/* One boundary around the route tree, keyed on pathname so navigating away from a
+          crashed page clears the error. Without this, any render throw inside a page
+          unmounted the entire app to a blank document. */}
+      <ErrorBoundary key={location.pathname} title="This page failed to load.">
       <Suspense
         fallback={
           <div className="container mx-auto max-w-4xl px-4 py-12">
@@ -78,6 +83,7 @@ const AnimatedRoutes = () => {
         <Route path="*" element={<PageTransition><NotFound /></PageTransition>} />
       </Routes>
       </Suspense>
+      </ErrorBoundary>
     </AnimatePresence>
   );
 };
@@ -88,7 +94,12 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <BrowserRouter>
+        {/* Opt into the two v7 behaviours react-router 6.30 warns about on every boot.
+            Both are the v7 defaults, so adopting them now keeps the upgrade a version bump:
+            - v7_startTransition: route state updates go through React.startTransition
+            - v7_relativeSplatPath: relative links inside the `*` route resolve from the
+              matched path rather than the splat value */}
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <AnimatedRoutes />
         </BrowserRouter>
       </TooltipProvider>

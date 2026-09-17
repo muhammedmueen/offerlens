@@ -11,9 +11,10 @@ import GuestBanner from "@/components/common/GuestBanner";
 import AuthGateModal from "@/components/common/AuthGateModal";
 import ScoreGauge from "@/components/charts/ScoreGauge";
 import SalaryBar from "@/components/charts/SalaryBar";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { AlertTriangle, Download, GitCompare, TrendingUp, Pencil, Share2, Lock, CheckCircle, FileText, Copy } from "lucide-react";
+import { AlertTriangle, Download, GitCompare, TrendingUp, Pencil, Share2, Lock, CheckCircle } from "lucide-react";
+import ErrorBoundary from "@/components/common/ErrorBoundary";
 import NegotiationPanel from "@/components/offers/NegotiationPanel";
 import BenefitsPanel from "@/components/offers/BenefitsPanel";
 import CareerPathPanel from "@/components/offers/CareerPathPanel";
@@ -263,29 +264,62 @@ const ResultsPage = () => {
         </div>
       </div>
 
-      {/* Drawers */}
+      {/* Drawers.
+          Each panel is wrapped in its own ErrorBoundary. These render AI-derived JSON, so a
+          missing field is a realistic failure — and without a boundary it took the whole
+          results page down (a `skills.map()` on an absent field white-screened the app).
+          Each SheetContent also carries a SheetDescription: Radix warns when DialogContent
+          has no accessible description, and screen readers announced only the title. */}
       <Sheet open={activeDrawer === "negotiate"} onOpenChange={(o) => !o && setActiveDrawer(null)}>
         <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
-          <SheetHeader><SheetTitle>Negotiation Script</SheetTitle></SheetHeader>
-          <NegotiationPanel offerId={id!} />
+          <SheetHeader>
+            <SheetTitle>Negotiation Script</SheetTitle>
+            <SheetDescription>
+              A ready-to-send email drafted from the gaps found in this offer.
+            </SheetDescription>
+          </SheetHeader>
+          <ErrorBoundary title="Negotiation script unavailable">
+            <NegotiationPanel offerId={id!} />
+          </ErrorBoundary>
         </SheetContent>
       </Sheet>
       <Sheet open={activeDrawer === "benefits"} onOpenChange={(o) => !o && setActiveDrawer(null)}>
         <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
-          <SheetHeader><SheetTitle>Benefits Calculator</SheetTitle></SheetHeader>
-          <BenefitsPanel offerId={id!} />
+          <SheetHeader>
+            <SheetTitle>Benefits Calculator</SheetTitle>
+            <SheetDescription>
+              What your non-cash benefits are worth. Adjust any amount and recalculate.
+            </SheetDescription>
+          </SheetHeader>
+          <ErrorBoundary title="Benefits calculator unavailable">
+            <BenefitsPanel offerId={id!} />
+          </ErrorBoundary>
         </SheetContent>
       </Sheet>
       <Sheet open={activeDrawer === "career"} onOpenChange={(o) => !o && setActiveDrawer(null)}>
         <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
-          <SheetHeader><SheetTitle>Career Path</SheetTitle></SheetHeader>
-          <CareerPathPanel offerId={id!} />
+          <SheetHeader>
+            <SheetTitle>Career Path</SheetTitle>
+            <SheetDescription>
+              A projected five-year trajectory for this role, with skills and next steps.
+            </SheetDescription>
+          </SheetHeader>
+          <ErrorBoundary title="Career path unavailable">
+            <CareerPathPanel offerId={id!} />
+          </ErrorBoundary>
         </SheetContent>
       </Sheet>
       <Sheet open={activeDrawer === "corrections"} onOpenChange={(o) => !o && setActiveDrawer(null)}>
         <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
-          <SheetHeader><SheetTitle>Correct Data</SheetTitle></SheetHeader>
-          <CorrectionsPanel offerId={id!} />
+          <SheetHeader>
+            <SheetTitle>Correct Data</SheetTitle>
+            <SheetDescription>
+              Fix anything the analysis got wrong. Your corrections help improve extraction.
+            </SheetDescription>
+          </SheetHeader>
+          <ErrorBoundary title="Corrections unavailable">
+            <CorrectionsPanel offerId={id!} />
+          </ErrorBoundary>
         </SheetContent>
       </Sheet>
 

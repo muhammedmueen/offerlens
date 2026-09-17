@@ -8,7 +8,7 @@ import ErrorState from "@/components/common/ErrorState";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ChevronUp, Plus, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import MotionCard from "@/components/common/MotionCard";
@@ -59,7 +59,12 @@ const FeatureRequestsPage = () => {
               </Button>
             </DialogTrigger>
             <DialogContent>
-              <DialogHeader><DialogTitle>Submit Feature Request</DialogTitle></DialogHeader>
+              <DialogHeader>
+                <DialogTitle>Submit Feature Request</DialogTitle>
+                <DialogDescription>
+                  Tell us what would make OfferLens more useful. Others can vote on it.
+                </DialogDescription>
+              </DialogHeader>
               <form onSubmit={(e) => { e.preventDefault(); submitMutation.mutate(); }} className="space-y-4">
                 <div className="space-y-2"><Label>Title</Label><Input value={title} onChange={(e) => setTitle(e.target.value)} required /></div>
                 <div className="space-y-2"><Label>Description</Label><textarea value={description} onChange={(e) => setDescription(e.target.value)} required className="min-h-[80px] w-full rounded-lg border border-input bg-background p-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" /></div>

@@ -12,7 +12,7 @@ import AuthGateModal from "@/components/common/AuthGateModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { MessageSquare, Plus, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import MotionCard from "@/components/common/MotionCard";
@@ -79,7 +79,12 @@ const ForumListPage = () => {
 
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogContent>
-            <DialogHeader><DialogTitle>New Post</DialogTitle></DialogHeader>
+            <DialogHeader>
+              <DialogTitle>New Post</DialogTitle>
+              <DialogDescription>
+                Share an offer, a negotiation outcome, or a question with the community.
+              </DialogDescription>
+            </DialogHeader>
             <form onSubmit={(e) => { e.preventDefault(); createMutation.mutate(); }} className="space-y-4">
               <div className="space-y-2"><Label>Title</Label><Input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} required /></div>
               <div className="space-y-2"><Label>Category</Label><Input value={newCategory} onChange={(e) => setNewCategory(e.target.value)} placeholder="e.g. Negotiation" /></div>

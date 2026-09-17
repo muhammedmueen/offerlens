@@ -197,3 +197,83 @@ describe('analysis response shape', () => {
         }
     });
 });
+
+/**
+ * Drawer panel contracts.
+ *
+ * The three results-page drawers repeated the same bug class the tests above were written
+ * for — correct path, wrong shape — and the path-only check passed for all three:
+ *
+ *   - CareerTimeline required `milestone.skills`; the endpoint returns no such field, so
+ *     `skills.map()` threw and (with no error boundary) white-screened the whole page.
+ *   - BenefitsPanel read `data.benefits` and `b.value`; the service returns `breakdown`
+ *     and `monetaryValue`, so the panel always claimed "no benefits data found".
+ *   - CorrectionsPanel read `data.fields` off a response that is an array, and POSTed
+ *     `{ fields: {...} }` against a schema that requires `{ corrections: [...] }`.
+ *
+ * Scope note: these assert the shapes produced by real in-repo code (the mock AI provider,
+ * the pure calculator, the request schema). The live Gemini career-path shape is defined by
+ * a prompt and cannot be pinned here — the mock is what the integration harness runs
+ * against, so drift between mock and frontend is what this catches.
+ */
+describe('career path response shape', () => {
+    it('returns timeline/skillsToLearn/potentialRoles, and no per-milestone skills', async () => {
+        const { MockAiProvider } = await import('@/providers/ai/mock.ai.js');
+        const path = await new MockAiProvider().generateCareerPath({
+            role: 'Software Engineer',
+            companyType: 'startup',
+            industry: 'Technology',
+        });
+
+        expect(Array.isArray(path.timeline)).toBe(true);
+        expect(Array.isArray(path.skillsToLearn)).toBe(true);
+        expect(Array.isArray(path.potentialRoles)).toBe(true);
+
+        for (const milestone of path.timeline) {
+            // What CareerTimeline renders.
+            expect(milestone).toHaveProperty('year');
+            expect(milestone).toHaveProperty('title');
+            expect(milestone).toHaveProperty('focus');
+            expect(milestone).toHaveProperty('salaryRange');
+            // The field the component used to require. Asserted absent so that if it is
+            // ever added, this failure is a prompt to render it rather than a page crash.
+            expect(milestone).not.toHaveProperty('skills');
+        }
+    });
+});
+
+describe('benefits breakdown row shape', () => {
+    it('names the amount field monetaryValue, not value', async () => {
+        const { calculateBenefitValues } = await import('@/modules/benefits/benefits.calculator.js');
+
+        const rows = calculateBenefitValues(
+            [{ name: 'Health Insurance', value: '₹5 lakh', details: '', category: 'insurance' } as never],
+            { baseSalary: { amount: 1_200_000, period: 'annual' }, currency: 'INR' } as never,
+        );
+
+        expect(rows).toHaveLength(1);
+        // Keys BenefitsPanel reads off every row.
+        for (const key of ['name', 'category', 'monetaryValue', 'details', 'isQuantifiable']) {
+            expect(rows[0], `benefits breakdown row is missing "${key}"`).toHaveProperty(key);
+        }
+        expect(rows[0]).not.toHaveProperty('value');
+    });
+});
+
+describe('corrections request shape', () => {
+    it('accepts { corrections: [{ field, correctedValue }] } and rejects { fields }', async () => {
+        const { applyCorrectionSchema } = await import('@/modules/correction/correction.schema.js');
+
+        const valid = applyCorrectionSchema.body.safeParse({
+            corrections: [{ field: 'extractedData.role', correctedValue: 'Backend Engineer' }],
+        });
+        expect(valid.success, 'the shape CorrectionsPanel now sends must validate').toBe(true);
+
+        // The shape the panel used to send.
+        expect(applyCorrectionSchema.body.safeParse({ fields: { role: 'Backend Engineer' } }).success)
+            .toBe(false);
+        // Empty submissions are rejected server-side, which is why the panel disables Save
+        // until at least one field actually changes.
+        expect(applyCorrectionSchema.body.safeParse({ corrections: [] }).success).toBe(false);
+    });
+});

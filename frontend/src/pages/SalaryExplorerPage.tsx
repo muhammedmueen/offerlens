@@ -8,7 +8,7 @@ import SalaryBar from "@/components/charts/SalaryBar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Search, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -116,7 +116,12 @@ const SalaryExplorerPage = () => {
               <Button variant="outline" className="cursor-pointer">Submit Your Salary</Button>
             </DialogTrigger>
             <DialogContent>
-              <DialogHeader><DialogTitle>Submit Salary (Anonymous)</DialogTitle></DialogHeader>
+              <DialogHeader>
+                <DialogTitle>Submit Salary (Anonymous)</DialogTitle>
+                <DialogDescription>
+                  Your submission is anonymous and feeds the market ranges shown here.
+                </DialogDescription>
+              </DialogHeader>
               <form onSubmit={(e) => { e.preventDefault(); submitMutation.mutate(); }} className="space-y-4">
                 <div className="space-y-2"><Label>Role</Label><Input value={subRole} onChange={(e) => setSubRole(e.target.value)} required /></div>
                 <div className="space-y-2"><Label>City</Label><Input value={subCity} onChange={(e) => setSubCity(e.target.value)} required /></div>
