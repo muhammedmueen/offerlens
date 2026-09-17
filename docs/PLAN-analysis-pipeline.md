@@ -833,9 +833,9 @@ Two changes did it. `pdfjs-dist` (435 KB raw / 128 KB gzip) is now imported on d
 
 | # | Task | Status |
 |---|------|--------|
-| 0a | Collect 15-20 offer letters as a corpus | ✅ 16 cases in `backend/eval/corpus.ts` — **synthetic, see caveat below** |
+| 0a | Collect 15-20 offer letters as a corpus | ✅ 17 cases in `backend/eval/corpus.ts` — 16 **synthetic** (see caveat below), 1 real |
 | 0b | Annotate ground truth (company, role, CTC, benefits, red flags) | ✅ Inline `expected` per case, plus a `probes` note so a failure is diagnosable |
-| 0c | Harness: run extraction → compare vs ground truth → report field-level accuracy | ✅ `npm run eval`. Scorer is pure and covered by 19 unit tests |
+| 0c | Harness: run extraction → compare vs ground truth → report field-level accuracy | ✅ `npm run eval`. Scorer is pure and covered by 32 unit tests |
 
 > [!WARNING]
 > **The corpus is synthetic, and that is a real limitation.** The letters were written for
@@ -1010,6 +1010,58 @@ So **option B (splitting extraction from analysis) is not the next move.** The e
 > large effect that no corpus bias could manufacture — the fix was mechanical. But the
 > absolute 95.8% is still flattered by letters written to be readable. Real anonymised
 > offers would put a truer number on it.
+
+#### Post-Phase 1: contract drift the browser found, not the tests
+
+Manual click-through of the results page turned up four bugs. All shipped past a green
+build, and the first one took the whole page down.
+
+| Component | Read | API actually returns |
+|---|---|---|
+| `CareerTimeline` | `milestone.skills: string[]` | `{ year, title, focus, salaryRange }` — skills are top-level `skillsToLearn` |
+| `BenefitsPanel` | `data.benefits`, `b.value` | `breakdown`, `monetaryValue` |
+| `CorrectionsPanel` (read) | `data.fields` | an **array** of past corrections |
+| `CorrectionsPanel` (write) | sent `{ fields: {…} }` | `applyCorrectionSchema` requires `{ corrections: [{ field, correctedValue }] }` |
+
+This is the **same bug class as -1B**: correct path, wrong shape. `CareerTimeline` called
+`.map()` on an absent field and threw; with no error boundary anywhere in the tree, React
+unmounted the entire app to a blank document. `BenefitsPanel`'s guarded `|| []` turned its
+break into a silent lie — it reported "no benefits data found" on every offer regardless of
+what the calculator produced. `CorrectionsPanel` was broken in both directions at once, so
+no inputs rendered and a save would have been rejected.
+
+Fixes, in `b798415`:
+
+- Milestone fields are optional; a missing one degrades a card instead of crashing. The
+  panel also renders `skillsToLearn` and `potentialRoles`, which it had been fetching and
+  discarding.
+- Benefits reads the real keys, separates quantified from unquantified rows, and refetches
+  after recalculating so the totals shown come from the server.
+- Corrections seeds inputs from the analysis and submits only changed fields, using dotted
+  paths rooted at the analysis row (`extractedData.role`) as `getNestedValue` resolves them.
+- An `ErrorBoundary` around the route tree (keyed on pathname) and around each drawer panel.
+  React's own console output asked for one. These panels render AI-derived JSON, so a
+  missing field is a realistic failure, not an edge case.
+- `SheetDescription` / `DialogDescription` on all 7 dialogs that had none — Radix warned on
+  every open and screen readers announced only the title.
+- `BrowserRouter` opts into `v7_startTransition` and `v7_relativeSplatPath`.
+
+And in `525042e`, a fifth found while checking the first four: the retirement branch of
+`calculateBenefitValues` had no return on its unquantifiable path, so "Provident Fund"
+stated with no amount — which is how every Indian offer letter states it — fell through to
+the generic fallback and was relabelled `other`. Same fall-through this file had already
+fixed for PTO.
+
+**The contract test now asserts response shapes, not just paths** — the path-only checks
+passed for all four of these. Career-path timeline keys (including that `skills` is absent),
+benefits row keys, and the corrections request body are pinned.
+
+> [!IMPORTANT]
+> Every one of these was found by a human opening a drawer. The §11 gap in
+> `LOCAL_DEVELOPMENT.md` — no automated test has ever driven this UI in a browser — is what
+> let four contract breaks reach a click-through, and adding shape assertions narrows the
+> class without closing it. Playwright against the §8 walkthrough is the smallest thing that
+> would.
 
 #### Corpus growth + a scorer correction (post-Phase 1)
 
@@ -1195,7 +1247,9 @@ Adopt industry-standard targets for this segment (small-team SaaS, async AI work
 
 *Positive* — Stage 2's `Promise.all()` and Stage 3's token budget now have a number to trade against. The p95/p99 split makes the pipeline refactor measurable rather than a matter of opinion.
 
-*Negative* — the frontend budget is currently **badly missed**. Measured baseline: **one 1,465 KB JS chunk with zero code splitting**, roughly 7× over the initial-load budget. `pdfjs-dist`, `recharts`, and `framer-motion` are all route-specific and all in the initial chunk; three dynamic imports should recover most of it.
+*Negative* — the frontend budget was **badly missed** at the time of this decision. Measured baseline: **one 1,465 KB JS chunk with zero code splitting**, roughly 7× over the initial-load budget. `pdfjs-dist`, `recharts`, and `framer-motion` are all route-specific and all in the initial chunk; three dynamic imports should recover most of it.
+
+> **Resolved in `-1C`.** 177.6 KB gzip initial, within budget. The prediction held: on-demand `pdfjs-dist` plus route-level `React.lazy` did it, and lazy routes pulled `recharts` out of the critical path as a side effect. `framer-motion` was deliberately left in — `PageTransition` wraps every route, so it is genuinely critical-path.
 
 *Risk* — closing the bundle gap is its own task, tracked separately from Phase -1 so it does not block the security fixes.
 

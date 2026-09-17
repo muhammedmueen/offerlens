@@ -781,7 +781,7 @@ flowchart TB
 > | Error-budget owner | Project owner |
 > | RPO / RTO | 24 h / 4 h |
 > | Frontend LCP | 2500 ms mobile-4G p75 |
-> | Frontend bundle | 200 KB init + 80 KB/route gzip — **currently 1,465 KB single chunk, ~7× over** |
+> | Frontend bundle | 200 KB init + 80 KB/route gzip — ✅ **met: 177.6 KB gzip initial**, was a 1,465 KB single chunk. Fixed in `-1C` by route-level `React.lazy` plus an on-demand `pdfjs-dist` import |
 
 | Metric | Target (M1) | Target (M2) | Target (M4) |
 |---|---|---|---|

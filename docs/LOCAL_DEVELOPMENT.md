@@ -125,14 +125,20 @@ curl http://localhost:8000/api/v1/health
 ### Unit tests — no services required
 
 ```bash
-cd backend && npm test        # 110 tests
+cd backend && npm test        # 128 tests
 cd frontend && npm test       # 1 placeholder test
 ```
 
 These need no database, no Redis and no API key. They cover the pure decision logic:
 access control, guest identity, dedup scoping, AI retry classification, benefits currency
-parsing, filename and prompt sanitisation, salary percentile ranking, and a
-frontend↔backend route contract check.
+parsing and categorisation, filename and prompt sanitisation, salary percentile ranking,
+the eval scorer, and the frontend↔backend contract.
+
+The contract test checks both **paths** and **response shapes**. The shape half exists
+because three separate breaks had the path right and the shape wrong — a page reading
+`a.score` that the server never sent, and three drawers reading `milestone.skills`,
+`data.benefits` and `data.fields` against endpoints that return `timeline`, `breakdown` and
+an array. A path-only check passed all four.
 
 ```bash
 cd backend
@@ -174,7 +180,7 @@ red suite gets ignored, and then a real regression hides in it. There are curren
 
 ```bash
 cd backend
-npm run eval                  # all 16 cases
+npm run eval                  # all 17 cases
 npm run eval -- --limit 4     # quick loop
 npm run eval -- --save        # write eval/results/<timestamp>.json
 ```
@@ -261,7 +267,11 @@ Things you may notice that are understood and tracked:
 | Salary chart is a flat line locally | The test scripts insert identical values, so all four percentiles match |
 | A **scanned** PDF fails | Cloud Vision's `textDetection` doesn't accept PDF input. Text PDFs and images work |
 | Take-home shows one monthly figure, not a breakdown | The gross/tax/PF breakdown arrives with Phase 2's tax calculator |
-| Red flags occasionally missed or over-reported | Known: ~77% F1. Phase 2's rules engine addresses it |
+| Red flags occasionally missed or over-reported | Known: ~71-77% F1, and it varies run to run. Phase 2's rules engine addresses it |
+| Benefits drawer lists every benefit with no rupee value | Correct when the letter doesn't quantify them. "Medical Insurance" with no sum assured and "Paid Leave" with no day count are not valuable — the calculator reads amounts, it doesn't invent them. Enter your own figure and recalculate |
+| Provident Fund shows no value even though PF is statutory | PF is 12% of **basic**, and a letter quoting a single CTC figure never states basic. Guessing a basic-to-CTC ratio would push a fabricated number into total comp. Phase 2's salary breakdown gives it a real value |
+| Base salary equals total CTC on a CTC-only letter | Known and measured — `base := CTC` fires on 5 of 17 eval cases. The response schema marks `baseSalary` required, so the model must supply a figure the letter doesn't contain. Fix is queued at the front of task 9 |
+| Joining bonus stated in prose is sometimes dropped | Known: stated-components F1 ~78%. Reproduced on the real eval case in two consecutive runs |
 | No content moderation on forum or feature requests | Not built |
 | `GET /account/export` doesn't exist | Promised in the privacy policy, not implemented |
 
@@ -295,11 +305,11 @@ npm run db:migrate && npm run db:seed
 
 Being precise about this, because "the tests pass" is not the same as "the app works".
 
-**Verified by execution:** both packages typecheck and lint clean; 110 backend unit tests;
-the frontend builds; all three integration suites pass against a live stack with a real
-Gemini key; extraction accuracy measured at 96.1%/75.2%; the browser integration seam
-(CORS preflight, credentialed cookies, `HttpOnly`/`SameSite`/`Path`, rejection of unlisted
-origins); the frontend dev server serves and SPA deep routes resolve.
+**Verified by execution:** both packages typecheck and lint clean; 128 backend unit tests;
+the frontend builds (177.6 KB gzip initial); all three integration suites pass against a
+live stack with a real Gemini key; extraction accuracy measured at 96.1%/75.2%; the browser
+integration seam (CORS preflight, credentialed cookies, `HttpOnly`/`SameSite`/`Path`,
+rejection of unlisted origins); the frontend dev server serves and SPA deep routes resolve.
 
 **Not verified:** the UI has never been driven through a real browser by an automated test.
 Every backend behaviour behind the screens is covered, but rendering, form validation and
@@ -308,3 +318,21 @@ navigation have only been checked by reading the code and confirming the data co
 
 There are also **no frontend component tests** — the one frontend test is a placeholder.
 That's the largest remaining gap in coverage.
+
+> [!WARNING]
+> This gap is not theoretical. Every one of the four bugs found in the results-page drawers
+> was found by a human opening the drawer, not by a test:
+>
+> - `CareerTimeline` read `milestone.skills`, which the API never sends. It threw, and with
+>   no error boundary in the tree the whole page went white.
+> - `BenefitsPanel` read `data.benefits` and `b.value` instead of `breakdown` and
+>   `monetaryValue`, so it always claimed "no benefits data found".
+> - `CorrectionsPanel` read `data.fields` off a response that is an array, and submitted
+>   `{ fields: … }` against a schema requiring `{ corrections: [ … ] }` — broken in both
+>   directions, so nothing rendered and nothing would have saved.
+> - Provident Fund was categorised "Other" because the retirement branch had no return on
+>   its unquantifiable path.
+>
+> All four are fixed, and the contract test now asserts response shapes rather than only
+> paths. But the class of bug recurs, and the thing that catches it is a browser driving the
+> UI. Playwright against the §8 walkthrough is the smallest thing that would close it.
