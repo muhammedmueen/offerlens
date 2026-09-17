@@ -98,6 +98,29 @@ describe('calculateBenefitValues', () => {
         expect(row.isQuantifiable).toBe(false);
     });
 
+    it('keeps unvalued PF under retirement rather than relabelling it other', () => {
+        // Seen live: "Provident Fund" with no amount fell through the retirement branch
+        // (no return on the unquantifiable path) into the generic fallback, which set
+        // category 'other'. Every Indian offer letter lists PF, so this misfired always.
+        const [row] = calculateBenefitValues(
+            [benefit('Provident Fund', 'Provident fund is deducted and contributed as per applicable statute.')],
+            comp(2_400_000),
+        );
+        expect(row.category).toBe('retirement');
+        expect(row.monetaryValue).toBeNull();
+        expect(row.isQuantifiable).toBe(false);
+    });
+
+    it('still values PF when the offer states an amount', () => {
+        const [row] = calculateBenefitValues(
+            [benefit('Provident Fund', 'employer contribution of ₹21,600 per annum')],
+            comp(2_400_000),
+        );
+        expect(row.category).toBe('retirement');
+        expect(row.monetaryValue).toBe(21_600);
+        expect(row.isQuantifiable).toBe(true);
+    });
+
     it('honours a user override ahead of any parsing', () => {
         const [row] = calculateBenefitValues(
             [benefit('Paid Leave', '18 days')],

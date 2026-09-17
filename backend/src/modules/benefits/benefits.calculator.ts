@@ -118,6 +118,24 @@ export function calculateBenefitValues(
                     isQuantifiable: true,
                 };
             }
+
+            // Return here, like the pto/insurance/equity branches do. This used to fall
+            // through to the generic fallback, which relabelled the row `other` — so the
+            // most common Indian benefit of all, "Provident Fund" stated with no amount,
+            // was displayed under the wrong category on every offer.
+            //
+            // ponytail: still not valued. PF is statutory (12% of basic), so it IS
+            // computable — but only from basic pay, and letters that quote a single CTC
+            // figure do not state basic. Guessing a basic-to-CTC ratio here would put a
+            // fabricated number into totalCompensation. The deterministic Indian salary
+            // breakdown in Phase 2 is where this gets a real value.
+            return {
+                name: benefit.name,
+                category: 'retirement',
+                monetaryValue: null,
+                details: benefit.details || 'Statutory contribution — value depends on basic pay, which the offer does not state',
+                isQuantifiable: false,
+            };
         }
 
         // Generic fallback
