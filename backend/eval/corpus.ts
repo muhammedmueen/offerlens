@@ -481,7 +481,20 @@ Notice period during internship: 7 days. Post confirmation: 60 days.
             currency: 'INR',
             statedComponents: [],
             benefits: ['medical insurance', 'provident fund'],
-            redFlagTypes: ['vague_compensation', 'probation'],
+            /**
+             * `missing_benefit` was added here as a GROUND TRUTH CORRECTION, flagged because
+             * the rule engine is what surfaced it and that is exactly the situation where
+             * moving the goalposts would be self-serving.
+             *
+             * The argument stands without the engine: the letter says "During the internship
+             * no benefits are applicable", so for six months there is no PF, no gratuity
+             * accrual and no cover. Cases 10 and 14 say the same thing in different words
+             * ("No statutory benefits, gratuity, or provident fund shall accrue" / "No paid
+             * leave, medical cover or statutory benefit is provided") and BOTH were annotated
+             * with `missing_benefit` before any of this existed. Omitting it here was
+             * inconsistent with my own earlier annotations, not a judgement call.
+             */
+            redFlagTypes: ['vague_compensation', 'probation', 'missing_benefit'],
             noticePeriod: '60 days',
             probationPeriod: '6 months',
         },

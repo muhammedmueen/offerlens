@@ -21,6 +21,8 @@ import { MockAiProvider } from '@/providers/ai/mock.ai.js';
 import type { AiProvider } from '@/providers/ai/ai.provider.js';
 import { DEFAULT_GEMINI_MODEL } from '@/config/constants.js';
 import { CORPUS, type EvalCase } from './corpus.js';
+import { detectRedFlags, mergeRedFlags } from '@/modules/analysis/redflag.rules.js';
+import type { RedFlag } from '@/modules/analysis/analysis.types.js';
 import {
     companyMatches, textMatches, numberMatches, scoreSet,
     annualiseBase, assertsBaseEqualsTotal, durationMatches,
@@ -55,6 +57,11 @@ interface CaseResult {
     benefitsF1: number;
     benefitsMissed: string[];
     benefitsSpurious: string[];
+    /**
+     * Model-only vs rules-only vs merged, so a red-flag regression can be attributed.
+     * Without the split, a drop looks the same whether the prompt changed or a rule did.
+     */
+    redFlagSplit: { aiOnlyF1: number; rulesOnlyF1: number; rulesFired: string[] };
     redFlagsF1: number;
     redFlagsMissed: string[];
     redFlagsSpurious: string[];
@@ -87,6 +94,7 @@ async function evaluateCase(provider: AiProvider, c: EvalCase): Promise<CaseResu
             componentsF1: 0, componentsMissed: [],
         },
         benefitsF1: 0, benefitsMissed: [], benefitsSpurious: [],
+        redFlagSplit: { aiOnlyF1: 0, rulesOnlyF1: 0, rulesFired: [] },
         redFlagsF1: 0, redFlagsMissed: [], redFlagsSpurious: [],
         returnedKeys: [],
     };
@@ -138,13 +146,23 @@ async function evaluateCase(provider: AiProvider, c: EvalCase): Promise<CaseResu
     base.benefitsMissed = benefits.missed;
     base.benefitsSpurious = benefits.spurious;
 
-    const flags = scoreSet(
-        c.expected.redFlagTypes,
-        Array.isArray(raw?.redFlags) ? raw.redFlags.map((f: any) => f?.type ?? '') : [],
-    );
+    // Red flags are scored on the MERGED set, because that is what the worker stores and
+    // therefore what a user sees. The model-only and rules-only figures are also reported,
+    // so a regression can be attributed to one or the other rather than guessed at.
+    const aiFlags: RedFlag[] = Array.isArray(raw?.redFlags) ? raw.redFlags : [];
+    const ruleFlags = detectRedFlags(c.text);
+    const merged = mergeRedFlags(ruleFlags, aiFlags);
+
+    const flags = scoreSet(c.expected.redFlagTypes, merged.map((f) => f?.type ?? ''));
     base.redFlagsF1 = flags.f1;
     base.redFlagsMissed = flags.missed;
     base.redFlagsSpurious = flags.spurious;
+
+    base.redFlagSplit = {
+        aiOnlyF1: scoreSet(c.expected.redFlagTypes, aiFlags.map((f: any) => f?.type ?? '')).f1,
+        rulesOnlyF1: scoreSet(c.expected.redFlagTypes, ruleFlags.map((f) => f.type)).f1,
+        rulesFired: ruleFlags.map((f) => f.ruleId),
+    };
 
     return base;
 }
@@ -199,7 +217,9 @@ async function main() {
         console.log(`  ${f.padEnd(18)} ${pct(fieldRate(f)).padStart(7)}   (${tag})`);
     }
     console.log(`  ${'benefits (F1)'.padEnd(18)} ${pct(mean(scored.map((r) => r.benefitsF1))).padStart(7)}   (nuanced)`);
-    console.log(`  ${'red flags (F1)'.padEnd(18)} ${pct(mean(scored.map((r) => r.redFlagsF1))).padStart(7)}   (nuanced)`);
+    console.log(`  ${'red flags (F1)'.padEnd(18)} ${pct(mean(scored.map((r) => r.redFlagsF1))).padStart(7)}   (nuanced, MERGED — what the worker stores)`);
+    console.log(`  ${'  ├ model only'.padEnd(18)} ${pct(mean(scored.map((r) => r.redFlagSplit.aiOnlyF1))).padStart(7)}   varies run to run`);
+    console.log(`  ${'  └ rules only'.padEnd(18)} ${pct(mean(scored.map((r) => r.redFlagSplit.rulesOnlyF1))).padStart(7)}   deterministic (task 8)`);
 
     console.log('\n' + '-'.repeat(72));
     console.log('  COMPENSATION DIAGNOSTICS  (not folded into the targets below)');

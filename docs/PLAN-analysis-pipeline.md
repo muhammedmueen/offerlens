@@ -1114,14 +1114,96 @@ real letter made it visible.
 
 ### Phase 2: Rule Engine + Tax Calculator (2-3 days)
 
-| # | Task | Impact |
-|---|------|--------|
-| 8 | Build red flag pattern rule engine (includes > regex, 100ms timeout) | Reliable, deterministic detection |
+| # | Task | Impact | Status |
+|---|------|--------|---|
+| 8 | Build red flag pattern rule engine (includes > regex, 100ms timeout) | Reliable, deterministic detection | ✅ **Done.** See below |
 | 9 | Build Indian tax take-home calculator | Accurate take-home |
 | 10 | Implement weighted scoring rubric — **30 flags / 30 salary / 20 benefits / 10 growth / 10 transparency** per decision 7, with redistribution when salary data is absent | Fair, auditable scores |
 | 11 | Add confidence tags to all output fields | User trust signals |
 | 12 | Add standard benefits checklist + missing detection | Complete benefits analysis |
-| 13 | Add salary data caching in Redis (1hr TTL) | Performance |
+| 13 | Add salary data caching in Redis (1hr TTL) | Performance | |
+
+#### Task 8 outcome — `backend/src/modules/analysis/redflag.rules.ts`
+
+Seven rules, `String.includes` over normalised sentences, no regex in the rules themselves.
+Regex was avoided deliberately: the input is attacker-supplied text, and a backtracking
+pattern over a 100k-char paste is a denial-of-service primitive.
+
+Measured **within a single run**, which is the only fair comparison given the variance
+documented above:
+
+| Red-flag F1 | Run A | Run B |
+|---|---|---|
+| Model only | 75.1% | 72.9% |
+| Rules only | 75.6% | 77.4% |
+| **Merged — what the worker stores** | **79.0%** | **76.1%** |
+
+The merge beats the model by +3.9 and +3.2 points on identical input. Rules alone match or
+beat the model while being deterministic, and contributed **1 of 6** remaining false
+positives — the model contributed the other five.
+
+The eval harness now reports all three figures, so a future red-flag regression can be
+attributed to a prompt change or a rule change instead of guessed at.
+
+**Union, not replacement**, deduped by type with rules winning a tie. Rules cannot do
+`other` (at-will clauses, "no resignation during an academic term") or flags that require
+inference over the whole letter rather than a quote. The model can. Dropping it would trade
+measured recall for tidiness.
+
+##### The hard part was negation, and the first draft got it wrong
+
+`17-deliberately-clean` — the real letter added to the corpus earlier — states *"The Company
+does not impose any post-employment non-compete restriction"* and *"The joining bonus is not
+subject to a repayment or clawback obligation"*. A rule that greps for `non-compete` and
+`clawback` flags both, turning a candidate-friendly letter into a frightening one. That is
+worse than a miss: it discredits every flag the product raises.
+
+The inverse trap is equally real. Case 05 writes a *genuine* non-compete as *"You **shall
+not** … engage in … any business competing"*. So `shall not` can never be a negation cue — in
+legal prose it usually introduces the candidate's obligation. Negation cues have to name what
+is being negated, which is why they are per-rule rather than one shared list.
+
+Two rules key off something other than their topic, for the same reason:
+
+- **`ip_assignment`** does not trigger on "intellectual property". A narrow IP clause is
+  normal. It triggers on overbreadth markers — "whether or not during working hours", "vest
+  absolutely", "all intellectual property" — and is disarmed by a carve-out **anywhere in the
+  document**, because carve-outs are conventionally written as the following sentence.
+- **`probation`** does not trigger on "probation". It triggers on termination *without*
+  notice. Case 17 has a three-month probation with 15 days' notice on both sides, which is
+  fine.
+- **`vague_compensation`** additionally requires a money word in the same sentence. Without
+  that, *"The Company reserves the right to terminate … at its sole discretion"* scored as
+  vague pay — a hit for the wrong reason, which flatters the metric while telling the user
+  something false.
+
+> [!IMPORTANT]
+> The first implementation **did** produce the false positive on case 17, and the cause was
+> not the rules. `splitSentences` broke on every newline, so a letter hard-wrapped as
+> `"…does not impose any\npost-employment non-compete restriction."` put the negation cue in a
+> different fragment from the trigger. `unwrapLines` now joins lines that are wrapped
+> mid-sentence, treating a newline as a real boundary only after sentence punctuation, before
+> a numbered or bulleted block, or at a blank line. This is not a fixture quirk — PDF text
+> extraction wraps at the visual line, so every exported or scanned letter arrives this way.
+
+`ponytail:` there is no wall-clock timeout, unlike the "100ms timeout" this task sketched.
+Matching is linear in (sentences × phrases) with no backtracking, and a test asserts a
+100k-char letter completes inside the budget. A timer that provably cannot fire is dead code
+that still needs maintaining. The bound that matters is input length, already enforced by
+`MAX_EXTRACT_TEXT_CHARS`.
+
+##### One ground-truth correction, flagged because the engine is what surfaced it
+
+Case `12-internship-conversion` gained `missing_benefit`. The letter says *"During the
+internship no benefits are applicable"* — six months with no PF, no gratuity accrual, no
+cover. Cases 10 and 14 say the same thing in different words and **both** were annotated with
+`missing_benefit` long before this engine existed, so omitting it here was inconsistent with
+my own earlier annotations rather than a judgement call. Calling it out because moving the
+goalposts to flatter new code is exactly the failure this corpus is supposed to prevent.
+
+Note that this correction makes Run A and Run B non-comparable to each other: Run A predates
+it. Within each run the three-way comparison is valid, which is why the table is read down a
+column and not across.
 
 ### Phase 3: Full Pipeline Refactor (2-3 days)
 

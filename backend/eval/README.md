@@ -54,6 +54,27 @@ the schema, and this is the number that should move.
 | Nuanced | benefits, red-flag types (F1) | > 75% |
 | Diagnostics | `baseSalary`, stated cash components, `base := CTC` count | reported separately |
 
+### Red flags are scored on the merged set
+
+Since task 8 there are two detectors: the model, and the deterministic rule engine in
+`src/modules/analysis/redflag.rules.ts`. The harness scores the **merged** output, because
+that is what the worker stores and therefore what a user sees, and also prints each detector
+alone:
+
+```
+red flags (F1)       76.1%   (nuanced, MERGED — what the worker stores)
+  ├ model only       72.9%   varies run to run
+  └ rules only       77.4%   deterministic (task 8)
+```
+
+The split is what makes a red-flag regression diagnosable. Without it, a drop looks identical
+whether someone edited the prompt or edited a rule. Compare down a column within one run, not
+across runs — the model half moves on its own.
+
+Note the harness applies `mergeRedFlags` itself rather than importing it from the worker path
+it mirrors. Two call sites of a pure function is the cost of the harness not needing a
+database or a queue.
+
 The diagnostics group is printed on its own and **not folded into the structured or
 nuanced headline**. Both were added after the headline numbers had already been recorded,
 and folding them in would have made every saved result in `results/` incomparable. New

@@ -125,14 +125,19 @@ curl http://localhost:8000/api/v1/health
 ### Unit tests — no services required
 
 ```bash
-cd backend && npm test        # 128 tests
+cd backend && npm test        # 156 tests
 cd frontend && npm test       # 1 placeholder test
 ```
 
 These need no database, no Redis and no API key. They cover the pure decision logic:
 access control, guest identity, dedup scoping, AI retry classification, benefits currency
 parsing and categorisation, filename and prompt sanitisation, salary percentile ranking,
-the eval scorer, and the frontend↔backend contract.
+the red-flag rule engine, the eval scorer, and the frontend↔backend contract.
+
+The rule engine tests (`redflag.rules.test.ts`) are worth knowing about if you touch
+detection. They run against two corpus letters that share the same clause slots written
+hostile and written favourable, so they catch both directions: a rule that stops firing on a
+genuine non-compete, and a rule that starts firing on one that is explicitly disclaimed.
 
 The contract test checks both **paths** and **response shapes**. The shape half exists
 because three separate breaks had the path right and the shape wrong — a page reading
@@ -185,10 +190,22 @@ npm run eval -- --limit 4     # quick loop
 npm run eval -- --save        # write eval/results/<timestamp>.json
 ```
 
-Current: **96.1% structured** (target 90%), **75.2% nuanced** (target 75%) over 17 cases.
-Always exits 0
-— it's a measurement, not a gate. See [eval/README.md](../backend/eval/README.md), which
-explains why the absolute number shouldn't be quoted: the corpus is synthetic.
+Current: **96.1% structured** (target 90%), **81.5% nuanced** (target 75%) over 17 cases.
+Always exits 0 — it's a measurement, not a gate. See
+[eval/README.md](../backend/eval/README.md), which explains why the absolute number
+shouldn't be quoted: 16 of the 17 letters are synthetic.
+
+Red flags are reported three ways, because task 8 added a deterministic rule engine that
+runs alongside the model:
+
+```
+red flags (F1)       76.1%   (nuanced, MERGED — what the worker stores)
+  ├ model only       72.9%   varies run to run
+  └ rules only       77.4%   deterministic (task 8)
+```
+
+Read that column down, not across runs. The merged figure is what a user gets; the split
+exists so a regression can be attributed to a prompt change or a rule change.
 
 Expect 429s on a free-tier key. The provider falls through to another model automatically
 and logs when it does.
@@ -267,7 +284,8 @@ Things you may notice that are understood and tracked:
 | Salary chart is a flat line locally | The test scripts insert identical values, so all four percentiles match |
 | A **scanned** PDF fails | Cloud Vision's `textDetection` doesn't accept PDF input. Text PDFs and images work |
 | Take-home shows one monthly figure, not a breakdown | The gross/tax/PF breakdown arrives with Phase 2's tax calculator |
-| Red flags occasionally missed or over-reported | Known: ~71-77% F1, and it varies run to run. Phase 2's rules engine addresses it |
+| Red flags occasionally missed or over-reported | Improved but not solved: ~76% F1 merged, up from ~73% model-only. Task 8's rule engine makes the well-known clauses deterministic; what remains is inference the model still has to do, and it varies run to run |
+| A hostile letter now scores lower than it used to | Expected. The rule engine catches clauses the model was missing, and each one costs 5-15 points. The `test-m2.mjs` fixture went to "poor", which is right for a letter with no-notice probation and a 12-month non-compete |
 | Benefits drawer lists every benefit with no rupee value | Correct when the letter doesn't quantify them. "Medical Insurance" with no sum assured and "Paid Leave" with no day count are not valuable — the calculator reads amounts, it doesn't invent them. Enter your own figure and recalculate |
 | Provident Fund shows no value even though PF is statutory | PF is 12% of **basic**, and a letter quoting a single CTC figure never states basic. Guessing a basic-to-CTC ratio would push a fabricated number into total comp. Phase 2's salary breakdown gives it a real value |
 | Base salary equals total CTC on a CTC-only letter | Known and measured — `base := CTC` fires on 5 of 17 eval cases. The response schema marks `baseSalary` required, so the model must supply a figure the letter doesn't contain. Fix is queued at the front of task 9 |
@@ -305,9 +323,9 @@ npm run db:migrate && npm run db:seed
 
 Being precise about this, because "the tests pass" is not the same as "the app works".
 
-**Verified by execution:** both packages typecheck and lint clean; 128 backend unit tests;
+**Verified by execution:** both packages typecheck and lint clean; 156 backend unit tests;
 the frontend builds (177.6 KB gzip initial); all three integration suites pass against a
-live stack with a real Gemini key; extraction accuracy measured at 96.1%/75.2%; the browser
+live stack with a real Gemini key; extraction accuracy measured at 96.1%/81.5%; the browser
 integration seam (CORS preflight, credentialed cookies, `HttpOnly`/`SameSite`/`Path`,
 rejection of unlisted origins); the frontend dev server serves and SPA deep routes resolve.
 

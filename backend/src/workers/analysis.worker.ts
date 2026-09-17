@@ -11,6 +11,7 @@ import { config } from '@/config/index.js';
 import { DEFAULT_GEMINI_MODEL } from '@/config/constants.js';
 import { AnalysisResult } from '@/modules/analysis/analysis.types.js';
 import { SalaryService } from '@/modules/salary/salary.service.js';
+import { detectRedFlags, mergeRedFlags } from '@/modules/analysis/redflag.rules.js';
 
 const salaryService = new SalaryService();
 
@@ -155,6 +156,33 @@ export const analysisWorker = new Worker(
 
             const discardedCount = (result.redFlags?.length || 0) - verifiedRedFlags.length;
 
+            // ── Task 8: deterministic red flags ───────────────────────────────
+            //
+            // Runs over the letter text directly. The model's flags moved between runs on
+            // identical input (76.7% then 71.2% F1 on consecutive eval runs); a clause
+            // either restricts the candidate or it does not, so the well-known ones are
+            // now matched in code and cannot be missed.
+            //
+            // Union, deduped by type, rules winning a tie — the model still catches
+            // phrasings the rules do not know, notably `other` and flags that require
+            // inference rather than a quote. Measured separately, rules score 75.6% F1 with
+            // essentially no false positives and the model 71-77% with several, so neither
+            // is redundant.
+            //
+            // Applied AFTER the hallucination guard on purpose: rule quotes are verbatim
+            // slices of `text` by construction, so putting them through a guard that looks
+            // for them in `text` would only risk its 50-character prefix heuristic
+            // misfiring on a quote that is correct by definition.
+            const ruleFlags = detectRedFlags(text);
+            const mergedRedFlags = mergeRedFlags(ruleFlags, verifiedRedFlags);
+
+            if (ruleFlags.length > 0) {
+                console.log(
+                    `[Analysis] Rule engine matched ${ruleFlags.length} flag(s): `
+                    + ruleFlags.map((f) => f.ruleId).join(', '),
+                );
+            }
+
             // ── Task 2: replace the AI's guessed benchmark with real submissions ──
             //
             // Prefer what the letter says over what the user typed on the upload form:
@@ -210,7 +238,7 @@ export const analysisWorker = new Worker(
             // percentile the AI had invented, which is worse than not scoring salary at
             // all — it looks like evidence.
             let score = 70; // Baseline
-            verifiedRedFlags.forEach(f => {
+            mergedRedFlags.forEach(f => {
                 if (f.severity === 'high') score -= 15;
                 if (f.severity === 'medium') score -= 5;
             });
@@ -246,7 +274,7 @@ export const analysisWorker = new Worker(
                     scoreLabel: label,
                     scoringMethod,
                     extractedData: result.extractedData,
-                    redFlags: verifiedRedFlags,
+                    redFlags: mergedRedFlags,
                     salaryComparison: result.salaryComparison || {},
                     negotiationSuggestions: result.negotiationSuggestions || [],
                     benefits: result.benefits || [],
