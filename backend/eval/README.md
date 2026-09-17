@@ -16,10 +16,16 @@ harness says so in its header when that happens.
 
 ## Read this before quoting a number
 
-**The corpus is synthetic.** The letters in `corpus.ts` were written for this purpose,
-not collected from real offers. They were also written by the same kind of model whose
-extraction they measure, so they risk being unrepresentatively easy: predictable
+**The corpus is 16/17 synthetic.** The letters in `corpus.ts` were written for this
+purpose, not collected from real offers. They were also written by the same kind of model
+whose extraction they measure, so they risk being unrepresentatively easy: predictable
 phrasing, conveniently placed figures, no real OCR damage.
+
+`17-deliberately-clean` is the one exception — a real letter pasted during manual testing,
+and the case that surfaced both compensation diagnostics. It is the clause-by-clause
+inverse of `05-red-flag-heavy`: same clause slots, each written to be favourable, with the
+non-compete and the clawback explicitly disclaimed. A keyword-driven detector flags all
+three; the correct answer is zero.
 
 So:
 
@@ -46,6 +52,18 @@ the schema, and this is the number that should move.
 | Structured | `companyName`, `role`, `totalCTC` | > 90% |
 | Context | `location`, `currency`, `noticePeriod`, `probationPeriod` | reported, not gated |
 | Nuanced | benefits, red-flag types (F1) | > 75% |
+| Diagnostics | `baseSalary`, stated cash components, `base := CTC` count | reported separately |
+
+The diagnostics group is printed on its own and **not folded into the structured or
+nuanced headline**. Both were added after the headline numbers had already been recorded,
+and folding them in would have made every saved result in `results/` incomparable. New
+signal gets a new line rather than silently moving the baseline.
+
+`base := CTC` counts cases where extraction asserted base pay equal to total CTC on a
+letter that never states a basic figure. It is separated from "base is simply wrong"
+because the fixes differ: a wrong number is a parsing miss, whereas `base === CTC` is the
+response schema marking `baseSalary` **required**, so the model supplies the only figure
+it has. The error then propagates into the PTO daily rate and every take-home estimate.
 
 Matching is tolerant on purpose. "Zenthara Technologies Private Limited" and "Zenthara
 Technologies Pvt Ltd" are the same answer; numbers pass within 2%, which is loose enough
@@ -58,6 +76,19 @@ for a letter that names none is exactly the behaviour this is meant to catch.
 
 The scorer is pure and unit-tested in `score.test.ts` — a scorer with a bug in it
 produces confident numbers that are wrong in a direction nobody notices.
+
+That happened, and is worth recording. Notice and probation clauses were compared with
+`textMatches`, so a letter writing "three months" against ground truth of "3 months"
+scored as a miss. `probationPeriod` read 64.7% and `noticePeriod` 76.5% when the model had
+transcribed the clause correctly. `durationMatches` maps number words to digits and
+collapses the "6 (six) months" duplication; those fields then read 94.1% and 88.2% on the
+same model and corpus. **That jump is a scorer correction, not an extraction improvement** —
+do not read it as progress. Units are deliberately still distinct: "1 month" and "30 days"
+are different answers, because whether a month is 30 days is not the scorer's call.
+
+Run-to-run variance is real. Two consecutive runs of the same 17 cases on the same model
+gave red-flag F1 of 76.7% and 71.2%, and `base := CTC` counts of 4 and 5. Treat a single
+run as one sample, and prefer several before concluding a prompt change helped.
 
 ## The response-shape section matters most right now
 
@@ -78,6 +109,8 @@ gate only once the targets are actually met.
 
 ## Cost
 
-One Gemini call per case, so a full run is ~16 calls. Expect 429s on a free-tier key;
-the provider's fallback chain handles them by moving to another model, which you will see
-in the log.
+One Gemini call per case, so a full run is 17 calls. Expect 429s on a free-tier key; the
+provider's fallback chain handles them by moving to another model, which you will see in
+the log. Check that log before comparing runs — a run that fell through to
+`gemini-flash-lite-latest` is not measuring the same thing as one served by
+`gemini-2.5-flash`.

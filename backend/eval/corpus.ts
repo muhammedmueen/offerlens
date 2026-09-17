@@ -30,7 +30,28 @@ export interface Expected {
     location: string | null;
     /** Annual total, in the letter's own currency. */
     totalCTC: number | null;
+    /**
+     * Annual base/fixed pay, or `null` when the letter states only a total.
+     *
+     * Added after a live 24 LPA offer came back with baseSalary === totalCTC on a letter
+     * that never stated basic. In India basic is typically 40-50% of CTC, so asserting
+     * equality is not a rounding difference — it propagates into the PTO daily rate and
+     * every take-home estimate. `null` here means "the letter does not say, and inventing
+     * a number is the failure".
+     */
+    baseSalary: number | null;
     currency: string | null;
+    /**
+     * Named cash components the letter states beyond base and total: allowances, joining
+     * bonuses, incentives, LTI.
+     *
+     * Added because a ₹1,00,000 joining bonus stated in plain prose was dropped entirely
+     * (`otherComponents: []`). Scored against the union of `otherComponents[].name` and
+     * `variablePay.type`, so putting a bonus in one field rather than the other is not
+     * counted as a miss — this measures whether the component survived extraction, not
+     * where the model filed it.
+     */
+    statedComponents: string[];
     /** Canonical benefit keywords. Scored as set overlap, not exact strings. */
     benefits: string[];
     /** Red flag types from the RedFlag union in analysis.types.ts. */
@@ -80,7 +101,9 @@ Head of Talent, Zenthara Technologies Private Limited
             role: 'Senior Software Engineer',
             location: 'Bengaluru',
             totalCTC: 2400000,
+            baseSalary: 1200000,   // stated explicitly
             currency: 'INR',
+            statedComponents: ['house rent allowance', 'performance bonus'],
             benefits: ['health insurance', 'paid leave', 'provident fund', 'learning allowance'],
             redFlagTypes: [],
             noticePeriod: '60 days',
@@ -114,7 +137,9 @@ The notice period during the service commitment is 90 days.
             role: 'Systems Engineer Trainee',
             location: 'Chennai',
             totalCTC: 360000,
+            baseSalary: null,      // "all inclusive" — no basic stated
             currency: 'INR',
+            statedComponents: [],
             benefits: ['medical insurance', 'provident fund'],
             redFlagTypes: ['bond', 'clawback'],
             noticePeriod: '90 days',
@@ -144,7 +169,9 @@ Notice period: 30 days either side. No formal probation.
             role: 'Founding Product Engineer',
             location: 'Gurugram',
             totalCTC: 3200000,
+            baseSalary: 3200000,   // "₹32 LPA fixed" IS the base; equality is correct here
             currency: 'INR',
+            statedComponents: [],
             benefits: ['unlimited leave', 'wellness stipend', 'equipment'],
             redFlagTypes: ['vague_compensation', 'missing_benefit'],
             noticePeriod: '30 days',
@@ -176,7 +203,9 @@ terminated by either party at any time, with or without cause or notice.
             role: 'Staff Data Engineer',
             location: 'Austin, Texas',
             totalCTC: 185000,
+            baseSalary: 185000,    // "annual base salary will be $185,000"
             currency: 'USD',
+            statedComponents: ['target bonus'],
             benefits: ['medical insurance', 'dental', 'vision', '401k', 'paid time off'],
             redFlagTypes: ['other'],
             noticePeriod: null,
@@ -218,7 +247,9 @@ Provident fund is deducted as per statute.
             role: 'Lead Backend Engineer',
             location: 'Pune',
             totalCTC: 2800000,
+            baseSalary: null,      // CTC only
             currency: 'INR',
+            statedComponents: ['joining bonus'],
             benefits: ['provident fund'],
             redFlagTypes: ['probation', 'non_compete', 'ip_assignment', 'clawback', 'missing_benefit'],
             noticePeriod: '90 days',
@@ -245,7 +276,9 @@ Human Resources
             role: 'Business Analyst',
             location: null,
             totalCTC: 950000,
+            baseSalary: null,      // "annual compensation" only
             currency: 'INR',
+            statedComponents: [],
             benefits: [],
             redFlagTypes: ['vague_compensation', 'missing_benefit'],
             noticePeriod: null,
@@ -275,7 +308,9 @@ Probat1on : 6 (six) months . N0tice per1od : 3O days .
             role: 'Quality Assurance Engineer',
             location: 'Hyderabad',
             totalCTC: 720000,
+            baseSalary: null,      // CTC only
             currency: 'INR',
+            statedComponents: [],
             benefits: ['medical insurance', 'provident fund', 'earned leave'],
             redFlagTypes: [],
             noticePeriod: '30 days',
@@ -305,7 +340,9 @@ Probation: 90 days. Notice: 1 month.
             role: 'Graphic Designer',
             location: 'Kochi',
             totalCTC: 540000,
+            baseSalary: 540000,    // the monthly figure is the whole pay, annualised
             currency: 'INR',
+            statedComponents: [],
             benefits: ['casual leave', 'provident fund', 'employee state insurance'],
             redFlagTypes: [],
             noticePeriod: '1 month',
@@ -338,7 +375,9 @@ Notice period: six months.
             role: 'Vice President, Engineering',
             location: 'Mumbai',
             totalCTC: 14000000,
+            baseSalary: 9000000,   // "₹90 lakh fixed pay"
             currency: 'INR',
+            statedComponents: ['variable pay', 'long term incentive'],
             benefits: ['health insurance', 'company car', 'club membership', 'annual leave'],
             redFlagTypes: [],
             noticePeriod: '6 months',
@@ -370,7 +409,9 @@ following termination.
             role: 'Technical Writer',
             location: 'Noida',
             totalCTC: 900000,
+            baseSalary: 900000,    // monthly fee annualised; there is no other component
             currency: 'INR',
+            statedComponents: [],
             benefits: [],
             redFlagTypes: ['non_compete', 'missing_benefit', 'vague_compensation'],
             noticePeriod: '15 days',
@@ -402,7 +443,9 @@ Probation: none. Notice period: 60 days.
             role: 'Member of Technical Staff II',
             location: 'Bengaluru',
             totalCTC: 4100000,
+            baseSalary: 4100000,   // "Fixed annual compensation"
             currency: 'INR',
+            statedComponents: [],
             benefits: ['health insurance', 'provident fund', 'annual leave', 'esop', 'learning budget'],
             redFlagTypes: [],
             noticePeriod: '60 days',
@@ -434,7 +477,9 @@ Notice period during internship: 7 days. Post confirmation: 60 days.
             role: 'Machine Learning Intern',
             location: 'Bhubaneswar',
             totalCTC: 1200000,
+            baseSalary: null,      // post-confirmation CTC only; the stipend is not a base
             currency: 'INR',
+            statedComponents: [],
             benefits: ['medical insurance', 'provident fund'],
             redFlagTypes: ['vague_compensation', 'probation'],
             noticePeriod: '60 days',
@@ -470,7 +515,12 @@ Probation: 6 months. Notice: 60 days.
             role: 'Assistant Manager, Risk',
             location: 'Ahmedabad',
             totalCTC: 1400000,
+            baseSalary: 600000,    // "Basic Salary 600000" as its own table row
             currency: 'INR',
+            statedComponents: [
+                'house rent allowance', 'conveyance allowance', 'special allowance',
+                'employer pf contribution', 'gratuity provision',
+            ],
             benefits: ['mediclaim', 'term life insurance', 'earned leave', 'provident fund', 'gratuity'],
             redFlagTypes: [],
             noticePeriod: '60 days',
@@ -502,7 +552,9 @@ assigned to Lumenward B.V. upon creation.
             role: 'Senior Frontend Engineer',
             location: 'Remote',
             totalCTC: 72000,
+            baseSalary: 72000,     // the whole engagement fee
             currency: 'USD',
+            statedComponents: [],
             benefits: [],
             redFlagTypes: ['missing_benefit', 'ip_assignment'],
             noticePeriod: '30 days',
@@ -535,7 +587,9 @@ Probation: three months. Notice: 30 days.
             role: 'Regional Sales Manager',
             location: 'Surat',
             totalCTC: 2000000,
+            baseSalary: 1100000,   // "Fixed annual salary"
             currency: 'INR',
+            statedComponents: ['sales incentive', 'travel reimbursement'],
             benefits: ['mediclaim', 'provident fund', 'privilege leave', 'travel reimbursement'],
             redFlagTypes: ['vague_compensation'],
             noticePeriod: '30 days',
@@ -567,11 +621,99 @@ that no resignation shall be accepted during an ongoing academic term.
             role: 'Senior Secondary Physics Teacher',
             location: 'Dehradun',
             totalCTC: 744000,
+            baseSalary: 744000,    // "Consolidated monthly salary" annualised
             currency: 'INR',
+            statedComponents: [],
             benefits: ['accommodation', 'tuition waiver', 'provident fund', 'leave'],
             redFlagTypes: ['other', 'missing_benefit'],
             noticePeriod: '3 months',
             probationPeriod: null,
+        },
+    },
+
+    {
+        id: '17-deliberately-clean',
+        probes: 'Clause-by-clause NEGATION of case 05 — precision test: nothing here is a flag',
+        /**
+         * The only real letter in the corpus. Pasted by a user during manual testing, and
+         * the one that surfaced both gaps this case now measures.
+         *
+         * It is the adversarial inverse of 05-red-flag-heavy: the same clause slots, each
+         * written to be favourable. Non-compete explicitly disclaimed, IP narrowed with
+         * carve-outs for pre-existing and personal work, joining bonus explicitly NOT
+         * clawed back, 15-day probation notice, 30-day notice after. A recall-hungry
+         * red-flag detector reads "non-compete", "intellectual property" and "clawback" as
+         * keywords and flags all three. The correct answer is zero.
+         *
+         * Live result at time of adding: zero flags (correct), score 75/"good", but the
+         * ₹1,00,000 joining bonus was dropped and baseSalary came back equal to totalCTC.
+         */
+        text: `
+OFFER LETTER
+
+Position: Senior Backend Engineer
+Company: Aurora Technologies Pvt Ltd, Bengaluru
+CTC: ₹24,00,000 per annum
+
+Terms and Conditions:
+
+1. Your employment is subject to a probation period of three months. During probation,
+   either you or the Company may terminate the employment by providing 15 days' written
+   notice. Any termination will be communicated in accordance with applicable law and
+   Company policy.
+
+2. You are free to engage in professional activities after cessation of employment,
+   subject to applicable confidentiality obligations. The Company does not impose any
+   post-employment non-compete restriction.
+
+3. Intellectual property created specifically in the course of your assigned duties using
+   Company resources shall belong to the Company. Your pre-existing intellectual property,
+   independently developed work, personal projects created without Company resources, and
+   general skills and knowledge shall remain yours.
+
+4. The joining bonus of ₹1,00,000 is not subject to a repayment or clawback obligation.
+
+5. Notice period post-confirmation is 30 days.
+
+Provident fund is deducted and contributed as per applicable statute.
+
+Benefits:
+- Provident Fund
+- Medical Insurance
+- Paid Annual Leave
+- Paid Sick Leave
+- Performance Bonus
+- Flexible Work Arrangement
+- Learning and Development Allowance
+
+Employee Name: Rohan Mehta
+Date of Joining: 5 October 2026
+Work Location: Bengaluru, Karnataka
+Reporting Manager: Ananya Sharma
+Department: Engineering
+Employment Type: Full-Time
+
+Compensation: ₹24,00,000 per annum, inclusive of applicable components and statutory
+deductions.
+`.trim(),
+        expected: {
+            companyName: 'Aurora Technologies Pvt Ltd',
+            role: 'Senior Backend Engineer',
+            location: 'Bengaluru',
+            totalCTC: 2400000,
+            // "inclusive of applicable components" — the letter never states basic pay.
+            baseSalary: null,
+            currency: 'INR',
+            statedComponents: ['joining bonus'],
+            benefits: [
+                'provident fund', 'medical insurance', 'paid annual leave', 'paid sick leave',
+                'performance bonus', 'flexible work', 'learning and development allowance',
+            ],
+            // Every clause that LOOKS like a flag is explicitly favourable. Any flag here
+            // is a false positive.
+            redFlagTypes: [],
+            noticePeriod: '30 days',
+            probationPeriod: '3 months',
         },
     },
 ];

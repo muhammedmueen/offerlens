@@ -23,6 +23,7 @@ import { DEFAULT_GEMINI_MODEL } from '@/config/constants.js';
 import { CORPUS, type EvalCase } from './corpus.js';
 import {
     companyMatches, textMatches, numberMatches, scoreSet,
+    annualiseBase, assertsBaseEqualsTotal, durationMatches,
     STRUCTURED_FIELDS, CONTEXT_FIELDS, type FieldName,
 } from './score.js';
 import fs from 'node:fs';
@@ -37,6 +38,20 @@ interface CaseResult {
     probes: string;
     error: string | null;
     fields: Partial<Record<FieldName, boolean>>;
+    /**
+     * Reported separately from `fields` on purpose.
+     *
+     * Folding these into the structured/nuanced headline would make the numbers
+     * incomparable with every result already saved under eval/results. They are new
+     * signal, so they get their own line rather than silently moving the baseline.
+     */
+    diagnostics: {
+        baseSalary: boolean;
+        /** Whether base was asserted equal to totalCTC on a letter that states no basic. */
+        baseEqualsCtcUnstated: boolean;
+        componentsF1: number;
+        componentsMissed: string[];
+    };
     benefitsF1: number;
     benefitsMissed: string[];
     benefitsSpurious: string[];
@@ -67,6 +82,10 @@ function pickCases(): EvalCase[] {
 async function evaluateCase(provider: AiProvider, c: EvalCase): Promise<CaseResult> {
     const base: CaseResult = {
         id: c.id, probes: c.probes, error: null, fields: {},
+        diagnostics: {
+            baseSalary: false, baseEqualsCtcUnstated: false,
+            componentsF1: 0, componentsMissed: [],
+        },
         benefitsF1: 0, benefitsMissed: [], benefitsSpurious: [],
         redFlagsF1: 0, redFlagsMissed: [], redFlagsSpurious: [],
         returnedKeys: [],
@@ -92,8 +111,27 @@ async function evaluateCase(provider: AiProvider, c: EvalCase): Promise<CaseResu
     base.fields.location = textMatches(c.expected.location, ex.location);
     base.fields.totalCTC = numberMatches(c.expected.totalCTC, comp.totalCTC);
     base.fields.currency = textMatches(c.expected.currency, comp.currency);
-    base.fields.noticePeriod = textMatches(c.expected.noticePeriod, ex.noticePeriod);
-    base.fields.probationPeriod = textMatches(c.expected.probationPeriod, ex.probationPeriod);
+    // durationMatches, not textMatches: a letter writing "three months" against ground
+    // truth of "3 months" is the same answer, and scoring it as a miss understated both
+    // of these fields.
+    base.fields.noticePeriod = durationMatches(c.expected.noticePeriod, ex.noticePeriod);
+    base.fields.probationPeriod = durationMatches(c.expected.probationPeriod, ex.probationPeriod);
+
+    const annualBase = annualiseBase(comp?.baseSalary);
+    base.diagnostics.baseSalary = numberMatches(c.expected.baseSalary, annualBase);
+    base.diagnostics.baseEqualsCtcUnstated = assertsBaseEqualsTotal(
+        c.expected.baseSalary, c.expected.totalCTC, annualBase,
+    );
+
+    // Union of otherComponents names and variablePay.type: a joining bonus filed under
+    // either one counts. This asks whether the component survived, not where it landed.
+    const componentNames = [
+        ...(Array.isArray(comp?.otherComponents) ? comp.otherComponents.map((x: any) => x?.name) : []),
+        comp?.variablePay?.type,
+    ].filter((v): v is string => typeof v === 'string' && v.length > 0);
+    const components = scoreSet(c.expected.statedComponents, componentNames);
+    base.diagnostics.componentsF1 = components.f1;
+    base.diagnostics.componentsMissed = components.missed;
 
     const benefits = scoreSet(c.expected.benefits, raw?.benefits);
     base.benefitsF1 = benefits.f1;
@@ -163,6 +201,18 @@ async function main() {
     console.log(`  ${'benefits (F1)'.padEnd(18)} ${pct(mean(scored.map((r) => r.benefitsF1))).padStart(7)}   (nuanced)`);
     console.log(`  ${'red flags (F1)'.padEnd(18)} ${pct(mean(scored.map((r) => r.redFlagsF1))).padStart(7)}   (nuanced)`);
 
+    console.log('\n' + '-'.repeat(72));
+    console.log('  COMPENSATION DIAGNOSTICS  (not folded into the targets below)');
+    console.log('-'.repeat(72));
+    const baseRate = mean(scored.map((r) => (r.diagnostics.baseSalary ? 1 : 0)));
+    const invented = scored.filter((r) => r.diagnostics.baseEqualsCtcUnstated);
+    console.log(`  ${'base salary'.padEnd(18)} ${pct(baseRate).padStart(7)}   correct`);
+    console.log(`  ${'components (F1)'.padEnd(18)} ${pct(mean(scored.map((r) => r.diagnostics.componentsF1))).padStart(7)}   stated cash components retained`);
+    console.log(`  ${'base := CTC'.padEnd(18)} ${String(invented.length).padStart(7)}   case(s) asserting base = CTC where no basic is stated`);
+    if (invented.length) {
+        console.log(`      ${invented.map((r) => r.id).join(', ')}`);
+    }
+
     const structuredScore = mean(STRUCTURED_FIELDS.map(fieldRate));
     const nuancedScore = mean([
         mean(scored.map((r) => r.benefitsF1)),
@@ -196,7 +246,7 @@ async function main() {
     }
 
     const worst = scored
-        .filter((r) => r.redFlagsMissed.length || r.benefitsMissed.length)
+        .filter((r) => r.redFlagsMissed.length || r.benefitsMissed.length || r.diagnostics.componentsMissed.length)
         .slice(0, 6);
     if (worst.length) {
         console.log('\n' + '-'.repeat(72));
@@ -207,6 +257,9 @@ async function main() {
             if (r.redFlagsMissed.length) console.log(`      flags missed   : ${r.redFlagsMissed.join(', ')}`);
             if (r.redFlagsSpurious.length) console.log(`      flags invented : ${r.redFlagsSpurious.join(', ')}`);
             if (r.benefitsMissed.length) console.log(`      benefits missed: ${r.benefitsMissed.slice(0, 6).join(', ')}`);
+            if (r.diagnostics.componentsMissed.length) {
+                console.log(`      components missed: ${r.diagnostics.componentsMissed.join(', ')}`);
+            }
         }
     }
 

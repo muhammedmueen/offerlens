@@ -1011,6 +1011,55 @@ So **option B (splitting extraction from analysis) is not the next move.** The e
 > absolute 95.8% is still flattered by letters written to be readable. Real anonymised
 > offers would put a truer number on it.
 
+#### Corpus growth + a scorer correction (post-Phase 1)
+
+A real letter pasted during manual testing was added as `17-deliberately-clean`, the
+clause-by-clause inverse of `05-red-flag-heavy`: same clause slots, each written to be
+favourable, with the non-compete and the clawback **explicitly disclaimed**. It is a
+precision test — a keyword-driven detector flags non-compete, IP assignment and clawback;
+the correct answer is zero. Extraction scored zero false-positive flags on it across two
+runs, and benefits F1 1.00.
+
+Two gaps that letter exposed are now measured, reported as **diagnostics printed separately
+from the structured/nuanced headline** so that every result already saved under
+`eval/results/` stays comparable:
+
+| Diagnostic | Reading | What it means |
+|---|---|---|
+| `baseSalary` correct | 64.7% | Annual base pay, `null` when the letter states only a total |
+| stated components (F1) | 78.2% | Named cash components — allowances, joining bonus, LTI — surviving extraction |
+| `base := CTC` | **5 of 17 cases** | Base asserted equal to total on a letter that never states a basic figure |
+
+`base := CTC` is the one that matters, and it is **not** a model failure. The response
+schema marks `baseSalary` **required**, so on a letter quoting one CTC figure the model has
+to supply a number and the only one available is the total. Indian basic is typically 40-50%
+of CTC, so the error is large, and it propagates: it sets the PTO daily rate in
+`benefits.calculator.ts` and inflates the take-home estimate. Fixing it means making
+`baseSalary` nullable through the response schema, the Zod coercion (which currently
+`.catch({ amount: 0 })`), the `Compensation` interface, and the calculator — a typed change
+best done as the opening move of task 9, where the tax calculator needs a trustworthy basic
+anyway.
+
+The other finding was a **bug in the scorer, not the model**. Notice and probation clauses
+were compared with `textMatches`, so a letter writing "three months" against ground truth of
+"3 months" scored as a miss. `durationMatches` now maps number words to digits and collapses
+the "6 (six) months" duplication:
+
+| Field | Before | After |
+|---|---|---|
+| `probationPeriod` | 64.7% | **94.1%** |
+| `noticePeriod` | 76.5% | **88.2%** |
+
+Same model, same corpus. **That jump is a measurement correction and must not be read as
+progress** — precisely the failure `score.ts` warns about in its own header, found because a
+real letter made it visible.
+
+> [!WARNING]
+> Run-to-run variance is material. Two consecutive runs of the same 17 cases on the same
+> model gave red-flag F1 of 76.7% and 71.2%, and `base := CTC` counts of 4 and 5. Both runs
+> fell through to `gemini-flash-lite-latest` on every case because the free-tier quota on
+> both stronger models was exhausted. Treat one run as one sample.
+
 ### Phase 2: Rule Engine + Tax Calculator (2-3 days)
 
 | # | Task | Impact |

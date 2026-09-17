@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     normaliseCompany, textMatches, companyMatches, numberMatches, scoreSet,
+    annualiseBase, assertsBaseEqualsTotal, normaliseDuration, durationMatches,
 } from './score.js';
 
 describe('companyMatches', () => {
@@ -112,5 +113,80 @@ describe('scoreSet', () => {
     it('survives a non-array actual', () => {
         expect(scoreSet(['x'], null).recall).toBe(0);
         expect(scoreSet(['x'], { a: 1 }).recall).toBe(0);
+    });
+});
+
+describe('annualiseBase', () => {
+    it('annualises a monthly base', () => {
+        expect(annualiseBase({ amount: 45_000, period: 'monthly' })).toBe(540_000);
+    });
+
+    it('leaves an annual base alone', () => {
+        expect(annualiseBase({ amount: 1_200_000, period: 'annual' })).toBe(1_200_000);
+    });
+
+    it('treats zero as "nothing extracted", not as zero pay', () => {
+        // compensationSchema coerces an absent baseSalary to { amount: 0, period: 'annual' },
+        // so a literal 0 is the schema's placeholder rather than a real figure.
+        expect(annualiseBase({ amount: 0, period: 'annual' })).toBeNull();
+    });
+
+    it('survives missing and malformed input', () => {
+        expect(annualiseBase(null)).toBeNull();
+        expect(annualiseBase(undefined)).toBeNull();
+        expect(annualiseBase({})).toBeNull();
+        expect(annualiseBase({ amount: '1200000' })).toBeNull();
+        expect(annualiseBase({ amount: Number.NaN, period: 'annual' })).toBeNull();
+    });
+});
+
+describe('assertsBaseEqualsTotal', () => {
+    it('flags base invented as equal to CTC when the letter states no basic', () => {
+        // The live case: a ₹24,00,000 CTC letter with no basic came back base = 24,00,000.
+        expect(assertsBaseEqualsTotal(null, 2_400_000, 2_400_000)).toBe(true);
+    });
+
+    it('does not flag a letter where base legitimately equals the total', () => {
+        // "₹32 LPA fixed" is both the base and the whole package.
+        expect(assertsBaseEqualsTotal(3_200_000, 3_200_000, 3_200_000)).toBe(false);
+    });
+
+    it('does not flag extraction that correctly declined to guess', () => {
+        expect(assertsBaseEqualsTotal(null, 2_400_000, null)).toBe(false);
+    });
+
+    it('does not flag a base that differs from the total', () => {
+        expect(assertsBaseEqualsTotal(null, 2_400_000, 1_000_000)).toBe(false);
+    });
+});
+
+describe('durationMatches', () => {
+    it('treats number words and digits as the same answer', () => {
+        // The letters say "three months"; the ground truth says "3 months".
+        expect(durationMatches('3 months', 'three months')).toBe(true);
+        expect(durationMatches('6 months', 'six months')).toBe(true);
+        expect(durationMatches('90 days', 'ninety days')).toBe(true);
+    });
+
+    it('collapses the "6 (six) months" duplication OCR and legal prose both produce', () => {
+        expect(normaliseDuration('6 (six) months')).toBe('6 months');
+        expect(durationMatches('6 months', '6 (six) months')).toBe(true);
+    });
+
+    it('does NOT equate different units', () => {
+        // Whether a month is 30 days is not the scorer's call to make.
+        expect(durationMatches('1 month', '30 days')).toBe(false);
+        expect(durationMatches('60 days', '2 months')).toBe(false);
+    });
+
+    it('still distinguishes different durations', () => {
+        expect(durationMatches('30 days', 'ninety days')).toBe(false);
+        expect(durationMatches('3 months', 'six months')).toBe(false);
+    });
+
+    it('requires blank for an absent clause', () => {
+        expect(durationMatches(null, null)).toBe(true);
+        expect(durationMatches(null, '30 days')).toBe(false);
+        expect(durationMatches('30 days', null)).toBe(false);
     });
 });

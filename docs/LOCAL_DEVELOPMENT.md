@@ -179,7 +179,8 @@ npm run eval -- --limit 4     # quick loop
 npm run eval -- --save        # write eval/results/<timestamp>.json
 ```
 
-Current: **95.8% structured** (target 90%), **79.5% nuanced** (target 75%). Always exits 0
+Current: **96.1% structured** (target 90%), **75.2% nuanced** (target 75%) over 17 cases.
+Always exits 0
 — it's a measurement, not a gate. See [eval/README.md](../backend/eval/README.md), which
 explains why the absolute number shouldn't be quoted: the corpus is synthetic.
 
@@ -296,7 +297,7 @@ Being precise about this, because "the tests pass" is not the same as "the app w
 
 **Verified by execution:** both packages typecheck and lint clean; 110 backend unit tests;
 the frontend builds; all three integration suites pass against a live stack with a real
-Gemini key; extraction accuracy measured at 95.8%/79.5%; the browser integration seam
+Gemini key; extraction accuracy measured at 96.1%/75.2%; the browser integration seam
 (CORS preflight, credentialed cookies, `HttpOnly`/`SameSite`/`Path`, rejection of unlisted
 origins); the frontend dev server serves and SPA deep routes resolve.
 

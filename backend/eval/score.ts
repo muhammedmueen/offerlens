@@ -124,3 +124,76 @@ export type FieldName =
 /** Which fields count toward the >90% "structured" target vs the >75% "nuanced" one. */
 export const STRUCTURED_FIELDS: FieldName[] = ['companyName', 'role', 'totalCTC'];
 export const CONTEXT_FIELDS: FieldName[] = ['location', 'currency', 'noticePeriod', 'probationPeriod'];
+
+/**
+ * Annualise a base-pay figure before comparing it to annual ground truth.
+ *
+ * Returns null for a missing base AND for zero: the Zod schema coerces an absent
+ * baseSalary to `{ amount: 0, period: 'annual' }`, so 0 means "nothing was extracted",
+ * not "this job pays nothing".
+ */
+export function annualiseBase(baseSalary: unknown): number | null {
+    const b = baseSalary as { amount?: unknown; period?: unknown } | null | undefined;
+    const amount = b?.amount;
+    if (typeof amount !== 'number' || !Number.isFinite(amount) || amount === 0) return null;
+    return b?.period === 'monthly' ? amount * 12 : amount;
+}
+
+/**
+ * Did extraction assert base pay equal to the total on a letter that never states basic?
+ *
+ * Separated from "base is wrong" because the two need different fixes. A wrong number is
+ * a parsing miss. base === CTC on a letter with no basic is the response schema demanding
+ * a figure that is not in the text, so the model supplies the only one it has — and the
+ * error then propagates into the PTO daily rate and every take-home estimate.
+ */
+export function assertsBaseEqualsTotal(
+    expectedBase: number | null,
+    expectedTotal: number | null,
+    actualAnnualBase: number | null,
+): boolean {
+    if (expectedBase !== null) return false;      // The letter does state a basic.
+    if (actualAnnualBase === null) return false;  // Nothing claimed — correct.
+    return numberMatches(expectedTotal, actualAnnualBase);
+}
+
+/**
+ * Number words that appear in notice and probation clauses.
+ *
+ * Letters write "three months"; the ground truth writes "3 months". `textMatches` scored
+ * that as a miss, so probationPeriod read 64.7% and noticePeriod 76.5% when the model had
+ * in fact transcribed the clause correctly — the scorer was wrong, not the extraction.
+ * Exactly the failure mode this file's header warns about: confident numbers wrong in a
+ * direction nobody checks.
+ */
+const NUMBER_WORDS: Record<string, string> = {
+    one: '1', two: '2', three: '3', four: '4', five: '5', six: '6',
+    seven: '7', eight: '8', nine: '9', ten: '10', eleven: '11', twelve: '12',
+    fifteen: '15', eighteen: '18', twenty: '20', thirty: '30', sixty: '60', ninety: '90',
+};
+
+export function normaliseDuration(value: unknown): string {
+    const mapped = normaliseText(value)
+        .split(' ')
+        .map((token) => NUMBER_WORDS[token] ?? token)
+        .join(' ');
+
+    // "6 (six) months" loses its parens in normaliseText and becomes "6 six months", then
+    // "6 6 months" once the word maps. Collapse the repeat.
+    return mapped.replace(/\b(\d+)(?:\s+\1\b)+/g, '$1').trim();
+}
+
+/**
+ * Duration match for notice and probation clauses.
+ *
+ * Deliberately does NOT equate units: "1 month" and "30 days" stay different answers.
+ * Whether a month means 30 days is a legal question the letter does not settle, and the
+ * ground truth already records whichever unit the letter used.
+ */
+export function durationMatches(expected: string | null, actual: unknown): boolean {
+    const e = normaliseDuration(expected);
+    const a = normaliseDuration(actual);
+    if (e === '') return a === '';
+    if (a === '') return false;
+    return e === a || a.includes(e) || e.includes(a);
+}
