@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
     normaliseCompany, textMatches, companyMatches, numberMatches, scoreSet,
     annualiseBase, assertsBaseEqualsTotal, normaliseDuration, durationMatches,
+    commonCaseIds,
 } from './score.js';
 
 describe('companyMatches', () => {
@@ -188,5 +189,43 @@ describe('durationMatches', () => {
         expect(durationMatches(null, null)).toBe(true);
         expect(durationMatches(null, '30 days')).toBe(false);
         expect(durationMatches('30 days', null)).toBe(false);
+    });
+});
+
+describe('commonCaseIds', () => {
+    interface Row { id: string; error: string | null }
+    const ok = (id: string): Row => ({ id, error: null });
+    const bad = (id: string): Row => ({ id, error: 'All AI models are currently busy.' });
+
+    it('keeps only cases that succeeded in every pass', () => {
+        // The real failure this exists for: a free-tier quota drains mid-run, so later
+        // passes complete fewer cases. Averaging each pass over its own survivors made
+        // pass 3's four easy cases read as a 92.6% high-water mark.
+        const ids = commonCaseIds([
+            [ok('a'), ok('b'), ok('c')],
+            [ok('a'), bad('b'), ok('c')],
+            [ok('a'), bad('b'), bad('c')],
+        ]);
+        expect([...ids]).toEqual(['a']);
+    });
+
+    it('returns everything when no pass errored', () => {
+        const ids = commonCaseIds([[ok('a'), ok('b')], [ok('a'), ok('b')]]);
+        expect([...ids].sort()).toEqual(['a', 'b']);
+    });
+
+    it('returns empty when a whole pass failed', () => {
+        expect(commonCaseIds([[ok('a')], [bad('a')]]).size).toBe(0);
+    });
+
+    it('handles a single pass and no passes', () => {
+        expect([...commonCaseIds([[ok('a'), bad('b')]])]).toEqual(['a']);
+        expect(commonCaseIds([]).size).toBe(0);
+    });
+
+    it('does not credit a case missing from a later pass entirely', () => {
+        // A pass cut short does not include the case at all, rather than including it with
+        // an error. Absence must exclude it just the same.
+        expect([...commonCaseIds([[ok('a'), ok('b')], [ok('a')]])]).toEqual(['a']);
     });
 });

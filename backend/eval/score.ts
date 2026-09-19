@@ -197,3 +197,34 @@ export function durationMatches(expected: string | null, actual: unknown): boole
     if (a === '') return false;
     return e === a || a.includes(e) || e.includes(a);
 }
+
+/**
+ * Ids present and successful in EVERY pass of a multi-pass run.
+ *
+ * Averaging each pass over whatever it happened to complete is invalid, and it bit
+ * immediately. On a free-tier key the quota drains as the run proceeds: a real 3-pass run
+ * scored 17 cases, then 13, then 4. Pass 3's "92.6% nuanced" was four easy cases, and it
+ * widened the reported range in the FLATTERING direction — the kind of measurement bug
+ * that reads as good news and therefore survives review.
+ *
+ * Restricting every pass to the same denominator is what makes a cross-pass comparison
+ * mean anything.
+ *
+ * What exposed it: the harness self-checks that rules-only F1 is identical across passes,
+ * because the rule engine is pure and cannot legitimately vary. It varied. The rules were
+ * fine; the aggregation was averaging different subsets.
+ */
+export function commonCaseIds<T extends { id: string; error: string | null }>(
+    passes: T[][],
+): Set<string> {
+    if (passes.length === 0) return new Set();
+
+    const ids = new Set(passes[0].filter((r) => !r.error).map((r) => r.id));
+    for (const pass of passes.slice(1)) {
+        const ok = new Set(pass.filter((r) => !r.error).map((r) => r.id));
+        for (const id of [...ids]) {
+            if (!ok.has(id)) ids.delete(id);
+        }
+    }
+    return ids;
+}

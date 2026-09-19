@@ -1111,6 +1111,52 @@ real letter made it visible.
 > model gave red-flag F1 of 76.7% and 71.2%, and `base := CTC` counts of 4 and 5. Both runs
 > fell through to `gemini-flash-lite-latest` on every case because the free-tier quota on
 > both stronger models was exhausted. Treat one run as one sample.
+>
+> **Superseded by the multi-pass harness below** — `npm run eval -- --runs 3` now puts a
+> number on this. The real noise floor is 2.4%, so those two readings were largely the same
+> number seen twice.
+
+#### Measurement: multi-pass averaging
+
+`--runs N` sweeps the corpus N times and reports every figure as a mean with its observed
+range, ending with the line that actually governs decisions:
+
+```
+Noise floor over 3 passes: 2.4%.
+Treat a change below that as unmeasured, not as an improvement.
+```
+
+Over 17 cases × 3 passes (51 calls, all completed):
+
+| | mean | range |
+|---|---|---|
+| structured | 96.1% | 96.1 – 96.1 |
+| nuanced | 82.3% | 80.8 – 83.2 |
+| red flags, merged | 80.8% | 77.3 – 83.1 |
+| red flags, model only | 78.0% | 76.1 – 79.0 |
+| red flags, rules only | 77.4% | **77.4 – 77.4** |
+
+Two things worth reading off that table. Rules-only spread is exactly zero, as a pure
+function must be — the harness asserts it and warns if it ever widens. And the task 8 delta
+of +2.8 to +3.9 points now has a floor to be judged against: it clears 2.4%, so it was a
+real gain rather than a lucky pass. Before this, that claim rested on two single samples.
+
+##### It immediately caught a bug in its own aggregation
+
+The first version averaged each pass over whatever that pass completed. On a free-tier key
+the quota drains as the run proceeds, and a real 3-pass run completed 17 cases, then 13, then
+**4**. Pass 3's four easy cases scored 92.6% nuanced, which widened the reported range in the
+flattering direction and put the "noise floor" at 21.6% — a measurement bug that reads as
+good news, and therefore the kind that survives review.
+
+Scoring is now restricted to cases that succeeded in **every** pass, so all passes share a
+denominator. Below 80% coverage the report states that the figures describe a subset and must
+not be compared against a previous result, and `--save` records `scoredCases` and `comparable`
+so a thin run cannot be mistaken for a full one later.
+
+The rules-only self-check is what exposed it. A pure function cannot score differently
+between passes; it appeared to, so the aggregation was wrong rather than the rules. Cheapest
+guard in the harness, and it earned its keep on the first real run.
 
 ### Phase 2: Rule Engine + Tax Calculator (2-3 days)
 

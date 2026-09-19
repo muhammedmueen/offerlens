@@ -125,7 +125,7 @@ curl http://localhost:8000/api/v1/health
 ### Unit tests — no services required
 
 ```bash
-cd backend && npm test        # 156 tests
+cd backend && npm test        # 161 tests
 cd frontend && npm test       # 1 placeholder test
 ```
 
@@ -185,27 +185,40 @@ red suite gets ignored, and then a real regression hides in it. There are curren
 
 ```bash
 cd backend
-npm run eval                  # all 17 cases
+npm run eval                  # all 17 cases, one pass
+npm run eval -- --runs 3      # three passes, averaged — use this for any number you quote
 npm run eval -- --limit 4     # quick loop
 npm run eval -- --save        # write eval/results/<timestamp>.json
 ```
 
-Current: **96.1% structured** (target 90%), **81.5% nuanced** (target 75%) over 17 cases.
-Always exits 0 — it's a measurement, not a gate. See
-[eval/README.md](../backend/eval/README.md), which explains why the absolute number
-shouldn't be quoted: 16 of the 17 letters are synthetic.
+Current, over 17 cases × 3 passes: **96.1% structured** (target 90%), **82.3% nuanced**
+(target 75%). Always exits 0 — it's a measurement, not a gate.
+
+**The most useful line it prints is the last one:**
+
+```
+Noise floor over 3 passes: 2.4%.
+Treat a change below that as unmeasured, not as an improvement.
+```
+
+A single pass can't tell a small gain from the model having a different day, so `--runs 1`
+is for the iteration loop only. The header says so when you use it.
 
 Red flags are reported three ways, because task 8 added a deterministic rule engine that
 runs alongside the model:
 
 ```
-red flags (F1)       76.1%   (nuanced, MERGED — what the worker stores)
-  ├ model only       72.9%   varies run to run
-  └ rules only       77.4%   deterministic (task 8)
+red flags (F1)       80.8%  [77.3% – 83.1%]   (MERGED — what the worker stores)
+  ├ model only       78.0%  [76.1% – 79.0%]   varies run to run
+  └ rules only       77.4%  [77.4% – 77.4%]   deterministic (task 8)
 ```
 
-Read that column down, not across runs. The merged figure is what a user gets; the split
-exists so a regression can be attributed to a prompt change or a rule change.
+Rules-only having zero spread is a deliberate self-check: the engine is pure, so if that
+range ever widens, the harness or a rule is broken, not the model. It printed a warning and
+caught a real aggregation bug once already.
+
+See [eval/README.md](../backend/eval/README.md) for why the absolute number shouldn't be
+quoted: 16 of the 17 letters are synthetic.
 
 Expect 429s on a free-tier key. The provider falls through to another model automatically
 and logs when it does.
@@ -323,9 +336,10 @@ npm run db:migrate && npm run db:seed
 
 Being precise about this, because "the tests pass" is not the same as "the app works".
 
-**Verified by execution:** both packages typecheck and lint clean; 156 backend unit tests;
+**Verified by execution:** both packages typecheck and lint clean; 161 backend unit tests;
 the frontend builds (177.6 KB gzip initial); all three integration suites pass against a
-live stack with a real Gemini key; extraction accuracy measured at 96.1%/81.5%; the browser
+live stack with a real Gemini key; extraction accuracy measured at 96.1%/82.3% over three
+passes with a 2.4% noise floor; the browser
 integration seam (CORS preflight, credentialed cookies, `HttpOnly`/`SameSite`/`Path`,
 rejection of unlisted origins); the frontend dev server serves and SPA deep routes resolve.
 

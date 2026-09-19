@@ -4,11 +4,46 @@ Phase 0 of [the pipeline plan](../../docs/PLAN-analysis-pipeline.md). Exists so 
 Phase 1's changes to the prompt can be judged by a number rather than by impression.
 
 ```bash
-npm run eval                      # whole corpus
+npm run eval                      # whole corpus, ONE pass
+npm run eval -- --runs 3          # three passes, averaged, with the spread reported
 npm run eval -- --limit 4         # quick loop while iterating on a prompt
 npm run eval -- --case 09-crore   # one case, by id fragment
 npm run eval -- --save            # also write eval/results/<timestamp>.json
 ```
+
+## Use `--runs 3` for any number you intend to quote
+
+The model is not deterministic. A single pass cannot distinguish a small improvement from
+the model having a different day, and noise in the favourable direction reads as progress.
+
+With `--runs N` every figure is reported as a mean with its observed range, and the run ends
+with the number that actually matters:
+
+```
+Noise floor over 3 passes: 2.4%.
+Treat a change below that as unmeasured, not as an improvement.
+```
+
+Measured over 17 cases × 3 passes, that floor is **2.4%**. Anything smaller is not a result.
+A single pass defaults to `--runs 1` so the quick iteration loop stays cheap, and the header
+says plainly that one sample is not quotable.
+
+### Passes are scored on the cases they all completed
+
+Only cases that succeeded in **every** pass are scored, so all passes share a denominator.
+This is not pedantry — it was a live bug. On a free-tier key the quota drains as the run
+proceeds: a real 3-pass run completed 17 cases, then 13, then 4. Averaging each pass over its
+own survivors made pass 3's four easy cases read as a 92.6% high-water mark and inflated the
+reported noise floor to 21.6%.
+
+What caught it: the harness asserts that **rules-only F1 is identical across passes**, because
+the rule engine is pure and cannot legitimately vary. It varied, which meant the aggregation
+was wrong rather than the rules. That check still runs and still prints a warning, and it is
+the cheapest guard in the harness.
+
+When coverage drops below 80% the report says the figures describe a subset and must not be
+compared against a previous result. `--save` records `scoredCases` and `comparable` so a
+thin run cannot be mistaken for a full one later.
 
 Requires `GEMINI_API_KEY` in `.env`. Without one it runs `MockAiProvider`, which returns
 fixed data — fine for checking the harness executes, useless as a measurement. The
@@ -107,9 +142,9 @@ same model and corpus. **That jump is a scorer correction, not an extraction imp
 do not read it as progress. Units are deliberately still distinct: "1 month" and "30 days"
 are different answers, because whether a month is 30 days is not the scorer's call.
 
-Run-to-run variance is real. Two consecutive runs of the same 17 cases on the same model
-gave red-flag F1 of 76.7% and 71.2%, and `base := CTC` counts of 4 and 5. Treat a single
-run as one sample, and prefer several before concluding a prompt change helped.
+Run-to-run variance is real, which is what `--runs` exists for. Early single-pass samples of
+the same 17 cases gave red-flag F1 of 76.7% and 71.2%. A proper 3-pass measurement puts the
+overall noise floor at 2.4%, so those two readings were mostly the same number seen twice.
 
 ## The response-shape section matters most right now
 
@@ -130,8 +165,14 @@ gate only once the targets are actually met.
 
 ## Cost
 
-One Gemini call per case, so a full run is 17 calls. Expect 429s on a free-tier key; the
-provider's fallback chain handles them by moving to another model, which you will see in
-the log. Check that log before comparing runs — a run that fell through to
-`gemini-flash-lite-latest` is not measuring the same thing as one served by
-`gemini-2.5-flash`.
+One Gemini call per case per pass, so `--runs 3` over the full corpus is 51 calls. The header
+prints the count before it starts.
+
+Expect 429s on a free-tier key. The provider's fallback chain handles them by moving to
+another model, which you will see in the log — check it before comparing runs, because a run
+that fell through to `gemini-flash-lite-latest` is not measuring the same thing as one served
+by `gemini-2.5-flash`.
+
+A 3-pass run on free tier may exhaust the quota partway and drop cases. The report says so
+rather than quietly scoring the survivors, but the practical answer is to space the passes out
+or use a paid key.
