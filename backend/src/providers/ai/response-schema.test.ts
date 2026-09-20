@@ -58,9 +58,16 @@ describe('toAnthropicSchema', () => {
 
     it('keeps only the originally required fields', () => {
         // Anthropic does not impose strict mode, so the real contract is preserved rather
-        // than widened.
+        // than widened. `baseSalary` is deliberately absent: requiring it forced the model to
+        // invent a basic figure for letters that state only a CTC.
         const comp = converted.properties?.extractedData?.properties?.compensation;
-        expect(comp?.required).toEqual(['currency', 'baseSalary', 'totalCTC']);
+        expect(comp?.required).toEqual(['currency', 'totalCTC']);
+    });
+
+    it('marks baseSalary nullable so the model can decline to answer', () => {
+        const basic = converted.properties?.extractedData?.properties?.compensation
+            ?.properties?.baseSalary;
+        expect(basic?.type).toEqual(['object', 'null']);
     });
 
     it('still closes objects and keeps descriptions', () => {

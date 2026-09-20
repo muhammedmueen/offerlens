@@ -1,4 +1,5 @@
 import type { TokenUsage } from '@/providers/ai/usage.js';
+import type { TakeHomeResult } from '@/modules/takehome/takehome.calculator.js';
 
 export interface AnalysisResult {
     extractedData: {
@@ -19,10 +20,17 @@ export interface AnalysisResult {
     salaryComparison: SalaryComparison;
     negotiationSuggestions: NegotiationSuggestion[];
     benefits: Benefit[];
-    takeHome: {
-        monthlyEstimate: number | null;
-        assumptions: string | null;
-    } | null;
+    /**
+     * REMOVED from the provider contract in Phase 2 task 9.
+     *
+     * The model used to be asked for a monthly take-home figure and answered plausibly —
+     * about 82% of gross, which is roughly right at 24 LPA and wrong at 8 or 80, with nothing
+     * in the output to say which. Tax is arithmetic, so it is now computed by the worker from
+     * published slabs and appears on `AnalysisResponse` instead, alongside `score`.
+     *
+     * Deliberately not just ignored: it is out of the response schema entirely, so we stop
+     * paying output tokens for a number that gets discarded.
+     */
     metadata: {
         analysisVersion: string;
         modelUsed: string;
@@ -41,7 +49,12 @@ export interface AnalysisResult {
 
 export interface Compensation {
     currency: string;
-    baseSalary: { amount: number; period: 'monthly' | 'annual' };
+    /**
+     * `null` when the letter states only a total and never breaks out basic pay — which is
+     * most Indian offer letters. Previously coerced to `{ amount: 0 }`, which was
+     * indistinguishable from a real zero and hid the fact that nothing had been extracted.
+     */
+    baseSalary: { amount: number | null; period: 'monthly' | 'annual' } | null;
     variablePay: { amount: number | null; type: string | null; details: string | null } | null;
     equity: { type: string | null; quantity: number | null; vestingSchedule: string | null; strikePrice: number | null; cliffMonths: number | null } | null;
     totalCTC: number | null;
@@ -96,6 +109,14 @@ export interface Benefit {
 export interface AnalysisResponse extends AnalysisResult {
     /** 0-100 composite. Computed in the analysis worker, not by the AI. */
     score: number;
+    /**
+     * Deterministic take-home, computed from published tax slabs rather than guessed.
+     *
+     * Null when the letter states no usable CTC. Carries a range rather than one number
+     * because PF depends on basic pay and on employer policy, neither of which an offer letter
+     * reliably states — see `takehome.calculator.ts`.
+     */
+    takeHome: TakeHomeResult | null;
     scoreLabel: string;
     /** 'standard' | 'fallback' — 'fallback' means the UI should say "estimated". */
     scoringMethod: string;

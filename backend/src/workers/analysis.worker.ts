@@ -11,6 +11,7 @@ import { AnalysisResult } from '@/modules/analysis/analysis.types.js';
 import { SalaryService } from '@/modules/salary/salary.service.js';
 import { detectRedFlags, mergeRedFlags } from '@/modules/analysis/redflag.rules.js';
 import { formatUsage } from '@/providers/ai/usage.js';
+import { calculateTakeHome, annualBasicFrom } from '@/modules/takehome/takehome.calculator.js';
 
 const salaryService = new SalaryService();
 
@@ -125,7 +126,7 @@ function normalizeAiResult(raw: any): AnalysisResult {
         },
         negotiationSuggestions,
         benefits,
-        takeHome: raw.takeHome || null,
+
         metadata: raw.metadata || {
             analysisVersion: '1.0',
             modelUsed: 'unknown',
@@ -256,6 +257,29 @@ export const analysisWorker = new Worker(
                 }
             }
 
+            // ── Task 9: deterministic take-home ───────────────────────────────
+            //
+            // Replaces a figure the model used to guess. It answered plausibly — roughly 82% of
+            // gross — which is about right at 24 LPA and wrong at 8 or 80, with nothing in the
+            // output to say which. Tax is arithmetic, so it is arithmetic now.
+            //
+            // `annualBasicFrom` returns null when the letter never stated basic, which is most
+            // of them. The calculator then excludes PF and says so in its assumptions rather
+            // than inventing a basic-to-CTC ratio.
+            const takeHome = calculateTakeHome({
+                totalCtc: result.extractedData?.compensation?.totalCTC ?? null,
+                annualBasic: annualBasicFrom(result.extractedData?.compensation?.baseSalary),
+            });
+
+            if (takeHome) {
+                console.log(
+                    `[Analysis] Take-home: ₹${takeHome.netMonthly.high.toLocaleString('en-IN')}/mo`
+                    + (takeHome.isExact ? '' : ` to ₹${takeHome.netMonthly.low.toLocaleString('en-IN')}/mo`)
+                    + `  (tax ₹${takeHome.tax.totalTax.toLocaleString('en-IN')}, `
+                    + `effective ${(takeHome.tax.effectiveRate * 100).toFixed(1)}%)`,
+                );
+            }
+
             // ── Score ─────────────────────────────────────────────────────────
             //
             // Still the interim `70 ± adjustments` formula. The weighted five-component
@@ -307,7 +331,7 @@ export const analysisWorker = new Worker(
                     salaryComparison: result.salaryComparison || {},
                     negotiationSuggestions: result.negotiationSuggestions || [],
                     benefits: result.benefits || [],
-                    takeHome: result.takeHome || {},
+                    takeHome,
                     aiMetadata: result.metadata,
                     lowConfidence: false, // Calculate from AI metadata if possible
                     redFlagsDiscarded: discardedCount,

@@ -15,8 +15,12 @@ export function calculateBenefitValues(
     compensation: Compensation | null,
     overrides?: Record<string, number>
 ): BenefitBreakdown[] {
-    const dailyRate = compensation?.baseSalary
-        ? compensation.baseSalary.amount / (compensation.baseSalary.period === 'monthly' ? 22 : WORKING_DAYS_PER_YEAR)
+    // `baseSalary` and its `amount` are both nullable now: most letters quote only a CTC and
+    // never state basic. A zero daily rate is the signal the PTO branch already keys off to
+    // mark leave unquantifiable rather than valuing it wrongly.
+    const basic = compensation?.baseSalary;
+    const dailyRate = basic?.amount
+        ? basic.amount / (basic.period === 'monthly' ? 22 : WORKING_DAYS_PER_YEAR)
         : 0;
 
     return benefits.map((benefit): BenefitBreakdown => {

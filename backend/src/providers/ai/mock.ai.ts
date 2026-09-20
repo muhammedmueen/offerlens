@@ -37,10 +37,7 @@ export class MockAiProvider implements AiProvider {
             },
             negotiationSuggestions: [],
             benefits: [],
-            takeHome: {
-                monthlyEstimate: 85000,
-                assumptions: 'Standard tax deductions',
-            },
+            // No takeHome: it is computed by the worker, not returned by a provider.
             metadata: {
                 analysisVersion: '1.0',
                 modelUsed: model || 'mock-v1',

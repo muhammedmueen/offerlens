@@ -199,21 +199,78 @@ const ResultsPage = () => {
           </section>
         )}
 
-        {/* Take-Home Estimate
-            The API returns { monthlyEstimate, assumptions }. The previous four-box
-            gross/tax/PF/net grid read fields that do not exist — that breakdown arrives
-            with the deterministic tax calculator in Phase 2. */}
-        {typeof a.takeHome?.monthlyEstimate === "number" && (
+        {/* Take-Home.
+            Computed from published FY 2026-27 slabs by the backend, not guessed by the model.
+            It reports a RANGE rather than one number when PF is uncertain, and lists what it
+            assumed — both are shown, because a single figure here would be false precision. */}
+        {a.takeHome && (
           <section className="rounded-2xl p-6 skeu-card">
-            <h2 className="font-semibold mb-4 text-foreground">Estimated Take-Home</h2>
+            <div className="mb-4 flex items-baseline justify-between gap-2">
+              <h2 className="font-semibold text-foreground">Estimated Take-Home</h2>
+              <span className="text-xs text-muted-foreground">
+                New regime · {a.takeHome.rulesVersion}
+              </span>
+            </div>
+
             <div className="rounded-xl p-4 text-center skeu-inset">
               <p className="text-xs text-muted-foreground">Per month</p>
               <p className="text-2xl font-bold text-foreground">
-                ₹{a.takeHome.monthlyEstimate.toLocaleString("en-IN")}
+                {a.takeHome.isExact ? (
+                  <>₹{a.takeHome.netMonthly.high.toLocaleString("en-IN")}</>
+                ) : (
+                  <>
+                    ₹{a.takeHome.netMonthly.low.toLocaleString("en-IN")}
+                    {" – "}
+                    ₹{a.takeHome.netMonthly.high.toLocaleString("en-IN")}
+                  </>
+                )}
               </p>
+              {!a.takeHome.isExact && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  A range, because PF depends on your employer&apos;s policy
+                </p>
+              )}
             </div>
-            {a.takeHome.assumptions && (
-              <p className="mt-3 text-xs text-muted-foreground">{a.takeHome.assumptions}</p>
+
+            <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {[
+                { label: "Gross (annual)", value: a.takeHome.tax.grossAnnual },
+                { label: "Income tax", value: a.takeHome.tax.totalTax },
+                {
+                  label: "Employee PF",
+                  value: a.takeHome.employeePf.statutoryMinimum,
+                  absent: "Not stated",
+                },
+                {
+                  label: "Effective tax rate",
+                  text: `${(a.takeHome.tax.effectiveRate * 100).toFixed(1)}%`,
+                },
+              ].map((row) => (
+                <div key={row.label} className="rounded-xl p-3 text-center skeu-inset">
+                  <dt className="text-xs text-muted-foreground">{row.label}</dt>
+                  <dd className="text-sm font-semibold text-foreground">
+                    {row.text ??
+                      (typeof row.value === "number"
+                        ? `₹${row.value.toLocaleString("en-IN")}`
+                        : (row.absent ?? "—"))}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+
+            {a.takeHome.assumptions?.length > 0 && (
+              <details className="mt-4">
+                <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+                  What this assumes ({a.takeHome.assumptions.length})
+                </summary>
+                <ul className="mt-2 space-y-1.5">
+                  {a.takeHome.assumptions.map((note: string, i: number) => (
+                    <li key={i} className="text-xs text-muted-foreground">
+                      • {note}
+                    </li>
+                  ))}
+                </ul>
+              </details>
             )}
           </section>
         )}

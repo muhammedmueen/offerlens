@@ -41,7 +41,8 @@ export class AnalysisService {
             salaryComparison: analysis.salaryComparison as AnalysisResult['salaryComparison'],
             negotiationSuggestions: analysis.negotiationSuggestions as AnalysisResult['negotiationSuggestions'],
             benefits: analysis.benefits as AnalysisResult['benefits'],
-            takeHome: analysis.takeHome as AnalysisResult['takeHome'],
+            // Computed by the worker from published tax slabs, not returned by the AI.
+            takeHome: analysis.takeHome as AnalysisResponse['takeHome'],
 
             // Fields are picked explicitly rather than spreading aiMetadata, because
             // aiMetadata now also carries token counts and an estimated USD cost per call.

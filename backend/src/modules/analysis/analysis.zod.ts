@@ -58,10 +58,26 @@ const nullableNumber = z.preprocess((v) => {
 // ── Zod: validate and normalise what came back ─────────────────────────────
 export const compensationSchema = z.object({
     currency: nullableString.transform((v) => v ?? 'INR'),
+    /**
+     * Nullable, and NOT coerced to zero.
+     *
+     * This used to be `.transform(v => v ?? 0).catch({ amount: 0, period: 'annual' })`, so an
+     * absent basic became the number 0 — indistinguishable from a real zero, and impossible
+     * for a caller to detect. Combined with `required: ['baseSalary']` in the response schema,
+     * the model had to supply a figure for letters that state only a CTC, and the only figure
+     * available was the CTC itself. The eval measured that happening on 5 of 17 cases, in
+     * every one of 3 passes.
+     *
+     * Indian basic is typically 40-50% of CTC, so base == CTC is not a rounding difference. It
+     * sets the PTO daily rate in benefits.calculator.ts and it drives PF, which is 12% of
+     * basic — feeding it into a tax calculator would produce confidently wrong take-home.
+     *
+     * `null` now means "the letter does not say", which is a fact the calculator can act on.
+     */
     baseSalary: z.object({
-        amount: nullableNumber.transform((v) => v ?? 0),
+        amount: nullableNumber,
         period: z.enum(PAY_PERIODS).catch('annual'),
-    }).catch({ amount: 0, period: 'annual' as const }),
+    }).nullable().catch(null),
     variablePay: z.object({
         amount: nullableNumber,
         type: nullableString,
@@ -147,10 +163,8 @@ export const analysisResultSchema = z.object({
     salaryComparison: salaryComparisonSchema,
     negotiationSuggestions: z.array(negotiationSuggestionSchema).catch([]),
     benefits: z.array(benefitSchema).catch([]),
-    takeHome: z.object({
-        monthlyEstimate: nullableNumber,
-        assumptions: nullableString,
-    }).nullable().catch(null),
+    // `takeHome` is gone: it is computed by the worker from published tax slabs, not asked of
+    // the model. See analysis.types.ts. z.object strips it if a model sends one anyway.
     metadata: z.object({
         analysisVersion: z.string().catch('1.0'),
         modelUsed: z.string().catch('unknown'),
@@ -197,8 +211,19 @@ export const GEMINI_RESPONSE_SCHEMA: Schema = {
                         currency: str('ISO code, e.g. INR, USD. Infer from symbols or wording.'),
                         baseSalary: {
                             type: SchemaType.OBJECT,
+                            // Nullable, and dropped from the parent's `required` list. It used
+                            // to be mandatory, which forced the model to invent a basic figure
+                            // for the many letters that quote only a CTC — and the only number
+                            // available was the CTC, so base came back equal to total on 5 of
+                            // 17 eval cases.
+                            nullable: true,
                             properties: {
-                                amount: num('Fixed base pay, as an absolute number.'),
+                                amount: num(
+                                    'Basic pay ONLY if the letter states it as its own figure. '
+                                    + 'Return null when the letter gives just a total, a CTC, or '
+                                    + '"cost to company" — do NOT reuse the total here, and do not '
+                                    + 'estimate a percentage of it. Basic is a separate line item.',
+                                ),
                                 period: {
                                     type: SchemaType.STRING, format: 'enum',
                                     enum: [...PAY_PERIODS],
@@ -244,7 +269,7 @@ export const GEMINI_RESPONSE_SCHEMA: Schema = {
                             } as Schema,
                         } as Schema,
                     },
-                    required: ['currency', 'baseSalary', 'totalCTC'],
+                    required: ['currency', 'totalCTC'],
                 } as Schema,
                 noticePeriod: str('Notice period as written, e.g. "60 days".'),
                 probationPeriod: str('Probation length as written, e.g. "6 months".'),
@@ -350,13 +375,9 @@ export const GEMINI_RESPONSE_SCHEMA: Schema = {
             } as Schema,
         } as Schema,
 
-        takeHome: {
-            type: SchemaType.OBJECT, nullable: true,
-            properties: {
-                monthlyEstimate: num('Estimated monthly in-hand pay after tax and deductions.'),
-                assumptions: str('The assumptions behind that figure, including tax regime.'),
-            },
-        } as Schema,
+        // takeHome is deliberately absent. It is computed from published tax slabs in
+        // `takehome.calculator.ts`, so asking the model for it would spend output tokens on a
+        // number that is then thrown away — and invite the two to disagree on screen.
 
         metadata: {
             type: SchemaType.OBJECT,

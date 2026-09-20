@@ -42,7 +42,9 @@ describe('extractCount', () => {
 
 const comp = (base: number | null): Compensation => ({
     currency: 'INR',
-    baseSalary: base === null ? (null as never) : { amount: base, period: 'annual' },
+    // `null` needs no cast now that Compensation.baseSalary is genuinely nullable. It used to
+    // be `as never`, which is the shape of a type lying about the data.
+    baseSalary: base === null ? null : { amount: base, period: 'annual' },
     variablePay: null,
     equity: null,
     totalCTC: base,

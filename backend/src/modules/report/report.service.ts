@@ -53,9 +53,12 @@ export class ReportService {
             ['Role', extracted.role || 'Not extracted'],
             ['Location', extracted.location || 'Not extracted'],
             ['Employment Type', extracted.employmentType || 'Not specified'],
-            ['Base Salary', extracted.compensation?.baseSalary
+            // "Not stated in the letter" rather than "Not extracted": basic being absent is
+            // usually the letter's choice, not an extraction failure, and blaming the tool for
+            // it misleads the reader about what is missing.
+            ['Base Salary', extracted.compensation?.baseSalary?.amount
                 ? `${extracted.compensation.currency} ${extracted.compensation.baseSalary.amount.toLocaleString()} (${extracted.compensation.baseSalary.period})`
-                : 'Not extracted'],
+                : 'Not stated in the letter'],
             ['Total CTC', extracted.compensation?.totalCTC
                 ? `${extracted.compensation.currency} ${extracted.compensation.totalCTC.toLocaleString()}`
                 : 'Not extracted'],
