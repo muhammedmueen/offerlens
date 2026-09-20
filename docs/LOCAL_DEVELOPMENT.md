@@ -11,7 +11,7 @@ gotcha, the gotcha is stated rather than left to be discovered.
 |---|---|---|
 | Node | 22+ | `node --version` |
 | Docker Desktop | any recent | Must be **running**, not just installed |
-| A Gemini API key | — | Optional. Without one the app uses a mock AI provider and returns canned analysis |
+| An AI API key | — | Optional. Gemini, OpenAI or Anthropic — see §3.1. Without one the app uses a mock provider and returns canned analysis |
 
 Google Cloud Vision credentials are optional too. Without them the app uses a mock OCR
 provider, which is usually what you want locally.
@@ -46,8 +46,62 @@ design — it validates config at startup rather than failing later:
 node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 ```
 
-Run it twice and paste the results into `JWT_SECRET` and `JWT_REFRESH_SECRET`. Add
-`GEMINI_API_KEY` if you have one.
+Run it twice and paste the results into `JWT_SECRET` and `JWT_REFRESH_SECRET`. Add an AI key
+if you have one — see §3.1.
+
+### 3.1 Choosing an AI provider
+
+Three are supported. Set `AI_PROVIDER` and the matching key:
+
+```bash
+AI_PROVIDER=gemini        # gemini | openai | anthropic | mock
+GEMINI_API_KEY=...
+OPENAI_API_KEY=...
+ANTHROPIC_API_KEY=...
+```
+
+Gemini is the default because it is the one with a usable free tier, which is what the free
+plan is built on. With no key for the selected provider the app falls back to the mock and says
+so in the log — fine for checking the app runs, useless as analysis.
+
+`GEMINI_MODEL` / `OPENAI_MODEL` / `ANTHROPIC_MODEL` pin a specific model. Leave them blank
+unless you have a reason: each provider already picks a sensible model per task, and a model id
+from one provider means nothing to another.
+
+#### Switching provider without restarting
+
+Editing `.env` and restarting both the API and the workers gets old fast. Set:
+
+```bash
+ALLOW_AI_REQUEST_OVERRIDE=true
+```
+
+...and any request can name its own provider, model and key:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/offers/extract \
+  -H 'content-type: application/json' \
+  -H 'X-AI-Provider: openai' \
+  -H 'X-AI-Model: gpt-4.1-mini' \
+  -H 'X-AI-Key: sk-...' \
+  -d '{"text":"OFFER: Senior Engineer, CTC INR 24,00,000"}'
+```
+
+The selection travels with the queued job, so an upload is analysed by the provider the request
+asked for, not by the server default.
+
+> [!WARNING]
+> **Development only.** This is refused in production regardless of the flag — the check on
+> `NODE_ENV` is hardcoded and not configurable. An endpoint that accepts an arbitrary API key
+> and an arbitrary model name lets a caller bill expensive models to your key, or proxy
+> requests on someone else's credentials from your IP. It is also off by default, so a
+> non-production deployment does not get it merely by not being production.
+>
+> Headers are ignored rather than rejected when the gates are shut, so a prober learns nothing.
+> A key supplied this way is scrubbed from the job payload once the job settles, because BullMQ
+> keeps completed job data for an hour and failed jobs for a day.
+
+---
 
 Leave `PORT=8000` and `CORS_ORIGIN=http://localhost:8080` alone unless you know why you're
 changing them — they must match the frontend, and a mismatch produces a browser CORS
@@ -125,7 +179,7 @@ curl http://localhost:8000/api/v1/health
 ### Unit tests — no services required
 
 ```bash
-cd backend && npm test        # 161 tests
+cd backend && npm test        # 197 tests
 cd frontend && npm test       # 1 placeholder test
 ```
 
@@ -181,15 +235,21 @@ red suite gets ignored, and then a real regression hides in it. There are curren
 | `test-m2.mjs` | Guest upload → analysis completes → signup migrates it; negotiation script, benefits, career path, corrections, PDF export, offer comparison, dashboard, account deletion |
 | `test-m3.mjs` | Forum posting and commenting, anonymous posting refused, salary submit + validation + rate limit, stats thresholds, career path |
 
-### Extraction accuracy eval — needs a Gemini key
+### Extraction accuracy eval — needs an AI key
 
 ```bash
 cd backend
-npm run eval                  # all 17 cases, one pass
-npm run eval -- --runs 3      # three passes, averaged — use this for any number you quote
-npm run eval -- --limit 4     # quick loop
-npm run eval -- --save        # write eval/results/<timestamp>.json
+npm run eval                        # all 17 cases, one pass, configured provider
+npm run eval -- --runs 3            # three passes, averaged — use this for any number you quote
+npm run eval -- --provider openai   # same corpus, a different provider
+npm run eval -- --provider anthropic --model claude-haiku-4-5
+npm run eval -- --limit 4           # quick loop
+npm run eval -- --save              # write eval/results/<timestamp>.json
 ```
+
+`--provider` is how you compare them: the same 17 cases, scored identically, against the same
+noise floor. Combined with the per-analysis cost now in the log, that answers "which provider
+reads offer letters best, and what does each cost" with numbers instead of impressions.
 
 Current, over 17 cases × 3 passes: **96.1% structured** (target 90%), **82.3% nuanced**
 (target 75%). Always exits 0 — it's a measurement, not a gate.
@@ -303,6 +363,7 @@ Things you may notice that are understood and tracked:
 | Provident Fund shows no value even though PF is statutory | PF is 12% of **basic**, and a letter quoting a single CTC figure never states basic. Guessing a basic-to-CTC ratio would push a fabricated number into total comp. Phase 2's salary breakdown gives it a real value |
 | Base salary equals total CTC on a CTC-only letter | Known and measured — `base := CTC` fires on 5 of 17 eval cases. The response schema marks `baseSalary` required, so the model must supply a figure the letter doesn't contain. Fix is queued at the front of task 9 |
 | Joining bonus stated in prose is sometimes dropped | Known: stated-components F1 ~78%. Reproduced on the real eval case in two consecutive runs |
+| OpenAI and Anthropic model ids are unverified | No key for either was available when the adapters were written. The ids in `src/config/constants.ts` are best-effort and flagged as such; override with `OPENAI_MODEL` / `ANTHROPIC_MODEL` if a call 404s |
 | No content moderation on forum or feature requests | Not built |
 | `GET /account/export` doesn't exist | Promised in the privacy policy, not implemented |
 
@@ -318,7 +379,10 @@ Things you may notice that are understood and tracked:
 | Guest features behave oddly across tabs | Expected — identity is a per-browser cookie |
 | `db:push` hangs | Use `db:migrate`. See §4 |
 | `ECONNRESET` mid-test | `tsx watch` restarted from a stray keystroke. See §6 |
-| Analysis fails with a rate-limit message | Gemini free-tier quota. Wait, or set a different key |
+| Analysis fails with a rate-limit message | Gemini free-tier quota. Wait, set a different key, or switch provider with `AI_PROVIDER` |
+| Log says "using MockAiProvider" | No key for the selected `AI_PROVIDER`. Responses are canned sample data |
+| `X-AI-Provider` header seems ignored | `ALLOW_AI_REQUEST_OVERRIDE` is not `true`, or `NODE_ENV=production`. Both gates must pass. See §3.1 |
+| A provider returns 404 for the model | A model id from one provider passed to another, or an id that has been retired. Clear `*_MODEL` to use the provider's default |
 | Dropdowns empty on the upload form | `npm run db:seed` not run, or the API is unreachable |
 
 ### Resetting
@@ -336,7 +400,7 @@ npm run db:migrate && npm run db:seed
 
 Being precise about this, because "the tests pass" is not the same as "the app works".
 
-**Verified by execution:** both packages typecheck and lint clean; 161 backend unit tests;
+**Verified by execution:** both packages typecheck and lint clean; 197 backend unit tests;
 the frontend builds (177.6 KB gzip initial); all three integration suites pass against a
 live stack with a real Gemini key; extraction accuracy measured at 96.1%/82.3% over three
 passes with a 2.4% noise floor; the browser

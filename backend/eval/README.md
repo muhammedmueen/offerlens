@@ -4,12 +4,29 @@ Phase 0 of [the pipeline plan](../../docs/PLAN-analysis-pipeline.md). Exists so 
 Phase 1's changes to the prompt can be judged by a number rather than by impression.
 
 ```bash
-npm run eval                      # whole corpus, ONE pass
+npm run eval                      # whole corpus, ONE pass, configured provider
 npm run eval -- --runs 3          # three passes, averaged, with the spread reported
+npm run eval -- --provider openai # same corpus, a different provider
+npm run eval -- --provider anthropic --model claude-haiku-4-5
 npm run eval -- --limit 4         # quick loop while iterating on a prompt
 npm run eval -- --case 09-crore   # one case, by id fragment
 npm run eval -- --save            # also write eval/results/<timestamp>.json
 ```
+
+## Comparing providers
+
+`--provider` runs the identical corpus through Gemini, OpenAI or Anthropic and scores it the
+same way, so the comparison is like-for-like. With `--runs 3` it is also judged against the
+same noise floor, which matters: a provider that looks 2 points better is not better.
+
+Read it alongside the per-analysis cost the worker now logs. A provider that scores a point
+higher for triple the money is a different decision from one that scores a point higher for
+free, and until both numbers existed neither question could be answered.
+
+Two cautions. `--model` is per-provider — passing a Gemini model id while `--provider openai`
+is set produces a vendor 404, not a fallback. And a run that fell through to a weaker model
+because of quota is not comparable with one that did not, so check the log before trusting a
+delta.
 
 ## Use `--runs 3` for any number you intend to quote
 
@@ -45,9 +62,10 @@ When coverage drops below 80% the report says the figures describe a subset and 
 compared against a previous result. `--save` records `scoredCases` and `comparable` so a
 thin run cannot be mistaken for a full one later.
 
-Requires `GEMINI_API_KEY` in `.env`. Without one it runs `MockAiProvider`, which returns
-fixed data — fine for checking the harness executes, useless as a measurement. The
-harness says so in its header when that happens.
+Requires a key for the selected provider — `GEMINI_API_KEY`, `OPENAI_API_KEY` or
+`ANTHROPIC_API_KEY`. Without one it runs `MockAiProvider`, which returns fixed data — fine for
+checking the harness executes, useless as a measurement. The harness says so in its header when
+that happens.
 
 ## Read this before quoting a number
 

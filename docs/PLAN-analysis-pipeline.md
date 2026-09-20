@@ -1063,6 +1063,97 @@ benefits row keys, and the corrections request body are pinned.
 > class without closing it. Playwright against the §8 walkthrough is the smallest thing that
 > would.
 
+#### Multi-provider support + cost accounting (unplanned, ahead of task 9)
+
+Not in the original plan. Pulled forward because the project is becoming a freemium product,
+and two things blocked that: nothing recorded what an analysis costs, and provider choice was
+fixed at boot so switching meant editing `.env` and restarting both processes.
+
+**Cost accounting first**, because every pricing decision after it was otherwise guesswork.
+Providers return usage data on every response and it was being discarded. Now captured into
+`analyses.aiMetadata`:
+
+> `gemini/gemini-2.5-flash — 1114 in + 2180 out = 3294 tokens across 1 call(s), $0.005784`
+
+So a real analysis is **~3,000 tokens and roughly half a US cent** on `gemini-2.5-flash`. That
+is the number a free tier has to be sized against.
+
+Tokens are authoritative; cost is advisory. Token counts come from the API. Cost is derived from
+a hardcoded table that goes stale whenever a vendor moves rates — Google raised Gemini prices in
+July 2026, and published figures for the newest models disagree between sources — so an unknown
+model yields `null` rather than an invented number. Usage counts **every** call an analysis made,
+including validation retries and fallbacks to another model, because those are billed too.
+
+It also caught a leak on the way in: `analysis.service.ts` returned `metadata: analysis.aiMetadata`
+wholesale, so the moment usage landed in that column it would have been served to the browser —
+publishing per-request unit economics to anyone with a network tab. The route now picks the
+client-safe fields explicitly, and `test-m2.mjs` asserts the absence end to end.
+
+**Then three providers behind one factory.** `createAiProvider({ provider, model, apiKey })`
+replaces a boot singleton in the plugin, a second in the worker, and two ad-hoc instantiations in
+`offer.service.ts`.
+
+| | How structured output is enforced |
+|---|---|
+| Gemini | `generationConfig.responseSchema` — takes the canonical schema unchanged |
+| OpenAI | `response_format: json_schema` with `strict: true` |
+| Anthropic | no JSON mode exists; a forced tool call, reading `tool_use.input` |
+
+One canonical schema, converted per vendor in `response-schema.ts`. Three hand-written copies
+would drift, and a field added to one and missed in another fails silently as a quietly-null
+column — the failure mode Phase 1 already paid for once.
+
+`BaseAiProvider` owns everything shared: prompts, injection sanitising, Zod validation and its
+retry, the fallback walk, token accounting. `gemini.ai.ts` went from ~470 lines to ~110 with no
+behaviour change, and each new adapter is about sixty.
+
+Rejected generating the schemas from Zod, despite zod v4 shipping `z.toJSONSchema`. The two look
+interchangeable and are not: `analysisResultSchema` is a **lenient parser** whose job is to
+survive whatever a model sends, while the response schema is a **strict instruction** whose
+`description` fields are prompt engineering. "Expand magnitude words: '5 lakh' is 500000" does
+work no type system expresses. Deriving one from the other discards the half that matters.
+
+**Dev-only request override.** `X-AI-Provider` / `X-AI-Model` / `X-AI-Key` select per call, and
+the selection travels with the queued job so an upload is analysed by the provider the request
+asked for. Verified end to end.
+
+Two independent gates, both required: `NODE_ENV !== 'production'` is hardcoded and not
+configurable, and `ALLOW_AI_REQUEST_OVERRIDE` is off by default so a non-production deployment
+does not get it merely by not being production. An endpoint taking arbitrary credentials and
+arbitrary model names lets a caller bill expensive models to the server key, or proxy requests on
+someone else's credentials from our IP. Headers are ignored rather than rejected, so a prober
+learns nothing. Keys are scrubbed from the BullMQ payload once a job settles — `removeOnComplete`
+keeps data an hour and `removeOnFail` a day, which would otherwise make "we do not store your
+key" false in the one place nobody looks.
+
+**Three bugs surfaced while in there:**
+
+- `offer.routes.ts` baked `DEFAULT_GEMINI_MODEL` into every queued job. Harmless with one
+  provider; with a second reachable it hands `gemini-2.5-flash` to OpenAI — a vendor 404 for a
+  reason nothing in the log explains.
+- `offer.service.ts` `extractMetadata()` gated **both** providers on `NODE_ENV === 'production'`,
+  so outside production it always returned mock data regardless of credentials. File-upload
+  autofill looked broken in development while the paste-text path worked, and the two are meant
+  to do the same thing.
+- Fastify rejects a reference-type request-decorator default at runtime
+  (`FST_ERR_DEC_REFERENCE_TYPE`), including a frozen empty object. Its guard is right: one shared
+  object would leak one request's provider choice into the next.
+
+**On BYOK as a product feature: still shelved, deliberately.** The plumbing now exists, but the
+expensive half is persisting a key — encryption, a master key to protect, a settings screen,
+validation, revocation. And if BYOK only lifts the analysis cap while the paid features stay
+paid, the people it serves are the ones who would have paid. Build it when a user asks; do the
+session-only guest version first, since that needs no encryption at all.
+
+The eval harness gains `--provider` and `--model`, which is the real payoff: the same 17 cases
+across all three, scored identically, against the 2.4% noise floor, with cost per analysis
+alongside.
+
+> [!WARNING]
+> OpenAI and Anthropic model ids are **not verified against a live key** — none was available.
+> They are flagged in `constants.ts` and overridable via `OPENAI_MODEL` / `ANTHROPIC_MODEL`. The
+> adapters compile and are unit-tested, but neither has made a real API call.
+
 #### Corpus growth + a scorer correction (post-Phase 1)
 
 A real letter pasted during manual testing was added as `17-deliberately-clean`, the
