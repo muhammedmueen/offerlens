@@ -4,6 +4,7 @@ import { analyses } from '@/db/schema/analyses.js';
 import { eq } from 'drizzle-orm';
 import { FastifyInstance } from 'fastify';
 import { AnalysisResult, AnalysisResponse } from './analysis.types.js';
+import { checkBenefits } from '@/modules/benefits/benefits.checklist.js';
 
 export class AnalysisService {
     constructor(private fastify: FastifyInstance) { }
@@ -43,6 +44,10 @@ export class AnalysisService {
             benefits: analysis.benefits as AnalysisResult['benefits'],
             // Computed by the worker from published tax slabs, not returned by the AI.
             takeHome: analysis.takeHome as AnalysisResponse['takeHome'],
+
+            // Derived here rather than stored: a pure function of the benefits column, so it
+            // needs no migration and always reflects the current checklist.
+            benefitsChecklist: checkBenefits(analysis.benefits as AnalysisResult['benefits']),
 
             // Fields are picked explicitly rather than spreading aiMetadata, because
             // aiMetadata now also carries token counts and an estimated USD cost per call.

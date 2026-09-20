@@ -12,6 +12,7 @@ import { SalaryService } from '@/modules/salary/salary.service.js';
 import { detectRedFlags, mergeRedFlags } from '@/modules/analysis/redflag.rules.js';
 import { formatUsage } from '@/providers/ai/usage.js';
 import { calculateTakeHome, annualBasicFrom } from '@/modules/takehome/takehome.calculator.js';
+import { checkBenefits, bareBenefitsFlag } from '@/modules/benefits/benefits.checklist.js';
 
 const salaryService = new SalaryService();
 
@@ -204,14 +205,42 @@ export const analysisWorker = new Worker(
             // for them in `text` would only risk its 50-character prefix heuristic
             // misfiring on a quote that is correct by definition.
             const ruleFlags = detectRedFlags(text);
-            const mergedRedFlags = mergeRedFlags(ruleFlags, verifiedRedFlags);
 
-            if (ruleFlags.length > 0) {
+            // ── Task 12: standard benefits checklist ──────────────────────────
+            //
+            // Absence is a set difference against a list, not a language problem. The model was
+            // measurably bad at it — over three eval passes it invented `missing_benefit` on
+            // letters that DO name cover (cases 01, 02, 08) and missed it on letters that are
+            // genuinely bare (03, 05, 06).
+            //
+            // So the checklist owns this flag type outright: `suppress` drops the model's
+            // version even when the checklist raises nothing, because "we checked the list and
+            // it is fine" is a verdict, not silence.
+            const benefitsChecklist = checkBenefits(result.benefits);
+            const bareFlag = bareBenefitsFlag(
+                benefitsChecklist,
+                result.extractedData?.employmentType,
+            );
+
+            const deterministicFlags = [
+                ...ruleFlags,
+                ...(bareFlag ? [{ ...bareFlag, ruleId: 'benefits-checklist' }] : []),
+            ];
+
+            const mergedRedFlags = mergeRedFlags(deterministicFlags, verifiedRedFlags, {
+                suppress: ['missing_benefit'],
+            });
+
+            if (deterministicFlags.length > 0) {
                 console.log(
-                    `[Analysis] Rule engine matched ${ruleFlags.length} flag(s): `
-                    + ruleFlags.map((f) => f.ruleId).join(', '),
+                    `[Analysis] Deterministic flags (${deterministicFlags.length}): `
+                    + deterministicFlags.map((f) => f.ruleId).join(', '),
                 );
             }
+            console.log(
+                `[Analysis] Benefits checklist: ${benefitsChecklist.corePresent}/3 core present`
+                + (benefitsChecklist.isBare ? ' — flagged as bare' : ''),
+            );
 
             // ── Task 2: replace the AI's guessed benchmark with real submissions ──
             //

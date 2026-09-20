@@ -34,6 +34,7 @@ import { AI_PROVIDERS } from '@/config/constants.js';
 import type { AiProviderName } from '@/providers/ai/usage.js';
 import { CORPUS, type EvalCase } from './corpus.js';
 import { detectRedFlags, mergeRedFlags } from '@/modules/analysis/redflag.rules.js';
+import { checkBenefits, bareBenefitsFlag } from '@/modules/benefits/benefits.checklist.js';
 import type { RedFlag } from '@/modules/analysis/analysis.types.js';
 import {
     companyMatches, textMatches, numberMatches, scoreSet,
@@ -73,7 +74,22 @@ interface CaseResult {
      * Model-only vs rules-only vs merged, so a red-flag regression can be attributed.
      * Without the split, a drop looks the same whether the prompt changed or a rule did.
      */
-    redFlagSplit: { aiOnlyF1: number; rulesOnlyF1: number; rulesFired: string[] };
+    redFlagSplit: {
+        aiOnlyF1: number;
+        /** All deterministic detection: clause rules plus the benefits checklist. */
+        rulesOnlyF1: number;
+        /**
+         * Clause rules ALONE, which depend only on the corpus text and so cannot vary between
+         * passes. Kept separate purely as the harness self-check.
+         *
+         * `rulesOnlyF1` stopped being invariant once the checklist joined it: the checklist is
+         * pure, but its input is model-extracted benefits, which do vary. That quietly
+         * invalidated a guard which had already caught a real aggregation bug, so the invariant
+         * moved here rather than being dropped.
+         */
+        clauseRulesOnlyF1: number;
+        rulesFired: string[];
+    };
     redFlagsF1: number;
     redFlagsMissed: string[];
     redFlagsSpurious: string[];
@@ -137,7 +153,7 @@ async function evaluateCase(provider: AiProvider, c: EvalCase, model?: string): 
             componentsF1: 0, componentsMissed: [],
         },
         benefitsF1: 0, benefitsMissed: [], benefitsSpurious: [],
-        redFlagSplit: { aiOnlyF1: 0, rulesOnlyF1: 0, rulesFired: [] },
+        redFlagSplit: { aiOnlyF1: 0, rulesOnlyF1: 0, clauseRulesOnlyF1: 0, rulesFired: [] },
         redFlagsF1: 0, redFlagsMissed: [], redFlagsSpurious: [],
         returnedKeys: [],
     };
@@ -197,7 +213,17 @@ async function evaluateCase(provider: AiProvider, c: EvalCase, model?: string): 
     // so a regression can be attributed to one or the other rather than guessed at.
     const aiFlags: RedFlag[] = Array.isArray(raw?.redFlags) ? raw.redFlags : [];
     const ruleFlags = detectRedFlags(c.text);
-    const merged = mergeRedFlags(ruleFlags, aiFlags);
+
+    // Mirrors the worker, including the benefits checklist and its ownership of
+    // `missing_benefit`. If the harness merged differently from the worker it would be
+    // measuring something no user ever sees.
+    const checklistFlag = bareBenefitsFlag(checkBenefits(raw?.benefits), ex?.employmentType);
+    const deterministic = [
+        ...ruleFlags,
+        ...(checklistFlag ? [{ ...checklistFlag, ruleId: 'benefits-checklist' }] : []),
+    ];
+
+    const merged = mergeRedFlags(deterministic, aiFlags, { suppress: ['missing_benefit'] });
 
     const flags = scoreSet(c.expected.redFlagTypes, merged.map((f) => f?.type ?? ''));
     base.redFlagsF1 = flags.f1;
@@ -206,8 +232,12 @@ async function evaluateCase(provider: AiProvider, c: EvalCase, model?: string): 
 
     base.redFlagSplit = {
         aiOnlyF1: scoreSet(c.expected.redFlagTypes, aiFlags.map((f: any) => f?.type ?? '')).f1,
-        rulesOnlyF1: scoreSet(c.expected.redFlagTypes, ruleFlags.map((f) => f.type)).f1,
-        rulesFired: ruleFlags.map((f) => f.ruleId),
+        // All deterministic detection: clause rules plus the checklist.
+        rulesOnlyF1: scoreSet(c.expected.redFlagTypes, deterministic.map((f) => f.type)).f1,
+        // Clause rules alone — a pure function of the fixed corpus text, so this is the figure
+        // the cross-pass invariant is asserted against.
+        clauseRulesOnlyF1: scoreSet(c.expected.redFlagTypes, ruleFlags.map((f) => f.type)).f1,
+        rulesFired: deterministic.map((f) => f.ruleId),
     };
 
     return base;
@@ -395,16 +425,25 @@ async function main() {
     console.log(`  ${'benefits (F1)'.padEnd(18)} ${show(benefitsMetric)}   (nuanced)`);
     console.log(`  ${'red flags (F1)'.padEnd(18)} ${show(mergedMetric)}   (nuanced, MERGED — what the worker stores)`);
     console.log(`  ${'  ├ model only'.padEnd(18)} ${show(aiOnlyMetric)}   varies run to run`);
-    console.log(`  ${'  └ rules only'.padEnd(18)} ${show(rulesOnlyMetric)}   deterministic (task 8)`);
+    console.log(`  ${'  └ rules only'.padEnd(18)} ${show(rulesOnlyMetric)}   deterministic (tasks 8 + 12)`);
 
-    // Self-check. The rule engine is pure, so its score cannot legitimately move between
-    // passes over the same corpus. If it does, either a rule reads something non-
-    // deterministic or the harness is mixing passes up.
-    if (runs > 1 && rulesOnlyMetric.spread > 1e-9) {
+    // Self-check, asserted on the CLAUSE rules only.
+    //
+    // Those read the corpus text, which is fixed, so their score cannot legitimately move
+    // between passes. The broader `rules only` figure now includes the benefits checklist,
+    // which is pure but reads model-extracted benefits — so it varies for a legitimate reason
+    // and is no longer a usable invariant.
+    //
+    // Worth keeping: this check is what exposed a real bug, when the harness was averaging
+    // passes over different subsets of cases and a pure function appeared to change score.
+    const clauseRulesMetric = across((p) => mean(scoredOf(p).map((r) => r.redFlagSplit.clauseRulesOnlyF1)));
+
+    if (runs > 1 && clauseRulesMetric.spread > 1e-9) {
         console.log('');
-        console.log(`  WARNING: rules-only F1 moved by ${pct(rulesOnlyMetric.spread)} across passes.`);
-        console.log('           The rule engine is pure and must score identically every pass.');
-        console.log('           Something is wrong in the rules or in this harness, not in the model.');
+        console.log(`  WARNING: clause-rule F1 moved by ${pct(clauseRulesMetric.spread)} across passes.`);
+        console.log('           Those rules read only the corpus text and must score identically');
+        console.log('           every pass. Something is wrong in the rules or in this harness,');
+        console.log('           not in the model.');
     }
 
     console.log('\n' + '-'.repeat(72));

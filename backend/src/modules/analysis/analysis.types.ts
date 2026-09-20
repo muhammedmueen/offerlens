@@ -1,5 +1,6 @@
 import type { TokenUsage } from '@/providers/ai/usage.js';
 import type { TakeHomeResult } from '@/modules/takehome/takehome.calculator.js';
+import type { BenefitsChecklist } from '@/modules/benefits/benefits.checklist.js';
 
 export interface AnalysisResult {
     extractedData: {
@@ -117,6 +118,16 @@ export interface AnalysisResponse extends AnalysisResult {
      * reliably states — see `takehome.calculator.ts`.
      */
     takeHome: TakeHomeResult | null;
+
+    /**
+     * What a normal offer has, and what this one does not.
+     *
+     * Computed on read rather than stored, because it is a pure function of `benefits` — which
+     * IS stored — so there is nothing to migrate and it can never drift out of step with the
+     * current checklist definition. Old analyses pick up a revised list automatically, which is
+     * what you want from a display aid.
+     */
+    benefitsChecklist: BenefitsChecklist;
     scoreLabel: string;
     /** 'standard' | 'fallback' — 'fallback' means the UI should say "estimated". */
     scoringMethod: string;

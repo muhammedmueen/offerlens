@@ -275,25 +275,73 @@ const ResultsPage = () => {
           </section>
         )}
 
-        {/* Benefits */}
-        {a.benefits?.length > 0 && (
-          <section className="rounded-2xl p-6 skeu-card">
-            <h2 className="font-semibold mb-4 text-foreground">Benefits Overview</h2>
+        {/* Benefits.
+            The chip list shows what the letter names; the checklist below shows what a normal
+            offer has that this one does not. The second half is the useful part, and it is
+            computed by set difference on the server rather than guessed by the model. */}
+        <section className="rounded-2xl p-6 skeu-card">
+          <h2 className="font-semibold mb-4 text-foreground">Benefits Overview</h2>
+
+          {a.benefits?.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {a.benefits.map((b: any, i: number) => (
                 <span key={i} className="rounded-full bg-accent px-3 py-1 text-xs skeu-emboss">{b.name || b}</span>
               ))}
             </div>
-            <Button
-              variant="outline"
-              className="mt-4 cursor-pointer rounded-xl skeu-emboss"
-              onClick={() => requireAuth("Benefits Calculator", "benefits")}
-            >
-              {!isAuthenticated && <Lock className="mr-1 h-3 w-3" />}
-              Calculate Full Benefits Value
-            </Button>
-          </section>
-        )}
+          ) : (
+            <p className="text-sm text-muted-foreground">This offer names no benefits at all.</p>
+          )}
+
+          {a.benefitsChecklist && (
+            <div className="mt-5 border-t border-border pt-4">
+              <h3 className="mb-3 text-sm font-semibold text-foreground">
+                Against a standard offer
+                <span className="ml-2 font-normal text-muted-foreground">
+                  {a.benefitsChecklist.corePresent} of {a.benefitsChecklist.core.length} essentials
+                </span>
+              </h3>
+
+              <ul className="space-y-2">
+                {[...a.benefitsChecklist.core, ...a.benefitsChecklist.notable].map(
+                  (entry: { key: string; label: string; present: boolean; why?: string }) => (
+                    <li key={entry.key} className="flex gap-2 text-sm">
+                      {entry.present ? (
+                        <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-green-600" aria-hidden />
+                      ) : (
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-yellow-600" aria-hidden />
+                      )}
+                      <div>
+                        <span className={entry.present ? "text-foreground" : "text-muted-foreground"}>
+                          {entry.label}
+                        </span>
+                        <span className="sr-only">
+                          {entry.present ? " — mentioned" : " — not mentioned"}
+                        </span>
+                        {entry.why && (
+                          <p className="text-xs text-muted-foreground">{entry.why}</p>
+                        )}
+                      </div>
+                    </li>
+                  ),
+                )}
+              </ul>
+
+              <p className="mt-3 text-xs text-muted-foreground">
+                Absence here means the letter is silent, not that you definitely won&apos;t get
+                it. Silent means set by policy later, so it is worth asking in writing.
+              </p>
+            </div>
+          )}
+
+          <Button
+            variant="outline"
+            className="mt-4 cursor-pointer rounded-xl skeu-emboss"
+            onClick={() => requireAuth("Benefits Calculator", "benefits")}
+          >
+            {!isAuthenticated && <Lock className="mr-1 h-3 w-3" />}
+            Calculate Full Benefits Value
+          </Button>
+        </section>
       </div>
 
       {/* Sticky Action Bar */}

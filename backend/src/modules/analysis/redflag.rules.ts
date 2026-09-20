@@ -463,14 +463,33 @@ export function detectRedFlags(text: string): RuleMatch[] {
  * Union rather than replacement: the model catches phrasings these rules do not know, and
  * dropping it would trade measured recall for tidiness.
  */
-export function mergeRedFlags(ruleMatches: RuleMatch[], aiFlags: RedFlag[]): RedFlag[] {
+export interface MergeOptions {
+    /**
+     * Flag types the model is not trusted with at all, dropped whether or not a deterministic
+     * check produced one.
+     *
+     * Needed because "we checked and there is no problem" is a positive verdict, not silence.
+     * `missing_benefit` is the case: the benefits checklist decides it by set difference against
+     * a list, and over three eval passes the model INVENTED that flag on letters that do name
+     * cover while MISSING it on letters that are genuinely bare. Without suppression, the
+     * checklist could only ever add flags, never correct a wrong one.
+     */
+    suppress?: Array<RedFlag['type']>;
+}
+
+export function mergeRedFlags(
+    ruleMatches: RuleMatch[],
+    aiFlags: RedFlag[],
+    options: MergeOptions = {},
+): RedFlag[] {
+    const suppressed = new Set(options.suppress ?? []);
     const seen = new Set(ruleMatches.map((m) => m.type));
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const stripped: RedFlag[] = ruleMatches.map(({ ruleId, ...flag }) => flag);
 
     for (const flag of Array.isArray(aiFlags) ? aiFlags : []) {
-        if (!flag || seen.has(flag.type)) continue;
+        if (!flag || seen.has(flag.type) || suppressed.has(flag.type)) continue;
         seen.add(flag.type);
         stripped.push(flag);
     }

@@ -165,6 +165,7 @@ describe('analysis response shape', () => {
         'negotiationSuggestions',
         'benefits',
         'takeHome',
+        'benefitsChecklist',
         'metadata',
         'expiresAt',
         'ocrConfidence',
@@ -187,7 +188,10 @@ describe('analysis response shape', () => {
             salaryComparison: {} as never,
             negotiationSuggestions: [],
             benefits: [],
+            // Both are worker/server-computed rather than model output: takeHome from published
+            // tax slabs, benefitsChecklist as a set difference against a list of standards.
             takeHome: null,
+            benefitsChecklist: { core: [], notable: [], corePresent: 0, isBare: true },
             metadata: { analysisVersion: '1.0', modelUsed: 'test', processingNote: null },
         };
 
