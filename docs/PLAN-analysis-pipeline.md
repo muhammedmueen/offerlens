@@ -1154,6 +1154,80 @@ alongside.
 > They are flagged in `constants.ts` and overridable via `OPENAI_MODEL` / `ANTHROPIC_MODEL`. The
 > adapters compile and are unit-tested, but neither has made a real API call.
 
+#### Task 9 outcome — `backend/src/modules/takehome/takehome.calculator.ts`
+
+**The prerequisite mattered more than the calculator.** PF is 12% of *basic*, so a tax
+calculation built on a fabricated basic figure is confidently wrong. `compensationSchema`
+coerced an absent basic to `{ amount: 0 }` and the response schema marked `baseSalary`
+**required**, so on a letter quoting only a CTC the model had to produce a figure and the only
+one available was the CTC.
+
+Measured over 3 passes × 17 cases, before and after:
+
+| | before | after |
+|---|---|---|
+| `base := CTC` | **15 of 51** case-passes | **0 of 51** |
+| base salary correct | 64.7% | **82.4%** |
+| stated components (F1) | 76.6% | **86.1%** |
+
+The invented-basic failure is gone outright. Components improving was not planned — most likely
+the model now files allowances under `otherComponents` instead of forcing them into basic.
+
+TypeScript found both places that assumed a non-null basic, which is the argument for fixing
+the type rather than patching call sites: the PTO daily rate in `benefits.calculator.ts` (which
+correctly degrades to "unquantifiable"), and the PDF report, which now says *"Not stated in the
+letter"* rather than *"Not extracted"* — the letter's silence is not an extraction failure.
+
+**Rules are sourced and dated, not recalled.** FY 2026-27 new regime: seven slabs
+0/5/10/15/20/25/30 with 30% starting above ₹24L, ₹75,000 standard deduction, section 87A rebate
+of ₹60,000 up to ₹12L taxable **including marginal relief**, 4% cess, surcharge 10/15/25 capped
+at 25%.
+
+Marginal relief is implemented because without it one rupee over ₹12L taxable would cost about
+₹60,000 in tax. A lot of Indian offers sit in that band, so it is not an edge case.
+
+The EPF ceiling is encoded at **₹25,000/month**, raised from ₹15,000 with effect from
+**17 September 2026** and gazette-notified under the Code on Social Security. That was two days
+old when written, and sources published before 16 September still describe ₹15,000 — so the
+constant carries its date and links for re-checking.
+
+##### It returns a range, and that is the point
+
+An offer letter quoting one CTC does not contain enough for an exact answer. Even when basic
+*is* stated, whether the employer deducts PF on full basic or only to the statutory ceiling is
+policy the letter does not mention — and at ₹1,00,000 monthly basic that gap is **₹9,000 a
+month** of take-home. So `netMonthly` is `{ high, low }` with `isExact` flagging when they
+coincide, plus an `assumptions` list rendered in the UI.
+
+A range that contains the truth is worth more than a point estimate that does not, which is
+precisely what the old single figure was.
+
+Assumptions are stated rather than silently applied — including the one that makes the tax an
+**overestimate**: full CTC is treated as taxable salary, though CTC normally also includes
+employer PF and a gratuity provision, which are not salary income. Correcting that needs the
+component split the letter omitted. Also new-regime-only (the old regime needs HRA and 80C
+details an offer letter cannot contain), and professional tax excluded with its magnitude named
+so the reader knows the size of the gap.
+
+`takeHome` was **removed from the AI contract entirely**, not merely ignored: out of the
+response schema, so no output tokens are spent on a discarded number and the two cannot
+disagree on screen. It moved to `AnalysisResponse`, computed by the worker alongside `score`.
+
+Live on the `test-m2.mjs` fixture: **₹1,72,625 to ₹1,63,625 a month, tax ₹2,92,500, effective
+12.2%** — and the tax matches the hand calculation exactly. The model's old guess of ₹1,65,000
+falls inside that range but had no way to express the uncertainty.
+
+> [!WARNING]
+> **Red-flag F1 reads 73.6% in this run against 80.8% before, and that is not established as a
+> regression.** Pass 1 of 3 came in at 63.5% while passes 2 and 3 (80.0%, 77.3%) sit inside the
+> previous run's 77.3-83.1% range, so a single anomalous pass moves the mean. The noise floor
+> for the run is 8.2%, wider than the drop.
+>
+> Rules-only F1 is identical in both runs at 77.4%, which is the control — the corpus and
+> harness did not change, so the movement is on the model side. But the schema and prompt *did*
+> change and prompt edits have non-local effects, so this deserves more passes before being
+> ruled out. Recorded rather than reporting only the favourable half.
+
 #### Corpus growth + a scorer correction (post-Phase 1)
 
 A real letter pasted during manual testing was added as `17-deliberately-clean`, the
@@ -1254,7 +1328,7 @@ guard in the harness, and it earned its keep on the first real run.
 | # | Task | Impact | Status |
 |---|------|--------|---|
 | 8 | Build red flag pattern rule engine (includes > regex, 100ms timeout) | Reliable, deterministic detection | ✅ **Done.** See below |
-| 9 | Build Indian tax take-home calculator | Accurate take-home |
+| 9 | Build Indian tax take-home calculator | Accurate take-home | ✅ **Done.** See below |
 | 10 | Implement weighted scoring rubric — **30 flags / 30 salary / 20 benefits / 10 growth / 10 transparency** per decision 7, with redistribution when salary data is absent | Fair, auditable scores |
 | 11 | Add confidence tags to all output fields | User trust signals |
 | 12 | Add standard benefits checklist + missing detection | Complete benefits analysis |
