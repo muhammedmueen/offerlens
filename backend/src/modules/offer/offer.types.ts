@@ -1,4 +1,6 @@
 
+import type { AiProviderSelection } from '@/providers/ai/ai.factory.js';
+
 export enum OfferStatus {
     QUEUED = 'QUEUED',
     PROCESSING = 'PROCESSING',
@@ -19,6 +21,11 @@ export interface CreateOfferInput {
     city?: string;
     currentCtc?: number;
     model?: string;
+    /**
+     * Provider/model/key chosen for this upload, from a development request override.
+     * Travels with the queued job so the worker uses the same provider the caller asked for.
+     */
+    aiSelection?: AiProviderSelection;
 }
 
 export interface OfferResponse {

@@ -7,11 +7,12 @@ import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 import { assertOfferAccess } from '@/shared/access/offer-access.js';
 import { AnalysisResult } from '@/modules/analysis/analysis.types.js';
+import { createAiProvider, type AiProviderSelection } from '@/providers/ai/ai.factory.js';
 
 export class CareerService {
     constructor(private fastify: FastifyInstance) { }
 
-    async generatePath(offerId: string, userId: string) {
+    async generatePath(offerId: string, userId: string, selection: AiProviderSelection = {}) {
         const offer = await db.query.offers.findFirst({ where: eq(offers.id, offerId) });
         if (!offer) throw new AppError(ERROR_CODES.NOT_FOUND, 'Offer not found', 404);
         assertOfferAccess(offer, { userId });
@@ -31,7 +32,11 @@ export class CareerService {
         // Task 7: industry and companyType are now extracted from the letter. These were
         // hardcoded to 'Technology' and 'Unknown', which is why every career path read as
         // generic regardless of the actual role — a teaching post got a tech trajectory.
-        const path = await this.fastify.ai.generateCareerPath({
+        // Built per call so a development provider override is honoured. Falls through to
+        // the configured default when the selection is empty, which is the normal case.
+        const ai = createAiProvider(selection);
+
+        const path = await ai.generateCareerPath({
             role: extracted.role,
             companyType: extracted.companyType || 'Unknown',
             industry: extracted.industry || 'Unknown',

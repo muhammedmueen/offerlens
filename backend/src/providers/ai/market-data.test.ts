@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeMarketData } from './gemini.ai.js';
+import { describeMarketData } from './market-data.js';
 
 const REAL = {
     dataSource: 'crowdsourced',

@@ -7,6 +7,7 @@ import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 import { assertOfferAccess } from '@/shared/access/offer-access.js';
 import { AnalysisResult } from '@/modules/analysis/analysis.types.js';
+import { createAiProvider, type AiProviderSelection } from '@/providers/ai/ai.factory.js';
 
 export class NegotiationService {
     constructor(private fastify: FastifyInstance) { }
@@ -14,7 +15,8 @@ export class NegotiationService {
     async generateScript(
         offerId: string,
         userId: string,
-        options?: { tone?: string; focusAreas?: string[] }
+        options?: { tone?: string; focusAreas?: string[] },
+        selection: AiProviderSelection = {},
     ) {
         // Verify offer exists and belongs to user
         const offer = await db.query.offers.findFirst({
@@ -53,7 +55,7 @@ export class NegotiationService {
         }
 
         // Generate personalized script using AI
-        const script = await this.fastify.ai.generateNegotiationScript({
+        const script = await createAiProvider(selection).generateNegotiationScript({
             companyName: extractedData.companyName!,
             role: extractedData.role || '[ROLE]',
             currentOffer: extractedData.compensation,

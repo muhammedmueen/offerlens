@@ -18,7 +18,7 @@ const ocrProvider: OcrProvider = config.GOOGLE_CLOUD_CREDENTIALS
 export const ocrWorker = new Worker(
     'ocr-queue',
     async (job: Job) => {
-        const { offerId, storedPath, text: providedText, model } = job.data;
+        const { offerId, storedPath, text: providedText, model, aiSelection } = job.data;
         console.log(`[OCR] Processing job ${job.id} for offer ${offerId}, model: ${model || 'default'}`);
 
         try {
@@ -73,6 +73,9 @@ export const ocrWorker = new Worker(
                 offerId,
                 text,
                 model: model || DEFAULT_GEMINI_MODEL,
+                // Forwarded, not re-derived: there is no request here, so the selection can
+                // only come from the job that queued this one.
+                aiSelection: aiSelection ?? {},
             });
 
             console.log(`[OCR] Job ${job.id} completed. Enqueued analysis with model: ${model || DEFAULT_GEMINI_MODEL}`);

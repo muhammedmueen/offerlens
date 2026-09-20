@@ -6,7 +6,7 @@ import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 import { requireRegistered } from '@/middleware/authenticate.js';
 import { loadAuthorizedOffer } from '@/shared/access/offer-guard.js';
 import { routeLimit } from '@/middleware/rate-limiter.js';
-import { DEFAULT_GEMINI_MODEL, MAX_EXTRACT_TEXT_CHARS } from '@/config/constants.js';
+import { MAX_EXTRACT_TEXT_CHARS } from '@/config/constants.js';
 
 export async function offerRoutes(fastify: FastifyInstance) {
     const guestService = new GuestService();
@@ -68,7 +68,13 @@ export async function offerRoutes(fastify: FastifyInstance) {
             experienceLevel: fields.experienceLevel,
             city: fields.city,
             currentCtc: fields.currentCtc ? Number(fields.currentCtc) : undefined,
-            model: fields.model || DEFAULT_GEMINI_MODEL,
+            // Left undefined rather than defaulted to DEFAULT_GEMINI_MODEL, which is what it
+            // used to do. Now that a request can select OpenAI or Anthropic, baking a Gemini
+            // model id into every job would hand "gemini-2.5-flash" to whichever provider
+            // ran — a 404 from the vendor, for a reason nothing in the log would explain.
+            // Each provider resolves its own default.
+            model: fields.model || undefined,
+            aiSelection: req.aiSelection,
         };
 
         console.log('[Offer Routes] Creating offer with input:', {
@@ -114,7 +120,7 @@ export async function offerRoutes(fastify: FastifyInstance) {
                 );
             }
 
-            const result = await offerService.extractMetadataFromText(body.text);
+            const result = await offerService.extractMetadataFromText(body.text, req.aiSelection);
 
             return reply.send({
                 success: true,

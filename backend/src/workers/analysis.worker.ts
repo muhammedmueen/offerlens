@@ -4,11 +4,9 @@ import { db } from '@/db/index.js';
 import { offers } from '@/db/schema/offers.js';
 import { analyses } from '@/db/schema/analyses.js';
 import { eq } from 'drizzle-orm';
-import { AiProvider } from '@/providers/ai/ai.provider.js';
-import { GeminiAiProvider } from '@/providers/ai/gemini.ai.js';
-import { MockAiProvider } from '@/providers/ai/mock.ai.js';
+import { createAiProvider, describeSelection, type AiProviderSelection } from '@/providers/ai/ai.factory.js';
+import { redactSelection } from '@/providers/ai/request-override.js';
 import { config } from '@/config/index.js';
-import { DEFAULT_GEMINI_MODEL } from '@/config/constants.js';
 import { AnalysisResult } from '@/modules/analysis/analysis.types.js';
 import { SalaryService } from '@/modules/salary/salary.service.js';
 import { detectRedFlags, mergeRedFlags } from '@/modules/analysis/redflag.rules.js';
@@ -16,11 +14,27 @@ import { formatUsage } from '@/providers/ai/usage.js';
 
 const salaryService = new SalaryService();
 
-const aiProvider: AiProvider = config.GEMINI_API_KEY
-    ? new GeminiAiProvider()
-    : new MockAiProvider();
+/**
+ * Overwrite the stored job payload with the key removed.
+ *
+ * Never throws: losing an analysis because the scrub failed would be a worse outcome than a
+ * key lingering in Redis for an hour, and the caller has no way to recover from it either.
+ * A failure is logged loudly instead.
+ */
+async function scrubJobKey(job: Job, selection: AiProviderSelection): Promise<void> {
+    if (!selection.apiKey) return;
 
-console.log('[Analysis Worker] AI Provider initialized:', aiProvider.constructor.name);
+    try {
+        await job.updateData({ ...job.data, aiSelection: redactSelection(selection) });
+    } catch (err) {
+        console.error(
+            `[Analysis] Could not scrub the API key from job ${job.id} payload. `
+            + 'It will expire with the job.', err,
+        );
+    }
+}
+
+console.log('[Analysis Worker] Configured AI provider:', config.AI_PROVIDER);
 console.log('[Analysis Worker] GEMINI_API_KEY present:', !!config.GEMINI_API_KEY);
 console.log('[Analysis Worker] NODE_ENV:', config.NODE_ENV);
 
@@ -123,8 +137,18 @@ function normalizeAiResult(raw: any): AnalysisResult {
 export const analysisWorker = new Worker(
     'analysis-queue',
     async (job: Job) => {
-        const { offerId, text, model } = job.data;
-        console.log(`[Analysis] Processing job ${job.id} for offer ${offerId} with model: ${model || 'default'}`);
+        const { offerId, text, model, aiSelection } = job.data as {
+            offerId: string;
+            text: string;
+            model?: string;
+            aiSelection?: AiProviderSelection;
+        };
+
+        const selection: AiProviderSelection = aiSelection ?? {};
+        console.log(
+            `[Analysis] Processing job ${job.id} for offer ${offerId} `
+            + `with ${describeSelection(selection)}, model: ${model || 'default'}`,
+        );
 
         try {
             // Fetch offer for user context
@@ -136,7 +160,11 @@ export const analysisWorker = new Worker(
 
             // AI Analysis - use model from job data
             const context = offer.userContext as any; // Cast to OfferContext
-            const rawResult = await aiProvider.analyzeOffer(text, context, model || DEFAULT_GEMINI_MODEL);
+            // Built per job rather than once at module load, so the provider a request asked
+            // for survives the queue hop. With an empty selection this is the configured
+            // default, which is what every normal upload gets.
+            const aiProvider = createAiProvider(selection);
+            const rawResult = await aiProvider.analyzeOffer(text, context, model || undefined);
 
             // Normalize AI result — models may return varying structures
             const result = normalizeAiResult(rawResult);
@@ -289,12 +317,25 @@ export const analysisWorker = new Worker(
                 await tx.update(offers).set({ status: 'COMPLETED' }).where(eq(offers.id, offerId));
             });
 
+            // Scrub any caller-supplied API key from the stored job payload.
+            //
+            // BullMQ keeps completed job data (removeOnComplete: { age: 3600 }), so a key
+            // that arrived in the payload would sit in Redis for an hour after the request
+            // that supplied it had finished. That would make "we do not store your key" false
+            // in the one place nobody looks. Done in a finally-style position so it runs on
+            // the success path; the failure path is handled in the catch below.
+            await scrubJobKey(job, selection);
+
             const usage = result.metadata?.usage;
             console.log(
                 `[Analysis] Job ${job.id} completed. Score: ${score}`
                 + (usage ? `  ${formatUsage(usage)}` : '  (provider reported no usage)'),
             );
         } catch (error: any) {
+            // Failed jobs are retained even longer (removeOnFail: { age: 24h }), so scrubbing
+            // matters more here, not less.
+            await scrubJobKey(job, selection);
+
             console.error(`[Analysis] Job ${job.id} failed:`, error);
 
             // Detect rate limit errors

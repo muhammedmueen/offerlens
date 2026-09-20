@@ -12,7 +12,7 @@ export async function careerRoutes(fastify: FastifyInstance) {
         schema: getCareerPathSchema,
         handler: async (req, reply) => {
             const { id } = req.params as { id: string };
-            const result = await careerService.generatePath(id, req.userId!);
+            const result = await careerService.generatePath(id, req.userId!, req.aiSelection);
 
             return reply.send({
                 success: true,

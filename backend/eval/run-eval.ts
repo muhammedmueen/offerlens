@@ -1,11 +1,13 @@
 /**
  * Extraction accuracy harness (Phase 0c).
  *
- *   npm run eval                # whole corpus, one pass
- *   npm run eval -- --runs 3    # three passes, averaged, with the spread reported
- *   npm run eval -- --limit 4   # first 4 cases, for a quick loop
+ *   npm run eval                     # whole corpus, one pass, configured provider
+ *   npm run eval -- --runs 3         # three passes, averaged, with the spread reported
+ *   npm run eval -- --provider openai
+ *   npm run eval -- --provider anthropic --model claude-haiku-4-5
+ *   npm run eval -- --limit 4        # first 4 cases, for a quick loop
  *   npm run eval -- --case 09-crore-notation
- *   npm run eval -- --save      # write eval/results/<timestamp>.json
+ *   npm run eval -- --save           # write eval/results/<timestamp>.json
  *
  * Calls the AI provider DIRECTLY rather than going through the API. That is
  * deliberate: this measures extraction quality in isolation, without a database, a
@@ -26,10 +28,10 @@
  */
 import 'dotenv/config';
 import { config } from '@/config/index.js';
-import { GeminiAiProvider } from '@/providers/ai/gemini.ai.js';
-import { MockAiProvider } from '@/providers/ai/mock.ai.js';
 import type { AiProvider } from '@/providers/ai/ai.provider.js';
-import { DEFAULT_GEMINI_MODEL } from '@/config/constants.js';
+import { createAiProvider, hasServerKeyFor } from '@/providers/ai/ai.factory.js';
+import { AI_PROVIDERS } from '@/config/constants.js';
+import type { AiProviderName } from '@/providers/ai/usage.js';
 import { CORPUS, type EvalCase } from './corpus.js';
 import { detectRedFlags, mergeRedFlags } from '@/modules/analysis/redflag.rules.js';
 import type { RedFlag } from '@/modules/analysis/analysis.types.js';
@@ -100,6 +102,23 @@ function pickCases(): EvalCase[] {
  * Pass count. Defaults to 1 so the quick iteration loop stays cheap; anything you intend
  * to quote should use 3 or more, and the report says so when it only has one sample.
  */
+/**
+ * Which provider to measure.
+ *
+ * The reason `--provider` exists: the same 17 cases across Gemini, OpenAI and Anthropic,
+ * scored identically, with the noise floor to judge by. "Does Claude read offer letters
+ * better than Gemini, and what does each cost per analysis" stops being a matter of opinion.
+ */
+function pickProvider(): AiProviderName {
+    const requested = arg('provider')?.trim().toLowerCase();
+    if (!requested) return config.AI_PROVIDER;
+
+    if (!(AI_PROVIDERS as readonly string[]).includes(requested)) {
+        throw new Error(`--provider must be one of ${AI_PROVIDERS.join(', ')}, got "${requested}"`);
+    }
+    return requested as AiProviderName;
+}
+
 function passCount(): number {
     const raw = arg('runs');
     if (raw === null) return 1;
@@ -110,7 +129,7 @@ function passCount(): number {
     return n;
 }
 
-async function evaluateCase(provider: AiProvider, c: EvalCase): Promise<CaseResult> {
+async function evaluateCase(provider: AiProvider, c: EvalCase, model?: string): Promise<CaseResult> {
     const base: CaseResult = {
         id: c.id, probes: c.probes, error: null, fields: {},
         diagnostics: {
@@ -125,7 +144,10 @@ async function evaluateCase(provider: AiProvider, c: EvalCase): Promise<CaseResu
 
     let raw: any;
     try {
-        raw = await provider.analyzeOffer(c.text, undefined, DEFAULT_GEMINI_MODEL);
+        // `model` left undefined unless --model was given, so each provider resolves its own
+        // default. Passing a Gemini model id to OpenAI would 404 for a reason the output
+        // would not explain.
+        raw = await provider.analyzeOffer(c.text, undefined, model);
     } catch (err: any) {
         return { ...base, error: String(err?.message ?? err).slice(0, 160) };
     }
@@ -258,14 +280,17 @@ function failureFrequency(
 async function main() {
     const cases = pickCases();
     const runs = passCount();
-    const usingReal = Boolean(config.GEMINI_API_KEY);
-    const provider: AiProvider = usingReal ? new GeminiAiProvider() : new MockAiProvider();
+    const requestedProvider = pickProvider();
+    const model = arg('model')?.trim() || undefined;
+
+    const usingReal = hasServerKeyFor(requestedProvider) && requestedProvider !== 'mock';
+    const provider: AiProvider = createAiProvider({ provider: requestedProvider, model });
 
     console.log('='.repeat(72));
     console.log('  OfferLens — extraction accuracy eval');
     console.log('='.repeat(72));
     console.log(`  provider : ${provider.constructor.name}${usingReal ? '' : '  *** MOCK — numbers are meaningless ***'}`);
-    console.log(`  model    : ${DEFAULT_GEMINI_MODEL}`);
+    console.log(`  model    : ${model ?? "the provider's default"}`);
     console.log(`  cases    : ${cases.length} of ${CORPUS.length}`);
     console.log(`  passes   : ${runs}   (${cases.length * runs} model call${cases.length * runs === 1 ? '' : 's'})`);
     console.log(`  corpus   : ${CORPUS.length - 1} synthetic + 1 real — a regression baseline, not an accuracy claim`);
@@ -285,7 +310,7 @@ async function main() {
 
         for (const c of cases) {
             process.stdout.write(`  ${c.id.padEnd(28)} `);
-            const r = await evaluateCase(provider, c);
+            const r = await evaluateCase(provider, c, model);
             results.push(r);
 
             if (r.error) {
@@ -483,7 +508,8 @@ async function main() {
         fs.writeFileSync(file, JSON.stringify({
             timestamp: new Date().toISOString(),
             provider: provider.constructor.name,
-            model: DEFAULT_GEMINI_MODEL,
+            providerName: requestedProvider,
+            model: model ?? null,
             caseCount: cases.length,
             runs,
             // Which cases the figures actually describe. A saved result whose `scoredCases`

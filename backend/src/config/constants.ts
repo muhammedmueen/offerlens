@@ -86,3 +86,44 @@ export const GEMINI_FALLBACK_MODELS = [
  * both workers.
  */
 export const DEFAULT_GEMINI_MODEL: string = GEMINI_FALLBACK_MODELS[0];
+
+/**
+ * OpenAI models, best first, cheapest last.
+ *
+ * The last entry is deliberately the cheapest: `modelFor('metadata')` picks it, because
+ * autofill extracts five fields and does not need a strong model.
+ *
+ * `gpt-4.1-mini` is the default because it supports strict `json_schema` structured output,
+ * which is the mechanism this codebase depends on. A model without it would silently fall
+ * back to loose JSON and reintroduce the shape-drift problem Phase 1 fixed.
+ *
+ * NOT verified against a live key — no OpenAI credentials were available when this was
+ * written. Check the ids before relying on them, and override with OPENAI_MODEL if needed.
+ */
+export const OPENAI_FALLBACK_MODELS = [
+    'gpt-4.1-mini',
+    'gpt-4.1',
+    'gpt-4o-mini',
+] as const;
+
+export const DEFAULT_OPENAI_MODEL: string = OPENAI_FALLBACK_MODELS[0];
+
+/**
+ * Anthropic models, best first, cheapest last.
+ *
+ * Structured output goes through forced tool use rather than a JSON mode, which every
+ * current Claude model supports.
+ *
+ * NOT verified against a live key. Anthropic also ships dated ids
+ * (`claude-haiku-4-5-20251001`); the pricing table matches those by prefix, so either form
+ * is costed correctly. Override with ANTHROPIC_MODEL.
+ */
+export const ANTHROPIC_FALLBACK_MODELS = [
+    'claude-sonnet-4-5',
+    'claude-haiku-4-5',
+] as const;
+
+export const DEFAULT_ANTHROPIC_MODEL: string = ANTHROPIC_FALLBACK_MODELS[0];
+
+/** Providers the factory can build. `mock` needs no key and returns fixed data. */
+export const AI_PROVIDERS = ['gemini', 'openai', 'anthropic', 'mock'] as const;

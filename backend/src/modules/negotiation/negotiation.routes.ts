@@ -16,7 +16,7 @@ export async function negotiationRoutes(fastify: FastifyInstance) {
             const { id } = req.params as { id: string };
             const body = req.body as { tone?: string; focusAreas?: string[] };
 
-            const script = await negotiationService.generateScript(id, req.userId!, body);
+            const script = await negotiationService.generateScript(id, req.userId!, body, req.aiSelection);
 
             return reply.send({
                 success: true,

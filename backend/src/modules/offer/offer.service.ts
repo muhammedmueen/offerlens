@@ -13,8 +13,8 @@ import { randomUUID } from 'node:crypto';
 import { sanitizeFilename } from '@/shared/sanitize.js';
 import { GoogleVisionOcrProvider } from '@/providers/ocr/google-vision.ocr.js';
 import { MockOcrProvider } from '@/providers/ocr/mock.ocr.js';
-import { GeminiAiProvider } from '@/providers/ai/gemini.ai.js';
-import { MockAiProvider } from '@/providers/ai/mock.ai.js';
+import { createAiProvider, type AiProviderSelection } from '@/providers/ai/ai.factory.js';
+import { redactSelection } from '@/providers/ai/request-override.js';
 import { config } from '@/config/index.js';
 import { DEFAULT_GEMINI_MODEL } from '@/config/constants.js';
 import { resolveDedupScope } from './offer.dedup.js';
@@ -153,6 +153,10 @@ export class OfferService {
                 offerId,
                 text: input.text,
                 model: input.model || DEFAULT_GEMINI_MODEL,
+                // Carried to the worker so a development provider override survives the
+                // queue hop. The analysis worker redacts any key from the stored payload
+                // once the job finishes — see analysis.worker.ts.
+                aiSelection: input.aiSelection ?? {},
             });
             console.log('[Offer Service] ✅ Job added to queue successfully');
         } else {
@@ -162,6 +166,7 @@ export class OfferService {
                 offerId,
                 storedPath,
                 model: input.model || DEFAULT_GEMINI_MODEL,
+                aiSelection: input.aiSelection ?? {},
             });
             console.log('[Offer Service] ✅ Job added to queue successfully');
         }
@@ -198,15 +203,15 @@ export class OfferService {
             .where(eq(offers.id, id));
     }
 
-    async extractMetadataFromText(text: string): Promise<any> {
-        const aiProvider = config.GEMINI_API_KEY
-            ? new GeminiAiProvider()
-            : new MockAiProvider();
+    async extractMetadataFromText(text: string, selection: AiProviderSelection = {}): Promise<any> {
+        const aiProvider = createAiProvider(selection);
 
-        this.fastify.log.info({ provider: aiProvider.constructor.name }, 'Using AI provider for metadata extraction');
+        this.fastify.log.info(
+            { provider: aiProvider.constructor.name, selection: redactSelection(selection) },
+            'Using AI provider for metadata extraction',
+        );
 
-        const metadata = await aiProvider.extractMetadata(text);
-        return metadata;
+        return aiProvider.extractMetadata(text);
     }
 
     async extractTextFromFile(file: { toBuffer: () => Promise<Buffer>, filename: string, mimetype: string }): Promise<string> {
@@ -247,16 +252,22 @@ export class OfferService {
         }
     }
 
-    async extractMetadata(file: { toBuffer: () => Promise<Buffer>, filename: string, mimetype: string }): Promise<any> {
-        // Instantiate providers (lazy or singleton)
-        // For now, new instance is fine or static
-        const ocrProvider = config.GOOGLE_CLOUD_CREDENTIALS && config.NODE_ENV === 'production'
-            ? new GoogleVisionOcrProvider()
-            : new MockOcrProvider();
-
-        const aiProvider = config.GEMINI_API_KEY && config.NODE_ENV === 'production'
-            ? new GeminiAiProvider()
-            : new MockAiProvider();
+    async extractMetadata(
+        file: { toBuffer: () => Promise<Buffer>, filename: string, mimetype: string },
+        selection: AiProviderSelection = {},
+    ): Promise<any> {
+        /**
+         * Both providers used to be gated on `config.NODE_ENV === 'production'`, so outside
+         * production this method always returned mock data regardless of the credentials
+         * present. File-upload autofill therefore appeared broken in development while the
+         * paste-text path worked, because that one had no such gate — and the two were
+         * supposed to do the same thing.
+         *
+         * Now gated on credentials only, which is what `plugins/providers.ts` has always
+         * done. OCR reuses the already-configured instance rather than building a second one.
+         */
+        const ocrProvider = this.fastify.ocr;
+        const aiProvider = createAiProvider(selection);
 
         // 1. Save temp file for OCR (some providers need path) or use buffer if supported
         // Google Vision needs path or buffer. Our OcrProvider interface takes path currently?

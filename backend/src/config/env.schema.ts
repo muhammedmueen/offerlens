@@ -13,6 +13,32 @@ export const envSchema = z.object({
     GEMINI_API_KEY: z.string().optional(),
     GOOGLE_CLOUD_CREDENTIALS: z.string().optional(),
 
+    /**
+     * Which provider serves AI calls by default.
+     *
+     * Gemini stays the default because it is the one with a usable free tier, which is what
+     * the free plan is built on. Requests may override this per call in development — see
+     * `resolveAiOverride`.
+     */
+    AI_PROVIDER: z.enum(['gemini', 'openai', 'anthropic', 'mock']).default('gemini'),
+
+    OPENAI_API_KEY: z.string().optional(),
+    ANTHROPIC_API_KEY: z.string().optional(),
+    /** Override the default model for a provider, without a code change. */
+    OPENAI_MODEL: z.string().optional(),
+    ANTHROPIC_MODEL: z.string().optional(),
+    GEMINI_MODEL: z.string().optional(),
+
+    /**
+     * Allows the `X-AI-*` request headers to choose a provider, model and API key per call.
+     *
+     * Defaults to OFF, and is refused outright in production regardless of this value — an
+     * endpoint that accepts arbitrary credentials and arbitrary model names is an abuse
+     * vector, not a convenience. It exists so provider switching during development does not
+     * mean editing `.env` and restarting.
+     */
+    ALLOW_AI_REQUEST_OVERRIDE: z.coerce.boolean().default(false),
+
     JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
     JWT_REFRESH_SECRET: z.string().min(32, 'JWT_REFRESH_SECRET must be at least 32 characters'),
     // Signs the guest identity cookie (ADR-001). Falls back to JWT_SECRET when unset so
