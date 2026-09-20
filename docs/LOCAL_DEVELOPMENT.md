@@ -179,7 +179,7 @@ curl http://localhost:8000/api/v1/health
 ### Unit tests — no services required
 
 ```bash
-cd backend && npm test        # 228 tests
+cd backend && npm test        # 251 tests
 cd frontend && npm test       # 1 placeholder test
 ```
 
@@ -359,7 +359,9 @@ Things you may notice that are understood and tracked:
 | Take-home shows a **range**, not one figure | Correct, and deliberate. PF is 12% of basic, and whether an employer deducts on full basic or only to the ₹25,000 statutory ceiling is policy the letter does not state. At ₹1,00,000 monthly basic that is ₹9,000/month of take-home. Open "What this assumes" for the full list |
 | Take-home looks higher than you expected | It excludes PF entirely when the letter never states basic separately, which is most letters. That is said in the assumptions list. It also treats full CTC as taxable salary, which slightly overstates tax in the other direction |
 | No old-regime comparison | The old regime needs your HRA, home-loan interest and 80C figures. An offer letter contains none of them, so a comparison would be invented |
-| Red flags occasionally missed or over-reported | Improved but not solved: ~76% F1 merged, up from ~73% model-only. Task 8's rule engine makes the well-known clauses deterministic; what remains is inference the model still has to do, and it varies run to run |
+| Red flags occasionally missed or over-reported | Improved a lot, not solved: **86% F1 merged** against ~75% model-only. Tasks 8 and 12 made the well-known clauses and the absent-benefit case deterministic; what remains is inference the model still does, and that part varies run to run |
+| "Against a standard offer" says something is missing that you were told you'd get | The checklist reports what the **letter** says, not what a recruiter said. Silence means the entitlement is set by policy later, which is exactly why it is worth getting in writing |
+| Only three items can trigger the missing-benefits flag | Deliberate. Ordinary offers omit one thing constantly — a checklist that flags every gap gets ignored. Gratuity, term life, learning budget and flexible working are reported but never flagged |
 | A hostile letter now scores lower than it used to | Expected. The rule engine catches clauses the model was missing, and each one costs 5-15 points. The `test-m2.mjs` fixture went to "poor", which is right for a letter with no-notice probation and a 12-month non-compete |
 | Benefits drawer lists every benefit with no rupee value | Correct when the letter doesn't quantify them. "Medical Insurance" with no sum assured and "Paid Leave" with no day count are not valuable — the calculator reads amounts, it doesn't invent them. Enter your own figure and recalculate |
 | Provident Fund shows no value even though PF is statutory | PF is 12% of **basic**, and a letter quoting a single CTC figure never states basic. Guessing a basic-to-CTC ratio would push a fabricated number into total comp. Phase 2's salary breakdown gives it a real value |
@@ -402,7 +404,7 @@ npm run db:migrate && npm run db:seed
 
 Being precise about this, because "the tests pass" is not the same as "the app works".
 
-**Verified by execution:** both packages typecheck and lint clean; 228 backend unit tests;
+**Verified by execution:** both packages typecheck and lint clean; 251 backend unit tests;
 the frontend builds (177.6 KB gzip initial); all three integration suites pass against a
 live stack with a real Gemini key; extraction accuracy measured at 96.1%/82.3% over three
 passes with a 2.4% noise floor; the browser

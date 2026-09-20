@@ -1154,6 +1154,73 @@ alongside.
 > They are flagged in `constants.ts` and overridable via `OPENAI_MODEL` / `ANTHROPIC_MODEL`. The
 > adapters compile and are unit-tested, but neither has made a real API call.
 
+#### Task 12 outcome — `backend/src/modules/benefits/benefits.checklist.ts`
+
+Pulled ahead of tasks 10 and 11, because it targets the largest remaining error group and both
+of those want it first: the rubric needs real benefits input, and confidence tags need something
+to be confident about.
+
+**Why a checklist and not more rules.** The remaining misses were flags for things that are
+*absent*, and the rule engine cannot match a health-insurance clause that is not there. The
+model could not do it either — across three passes it **invented** `missing_benefit` on letters
+that do name cover (cases 01, 02, 08) while **missing** it on letters that are genuinely bare
+(03, 05, 06). Absence is a set difference against a list, which is arithmetic.
+
+Measured over 3 passes × 17 cases:
+
+| | before | after |
+|---|---|---|
+| red flags, **merged** | 73.6% `[72.5-80.7]` | **86.0%** `[83.4-87.3]` |
+| deterministic half | 77.4% | **84.6%** |
+| nuanced overall | 77.0% | **83.7%** |
+| noise floor | 8.2% | **3.9%** |
+
++12.4 points on the figure users see, with ranges that do not overlap — so not a noise artefact.
+The noise floor also halved: the more of the detection that is deterministic, the less the whole
+metric wobbles.
+
+This also **resolves the caveat left on task 9**. Red-flag F1 had read 73.6% against 80.8% and I
+declined to call it either a regression or noise; it now reads 86.0%, above both.
+
+##### The threshold is deliberately forgiving
+
+Flagging every gap would be worse than flagging none. Ordinary offers omit one item constantly:
+case 02 names insurance and PF but no leave, case 08 names leave and PF but no cover, case 09
+names cover and leave but no PF. None of those is a red flag, and annotating them as one trains
+users to ignore the flag entirely.
+
+So it fires only below **two of three** core benefits — retirement, health cover, paid leave.
+Three and no more, because each addition raises the false-positive rate on ordinary offers. The
+threshold was chosen against ground truth annotated long before this module, and yields **zero
+false positives across all 17 cases**. A second tier — gratuity, term life, learning budget,
+flexible working — is displayed and never flagged.
+
+##### The checklist owns `missing_benefit` outright
+
+`mergeRedFlags` gained a `suppress` option, and the worker drops the model's `missing_benefit`
+whether or not the checklist raises one. Necessary because *"we checked the list and it is fine"*
+is a positive verdict, not silence — without suppression the checklist could only ever add flags,
+never correct a wrong one. That is what removes the false positives on 01, 02 and 08.
+
+Contract and internship offers are **reframed rather than suppressed**: statutory benefits
+genuinely do not apply, which is lawful, and is also the single most important thing such a
+candidate has to price in. Medium severity instead of high, different wording, still raised.
+
+Exposed as `benefitsChecklist` on `AnalysisResponse`, computed **on read** rather than stored —
+it is a pure function of the `benefits` column, so nothing to migrate and it cannot drift from
+the current definition. Old analyses pick up a revised list automatically, which is right for a
+display aid.
+
+> [!NOTE]
+> Folding the checklist into the harness's `rules only` figure silently invalidated a self-check
+> — the assertion that a pure function scores identically across passes, which had already
+> caught a real aggregation bug. The checklist *is* pure, but its input is model-extracted
+> benefits, which vary. It would have begun warning for a legitimate reason and then been
+> ignored.
+>
+> Split rather than deleted: `clauseRulesOnlyF1` tracks the clause rules alone, which read only
+> the fixed corpus text, and the invariant is asserted on that.
+
 #### Task 9 outcome — `backend/src/modules/takehome/takehome.calculator.ts`
 
 **The prerequisite mattered more than the calculator.** PF is 12% of *basic*, so a tax
@@ -1227,6 +1294,10 @@ falls inside that range but had no way to express the uncertainty.
 > harness did not change, so the movement is on the model side. But the schema and prompt *did*
 > change and prompt edits have non-local effects, so this deserves more passes before being
 > ruled out. Recorded rather than reporting only the favourable half.
+>
+> **Resolved by task 12.** Merged red-flag F1 now reads 86.0% `[83.4-87.3]`, above both the
+> 80.8% this was compared against and the 73.6% that prompted the caveat. There was no
+> regression to find.
 
 #### Corpus growth + a scorer correction (post-Phase 1)
 
@@ -1331,7 +1402,7 @@ guard in the harness, and it earned its keep on the first real run.
 | 9 | Build Indian tax take-home calculator | Accurate take-home | ✅ **Done.** See below |
 | 10 | Implement weighted scoring rubric — **30 flags / 30 salary / 20 benefits / 10 growth / 10 transparency** per decision 7, with redistribution when salary data is absent | Fair, auditable scores |
 | 11 | Add confidence tags to all output fields | User trust signals |
-| 12 | Add standard benefits checklist + missing detection | Complete benefits analysis |
+| 12 | Add standard benefits checklist + missing detection | Complete benefits analysis | ✅ **Done**, pulled ahead of 10 and 11. See below |
 | 13 | Add salary data caching in Redis (1hr TTL) | Performance | |
 
 #### Task 8 outcome — `backend/src/modules/analysis/redflag.rules.ts`
