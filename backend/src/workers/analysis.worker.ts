@@ -12,6 +12,7 @@ import { DEFAULT_GEMINI_MODEL } from '@/config/constants.js';
 import { AnalysisResult } from '@/modules/analysis/analysis.types.js';
 import { SalaryService } from '@/modules/salary/salary.service.js';
 import { detectRedFlags, mergeRedFlags } from '@/modules/analysis/redflag.rules.js';
+import { formatUsage } from '@/providers/ai/usage.js';
 
 const salaryService = new SalaryService();
 
@@ -288,7 +289,11 @@ export const analysisWorker = new Worker(
                 await tx.update(offers).set({ status: 'COMPLETED' }).where(eq(offers.id, offerId));
             });
 
-            console.log(`[Analysis] Job ${job.id} completed. Score: ${score}`);
+            const usage = result.metadata?.usage;
+            console.log(
+                `[Analysis] Job ${job.id} completed. Score: ${score}`
+                + (usage ? `  ${formatUsage(usage)}` : '  (provider reported no usage)'),
+            );
         } catch (error: any) {
             console.error(`[Analysis] Job ${job.id} failed:`, error);
 

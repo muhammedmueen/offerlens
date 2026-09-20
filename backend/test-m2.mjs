@@ -63,6 +63,16 @@ if (analysis.status === 200) {
     r.ok(`analysis readable — score ${d.score}, label "${d.scoreLabel}"`);
     if (typeof d.score === 'number') r.ok('score is present and numeric (was never returned before -1B)');
     else r.no(`score missing or non-numeric: ${JSON.stringify(d.score)}`);
+
+    // aiMetadata now carries token counts and an estimated USD cost per call. That is
+    // margin information, and the route used to return aiMetadata wholesale. Asserted
+    // end-to-end because the guard is a hand-picked field list in analysis.service.ts,
+    // and the tempting one-line "fix" is to go back to spreading the stored object.
+    if (d.metadata && 'usage' in d.metadata) {
+        r.no(`token usage and cost leaked to the client: ${JSON.stringify(d.metadata.usage)}`);
+    } else {
+        r.ok('token usage and cost are NOT exposed to the client');
+    }
 } else {
     r.no(`analysis not readable (${analysis.status})`);
 }

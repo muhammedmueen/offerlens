@@ -1,3 +1,4 @@
+import type { TokenUsage } from '@/providers/ai/usage.js';
 
 export interface AnalysisResult {
     extractedData: {
@@ -26,6 +27,15 @@ export interface AnalysisResult {
         analysisVersion: string;
         modelUsed: string;
         processingNote: string | null;
+        /**
+         * What the call cost, in tokens.
+         *
+         * Attached by the provider AFTER Zod validation, so it survives the schema strip
+         * and lands in `analyses.aiMetadata`. Absent when the provider does not report
+         * usage. Covers every call the analysis took, including validation retries and
+         * fallbacks to another model — all of which are billed.
+         */
+        usage?: TokenUsage | null;
     };
 }
 

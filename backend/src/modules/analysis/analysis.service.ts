@@ -21,6 +21,8 @@ export class AnalysisService {
             where: eq(offers.id, offerId),
         });
 
+        const storedMetadata = analysis.aiMetadata as AnalysisResult['metadata'];
+
         return {
             // Score is computed by the worker after the AI returns, so it is not part of
             // AnalysisResult. It was previously stored and never returned.
@@ -40,7 +42,17 @@ export class AnalysisService {
             negotiationSuggestions: analysis.negotiationSuggestions as AnalysisResult['negotiationSuggestions'],
             benefits: analysis.benefits as AnalysisResult['benefits'],
             takeHome: analysis.takeHome as AnalysisResult['takeHome'],
-            metadata: analysis.aiMetadata as AnalysisResult['metadata'],
+
+            // Fields are picked explicitly rather than spreading aiMetadata, because
+            // aiMetadata now also carries token counts and an estimated USD cost per call.
+            // That is operational data: it exposes unit economics to anyone who opens the
+            // network tab, and on a freemium plan that is margin information. It stays in
+            // the database and does not cross to the client.
+            metadata: {
+                analysisVersion: storedMetadata.analysisVersion,
+                modelUsed: storedMetadata.modelUsed,
+                processingNote: storedMetadata.processingNote,
+            },
         };
     }
 }

@@ -12,6 +12,7 @@ import { config } from '@/config/index.js';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 import { GEMINI_FALLBACK_MODELS, DEFAULT_GEMINI_MODEL } from '@/config/constants.js';
+import { addCall, emptyUsage, formatUsage, type TokenUsage } from './usage.js';
 
 /**
  * Render market data for the negotiation prompt, with its provenance attached
@@ -182,6 +183,11 @@ export class GeminiAiProvider implements AiProvider {
         const requestedModel = model || DEFAULT_GEMINI_MODEL;
         console.log(`[Gemini AI] Starting analysis with model: ${requestedModel}`);
 
+        // Accumulates every call this analysis makes. A local, not an instance field —
+        // two concurrent analyses on the same provider instance would otherwise bill each
+        // other's tokens.
+        let usage: TokenUsage = emptyUsage('gemini', requestedModel);
+
         try {
             const { result, modelUsed } = await this.withFallback(
                 requestedModel,
@@ -201,15 +207,32 @@ export class GeminiAiProvider implements AiProvider {
                         systemInstruction: SYSTEM_INSTRUCTION,
                     });
 
-                    return this.generateValidated(analysisModel, buildAnalysisPrompt(text, context));
+                    return this.generateValidated(
+                        analysisModel,
+                        buildAnalysisPrompt(text, context),
+                        (inputTokens, outputTokens) => {
+                            usage = addCall(usage, { model: modelName, inputTokens, outputTokens });
+                        },
+                    );
                 },
                 'analysis',
             );
 
+            // Crossing from "validated model output" to our domain type, then annotating it
+            // with the things the model does not know. `usage` deliberately is not part of
+            // the Zod schema: that schema validates what the MODEL sent, and token counts
+            // are ours, not its.
+            const analysis = result as AnalysisResult;
+
             // Stamp the model that actually served the request. This was previously left as
             // the literal string 'unknown' because the AI was asked to report it itself.
-            result.metadata.modelUsed = modelUsed;
-            return result as AnalysisResult;
+            analysis.metadata.modelUsed = modelUsed;
+
+            // Lands in analyses.aiMetadata, which is the only record of what an analysis cost.
+            analysis.metadata.usage = usage;
+            console.log(`[Gemini AI] usage: ${formatUsage(usage)}`);
+
+            return analysis;
         } catch (error: any) {
             if (error instanceof AppError) throw error;
 
@@ -415,6 +438,12 @@ export class GeminiAiProvider implements AiProvider {
     private async generateValidated(
         model: GenerativeModel,
         prompt: string,
+        /**
+         * Called once per model call with its token counts, including attempts that then
+         * fail validation. Those are billed too, so excluding them would understate cost
+         * by exactly the amount that went to waste.
+         */
+        trackUsage: (inputTokens: number, outputTokens: number) => void,
     ): Promise<ValidatedAnalysis> {
         let lastIssue = '';
 
@@ -425,6 +454,10 @@ export class GeminiAiProvider implements AiProvider {
                   + 'Return the corrected JSON. Use exactly the field names in the schema.';
 
             const genResult = await model.generateContent(promptForAttempt);
+
+            const reported = genResult.response.usageMetadata;
+            trackUsage(reported?.promptTokenCount ?? 0, reported?.candidatesTokenCount ?? 0);
+
             const raw = genResult.response.text();
 
             let parsed: unknown;
