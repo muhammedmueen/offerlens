@@ -13,8 +13,9 @@ import ScoreGauge from "@/components/charts/ScoreGauge";
 import SalaryBar from "@/components/charts/SalaryBar";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { AlertTriangle, Download, GitCompare, TrendingUp, Pencil, Share2, Lock, CheckCircle } from "lucide-react";
+import { AlertTriangle, Download, GitCompare, TrendingUp, Pencil, Share2, Lock, CheckCircle, ShieldQuestion } from "lucide-react";
 import ErrorBoundary from "@/components/common/ErrorBoundary";
+import ConfidenceBadge, { type ConfidenceLevel } from "@/components/common/ConfidenceBadge";
 import NegotiationPanel from "@/components/offers/NegotiationPanel";
 import BenefitsPanel from "@/components/offers/BenefitsPanel";
 import CareerPathPanel from "@/components/offers/CareerPathPanel";
@@ -78,10 +79,30 @@ const ResultsPage = () => {
   const market = a.salaryComparison?.marketRange;
   const negotiationSuggestions = a.negotiationSuggestions ?? [];
 
+  /** Confidence for one field, or null when there is nothing to say about it. */
+  const confidenceFor = (
+    key: string,
+  ): { level: ConfidenceLevel; reason: string } | null => a.confidence?.fields?.[key] ?? null;
+
+  const Confidence: React.FC<{ field: string; label: string }> = ({ field, label }) => {
+    const c = confidenceFor(field);
+    return c ? <ConfidenceBadge level={c.level} reason={c.reason} label={label} /> : null;
+  };
+
   return (
     <PageShell>
       <div className="container mx-auto max-w-4xl px-4 py-8 pb-28 space-y-8">
         {!isAuthenticated && <GuestBanner expiresAt={a.expiresAt} />}
+
+        {/* Anything limiting the whole analysis — a scanned source, or a letter we no longer
+            hold to check values against. Above the score, because it qualifies everything
+            below it. */}
+        {a.confidence?.caveat && (
+          <div className="flex items-start gap-2 rounded-xl border border-yellow-500/30 bg-yellow-50 p-4 text-sm skeu-emboss">
+            <ShieldQuestion className="mt-0.5 h-5 w-5 shrink-0 text-yellow-600" aria-hidden />
+            <p className="text-foreground">{a.confidence.caveat}</p>
+          </div>
+        )}
 
         {a.ocrConfidence && a.ocrConfidence < 0.7 && (
           <div className="flex items-center gap-2 rounded-xl border border-yellow-500/30 bg-yellow-50 p-4 text-sm skeu-emboss">
@@ -94,10 +115,16 @@ const ResultsPage = () => {
         <div className="flex flex-col items-center gap-4 rounded-2xl p-8 md:flex-row md:items-start md:gap-8 skeu-card">
           <ScoreGauge score={a.score ?? 0} />
           <div className="flex-1 text-center md:text-left">
-            <h1 className="text-xl font-bold text-foreground">{extracted.companyName || "Company"}</h1>
-            <p className="text-muted-foreground">
-              {extracted.role || "Role"}{extracted.location ? ` · ${extracted.location}` : ""}
-            </p>
+            <div className="flex flex-wrap items-baseline justify-center gap-2 md:justify-start">
+              <h1 className="text-xl font-bold text-foreground">{extracted.companyName || "Company"}</h1>
+              <Confidence field="companyName" label="Company name" />
+            </div>
+            <div className="flex flex-wrap items-baseline justify-center gap-2 md:justify-start">
+              <p className="text-muted-foreground">
+                {extracted.role || "Role"}{extracted.location ? ` · ${extracted.location}` : ""}
+              </p>
+              <Confidence field="role" label="Job title" />
+            </div>
             {a.scoreLabel && (
               <p className="mt-1 text-sm font-medium capitalize text-foreground">{a.scoreLabel}</p>
             )}
@@ -157,7 +184,10 @@ const ResultsPage = () => {
         {/* Salary Comparison */}
         {market && (
           <section className="rounded-2xl p-6 skeu-card">
-            <h2 className="font-semibold mb-4 text-foreground">Salary Comparison</h2>
+            <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="font-semibold text-foreground">Salary Comparison</h2>
+              <Confidence field="salaryComparison" label="Salary benchmark" />
+            </div>
             <SalaryBar
               p25={market.p25}
               p50={market.p50}
@@ -181,7 +211,10 @@ const ResultsPage = () => {
 
         {/* Red Flags */}
         <section className="rounded-2xl p-6 skeu-card">
-          <h2 className="font-semibold mb-4 text-foreground">Red Flags</h2>
+          <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="font-semibold text-foreground">Red Flags</h2>
+            <Confidence field="redFlags" label="Red flags" />
+          </div>
           {a.redFlags?.length > 0 ? (
             <div className="space-y-3">
               {a.redFlags.map((rf: any, i: number) => {
@@ -254,9 +287,12 @@ const ResultsPage = () => {
           <section className="rounded-2xl p-6 skeu-card">
             <div className="mb-4 flex items-baseline justify-between gap-2">
               <h2 className="font-semibold text-foreground">Estimated Take-Home</h2>
-              <span className="text-xs text-muted-foreground">
-                New regime · {a.takeHome.rulesVersion}
-              </span>
+              <div className="flex items-baseline gap-3">
+                <Confidence field="takeHome" label="Take-home estimate" />
+                <span className="text-xs text-muted-foreground">
+                  New regime · {a.takeHome.rulesVersion}
+                </span>
+              </div>
             </div>
 
             <div className="rounded-xl p-4 text-center skeu-inset">
@@ -327,7 +363,10 @@ const ResultsPage = () => {
             offer has that this one does not. The second half is the useful part, and it is
             computed by set difference on the server rather than guessed by the model. */}
         <section className="rounded-2xl p-6 skeu-card">
-          <h2 className="font-semibold mb-4 text-foreground">Benefits Overview</h2>
+          <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="font-semibold text-foreground">Benefits Overview</h2>
+            <Confidence field="benefits" label="Benefits list" />
+          </div>
 
           {a.benefits?.length > 0 ? (
             <div className="flex flex-wrap gap-2">

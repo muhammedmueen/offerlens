@@ -167,6 +167,7 @@ describe('analysis response shape', () => {
         'takeHome',
         'benefitsChecklist',
         'scoreBreakdown',
+        'confidence',
         'metadata',
         'expiresAt',
         'ocrConfidence',
@@ -197,6 +198,9 @@ describe('analysis response shape', () => {
             // rows have a score with no explanation attached.
             scoreBreakdown: null,
             scoreNote: null,
+            // Derived on read from the analysis plus the letter, so unlike scoreBreakdown it is
+            // never null — there is always an assessment, even if it is "we cannot check".
+            confidence: { fields: {}, overall: 'medium', caveat: null },
             metadata: { analysisVersion: '1.0', modelUsed: 'test', processingNote: null },
         };
 

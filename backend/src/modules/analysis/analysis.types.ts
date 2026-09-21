@@ -2,6 +2,7 @@ import type { TokenUsage } from '@/providers/ai/usage.js';
 import type { TakeHomeResult } from '@/modules/takehome/takehome.calculator.js';
 import type { BenefitsChecklist } from '@/modules/benefits/benefits.checklist.js';
 import type { ScoreComponent } from './score.rubric.js';
+import type { ConfidenceReport } from './confidence.js';
 
 export interface AnalysisResult {
     extractedData: {
@@ -139,6 +140,16 @@ export interface AnalysisResponse extends AnalysisResult {
     scoreBreakdown: ScoreComponent[] | null;
     /** Set when a weight was redistributed, e.g. no verified salary data for this role and city. */
     scoreNote: string | null;
+
+    /**
+     * How much to trust each part of this analysis, derived from checkable evidence rather than
+     * asked of the model.
+     *
+     * Verbatim presence in the letter, provenance of the benchmark, whether a value was computed
+     * or generated, and whether the text came from a scan. See `confidence.ts` for why a
+     * model-reported confidence number would have been worse than none.
+     */
+    confidence: ConfidenceReport;
     scoreLabel: string;
     /** 'standard' | 'fallback' — 'fallback' means the UI should say "estimated". */
     scoringMethod: string;

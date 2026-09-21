@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm';
 import { FastifyInstance } from 'fastify';
 import { AnalysisResult, AnalysisResponse } from './analysis.types.js';
 import { checkBenefits } from '@/modules/benefits/benefits.checklist.js';
+import { assessConfidence } from './confidence.js';
 
 export class AnalysisService {
     constructor(private fastify: FastifyInstance) { }
@@ -55,6 +56,20 @@ export class AnalysisService {
             // Null for rows written before task 10.
             scoreBreakdown: storedBreakdown?.components ?? null,
             scoreNote: storedBreakdown?.note ?? null,
+
+            // Derived here, like the benefits checklist: a pure function of the analysis plus the
+            // letter, both already persisted. Needs the raw text, which is why it cannot be
+            // computed by the provider — and should not be, since the point is to check the
+            // model's output against its own input rather than to ask the model how sure it is.
+            confidence: assessConfidence({
+                extractedData: analysis.extractedData as AnalysisResult['extractedData'],
+                redFlags: analysis.redFlags as AnalysisResult['redFlags'],
+                benefits: analysis.benefits as AnalysisResult['benefits'],
+                salaryComparison: analysis.salaryComparison as AnalysisResult['salaryComparison'],
+                takeHome: analysis.takeHome as AnalysisResponse['takeHome'],
+                rawText: offer?.rawText ?? null,
+                ocrConfidence: offer?.ocrConfidence ?? null,
+            }),
 
             // Fields are picked explicitly rather than spreading aiMetadata, because
             // aiMetadata now also carries token counts and an estimated USD cost per call.
