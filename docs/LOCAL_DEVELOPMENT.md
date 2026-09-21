@@ -301,10 +301,55 @@ The automated suites cover the API. This covers the browser, which they can't.
 5. On the results page, expect a score gauge with a real number, the company name and role
    as headings, red flags with quoted excerpts, and a benefits list.
 
-> **What "working" looks like:** a red-flag-heavy letter should score **low** (30-40, "weak"
-> or "poor"), not a flat 70. Company and role should be the real values, not the
-> placeholders "Company" and "Role". If you see 70/"fair" with blank headings, the analysis
-> came back empty.
+> **What "working" looks like:** a red-flag-heavy letter should score **low** — roughly
+> 35-45, "weak" or "poor". Company and role should be the real values, not the placeholders
+> "Company" and "Role". If you see blank headings, the analysis came back empty.
+>
+> Since Phase 2 the score is built from five weighted components rather than nudged from a
+> baseline, so **check the breakdown, not just the number** — see 8.1a.
+
+### 8.1a The four Phase 2 surfaces
+
+These are new and worth checking deliberately, because they are where the analysis stops
+being a black box.
+
+**"How this score was reached"** — five rows, each with its own 0-100 mark, the weight
+applied, and a reason.
+
+- The weights should read 30 / 30 / 20 / 20 / 10 only when salary was scored. With no
+  verified submissions for the role and city, salary shows **"not scored"** at 0%, the others
+  scale up to 43 / 29 / 14 / 14, and the header carries *"Score based on limited market
+  data"*. Both are correct; which you get depends on whether the table has ≥5 rows for that
+  role and city.
+- The parts should sum to the score. If they don't, something is wrong — that is asserted in
+  tests, so it should not happen.
+
+**"Estimated Take-Home"** — computed from published FY 2026-27 slabs, not guessed.
+
+- Expect a **range** (e.g. ₹1,63,625 – ₹1,72,625) whenever the letter states basic pay, since
+  whether an employer deducts PF on full basic or only to the ₹25,000 ceiling is policy no
+  letter states. A single figure means basic was absent, so PF is excluded entirely.
+- Open **"What this assumes"**. It should list the regime, the CTC treatment, the PF position
+  and professional tax. If that list is empty, the calculator did not run.
+
+**"Against a standard offer"** — the benefits checklist.
+
+- Three essentials (retirement, health cover, paid leave) plus four optional ones, each with a
+  tick or a warning and a reason.
+- A letter naming all three should **not** raise a missing-benefits red flag. One naming only
+  PF should. Try `05-red-flag-heavy` for the second case.
+
+**Confidence badges** — next to the company name, role, salary benchmark, red flags, benefits
+and take-home.
+
+- Hover each one. The tooltip should give a **reason**, not just a level.
+- On a pasted letter, company/role/CTC should read **Verified** — they were found word for
+  word. If they read "Check this" on pasted text, that is a bug.
+- Red flags should read "Check this" when the model contributed a flag the clause rules did
+  not find. Hover to see the split.
+- Try pasting a letter and then **changing one value by hand** — for example rename the
+  company. The badge for that field should drop to **Unverified**, because the value can no
+  longer be found in the text. That is the check working.
 
 ### 8.2 Guest isolation
 
@@ -329,6 +374,17 @@ From a results page while signed in: **Generate Negotiation Email**, **Calculate
 Benefits Value**, **Career**, **Correct**, **PDF**. Each should return content rather than
 an error.
 
+Open all four drawers. Each is wrapped in its own error boundary, so a failure shows a
+"try again" panel instead of blanking the page — if you ever see a white screen, that is a
+regression worth reporting. Specifically:
+
+- **Career** should show a timeline plus "Skills to build" and "Roles this could lead to".
+  Timeline cards without those two lists means the panel is discarding data again.
+- **Benefits** should list every benefit with an editable amount, and totals. "No benefits
+  data found" on a letter that clearly has benefits is the bug that was fixed in `b798415`.
+- **Correct** should arrive **pre-filled** with what was extracted, and Save should be
+  disabled until you actually change something.
+
 Then **Compare** with two completed offers, and check the dashboard shows a score
 distribution.
 
@@ -337,8 +393,18 @@ distribution.
 1. Go to **Salaries**, search a role and city. **Expected:** either percentiles, or an
    honest "not enough data yet" message. Both are correct — the message is what real
    traffic sees until the table fills.
-2. Submit a salary. **Expected:** success. A second submission within the hour should be
-   rate-limited.
+2. Search the same role and city again. The second read is served from the Redis cache
+   (task 13). It should be indistinguishable — same numbers, just faster. To confirm the
+   cache is live:
+
+   ```bash
+   docker exec offerlens-redis redis-cli --scan --pattern "salary:*"
+   ```
+
+3. Submit a salary. **Expected:** success. A second submission within the hour should be
+   rate-limited. An approved submission **invalidates** the cache for that role and city, so
+   the key above should disappear and the next search should reflect your submission
+   immediately rather than in an hour.
 
 ### 8.7 Forum
 
