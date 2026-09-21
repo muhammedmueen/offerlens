@@ -1,8 +1,9 @@
 import { db } from '@/db/index.js';
 import { salarySubmissions } from '@/db/schema/salary-submissions.js';
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
+import { cached, cacheDelete } from '@/shared/cache.js';
 
 /**
  * Minimum approved submissions before a role+city combination is reported as real data.
@@ -45,7 +46,47 @@ interface SalarySubmissionInput {
     fingerprint?: string | null;
 }
 
+/** 1 hour, per task 13. Bounds staleness for anything the write-path invalidation misses. */
+export const SALARY_CACHE_TTL_SECONDS = 3600;
+
+/**
+ * Versioned so a change to the cached shape does not need a manual flush — bump `v1` and old
+ * entries are simply never read again, expiring on their own.
+ */
+export function salaryCacheKey(role: string, city: string): string {
+    return `salary:ctcs:v1:${role}:${city}`;
+}
+
 export class SalaryService {
+    /**
+     * Approved CTCs for a role+city, sorted ascending, cached for an hour.
+     *
+     * The sorted array is the right cache unit rather than either method's output.
+     * `getStats` and `getBenchmark` both ran this same query and then computed different things
+     * from it — and `getBenchmark`'s percentile depends on the caller's own CTC, so caching its
+     * result would have needed the offer amount in the key and produced a near-zero hit rate.
+     * One entry now serves both methods and every caller.
+     *
+     * Honest about the size of the win: with a table this small the saved query is trivial. What
+     * it actually buys is that `GET /salaries/stats` is public and rate-limited at 30/min, so it
+     * was a cheap way to make a stranger hit the database, and that the path is ready for the
+     * seeded dataset in Phase 4 without revisiting.
+     */
+    private async approvedCtcs(normedRole: string, normedCity: string): Promise<number[]> {
+        return cached(salaryCacheKey(normedRole, normedCity), SALARY_CACHE_TTL_SECONDS, async () => {
+            const rows = await db.query.salarySubmissions.findMany({
+                where: and(
+                    eq(salarySubmissions.role, normedRole),
+                    eq(salarySubmissions.city, normedCity),
+                    eq(salarySubmissions.status, 'approved'),
+                ),
+            });
+
+            // Sorted here so it is sorted in the cache too, and every reader gets it for free.
+            return rows.map((r) => r.ctc).sort((a, b) => a - b);
+        });
+    }
+
     async submit(input: SalarySubmissionInput) {
         // Spam check: rate limit based on fingerprint/IP
         // For simplicity in MVP, we skip complex Redis rate limiting here and rely on global API limits
@@ -66,39 +107,41 @@ export class SalaryService {
         // Automatic validation heuristics
         const status = this.validate(input) ? 'approved' : 'rejected';
 
+        const normedRole = input.role.toLowerCase().trim();
+        const normedCity = input.city.toLowerCase().trim();
+
         await db.insert(salarySubmissions).values({
             ...input,
-            role: input.role.toLowerCase().trim(),
-            city: input.city.toLowerCase().trim(),
+            role: normedRole,
+            city: normedCity,
             status,
         });
+
+        // Invalidate on write rather than waiting out the hour. It matters most at exactly the
+        // moment a role+city crosses MIN_SAMPLE_SIZE: without this, the submission that finally
+        // made the data usable would be ignored for up to an hour, which is the one case where
+        // staleness is actively confusing. Rejected submissions change nothing, so skip those.
+        if (status === 'approved') {
+            await cacheDelete(salaryCacheKey(normedRole, normedCity));
+        }
     }
 
     async getStats(role: string, city: string) {
         const normedRole = role.toLowerCase().trim();
         const normedCity = city.toLowerCase().trim();
 
-        const data = await db.query.salarySubmissions.findMany({
-            where: and(
-                eq(salarySubmissions.role, normedRole),
-                eq(salarySubmissions.city, normedCity),
-                eq(salarySubmissions.status, 'approved')
-            ),
-            orderBy: desc(salarySubmissions.ctc),
-        });
+        const ctcs = await this.approvedCtcs(normedRole, normedCity);
 
-        if (data.length < MIN_SAMPLE_SIZE) {
+        if (ctcs.length < MIN_SAMPLE_SIZE) {
             return {
-                count: data.length,
+                count: ctcs.length,
                 message: 'Not enough data for this role/city combination.',
                 data: null,
             };
         }
 
-        const ctcs = data.map(d => d.ctc).sort((a, b) => a - b);
-
         return {
-            count: data.length,
+            count: ctcs.length,
             role: normedRole,
             city: normedCity,
             p25: this.percentile(ctcs, 25),
@@ -123,19 +166,11 @@ export class SalaryService {
         const normedRole = role.toLowerCase().trim();
         const normedCity = city.toLowerCase().trim();
 
-        const rows = await db.query.salarySubmissions.findMany({
-            where: and(
-                eq(salarySubmissions.role, normedRole),
-                eq(salarySubmissions.city, normedCity),
-                eq(salarySubmissions.status, 'approved'),
-            ),
-        });
+        const ctcs = await this.approvedCtcs(normedRole, normedCity);
 
         // Same floor as getStats. Percentiles from three submissions are noise wearing
         // the costume of authority, which is the failure mode this plan exists to remove.
-        if (rows.length < MIN_SAMPLE_SIZE) return null;
-
-        const ctcs = rows.map((r) => r.ctc).sort((a, b) => a - b);
+        if (ctcs.length < MIN_SAMPLE_SIZE) return null;
 
         return {
             marketRange: {
@@ -147,7 +182,7 @@ export class SalaryService {
             offerPercentile: offerCtc === null ? null : percentileRank(ctcs, offerCtc),
             roleUsed: normedRole,
             locationUsed: normedCity,
-            sampleSize: rows.length,
+            sampleSize: ctcs.length,
         };
     }
 
