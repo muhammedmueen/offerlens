@@ -166,6 +166,7 @@ describe('analysis response shape', () => {
         'benefits',
         'takeHome',
         'benefitsChecklist',
+        'scoreBreakdown',
         'metadata',
         'expiresAt',
         'ocrConfidence',
@@ -192,6 +193,10 @@ describe('analysis response shape', () => {
             // tax slabs, benefitsChecklist as a set difference against a list of standards.
             takeHome: null,
             benefitsChecklist: { core: [], notable: [], corePresent: 0, isBare: true },
+            // Null models an analysis stored before task 10 — the migration is additive, so old
+            // rows have a score with no explanation attached.
+            scoreBreakdown: null,
+            scoreNote: null,
             metadata: { analysisVersion: '1.0', modelUsed: 'test', processingNote: null },
         };
 

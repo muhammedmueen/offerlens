@@ -23,6 +23,8 @@ export class AnalysisService {
         });
 
         const storedMetadata = analysis.aiMetadata as AnalysisResult['metadata'];
+        const storedBreakdown = analysis.scoreBreakdown as
+            { components: AnalysisResponse['scoreBreakdown']; note: string | null } | null;
 
         return {
             // Score is computed by the worker after the AI returns, so it is not part of
@@ -48,6 +50,11 @@ export class AnalysisService {
             // Derived here rather than stored: a pure function of the benefits column, so it
             // needs no migration and always reflects the current checklist.
             benefitsChecklist: checkBenefits(analysis.benefits as AnalysisResult['benefits']),
+
+            // Stored at analysis time, so the parts always sum to the score that was recorded.
+            // Null for rows written before task 10.
+            scoreBreakdown: storedBreakdown?.components ?? null,
+            scoreNote: storedBreakdown?.note ?? null,
 
             // Fields are picked explicitly rather than spreading aiMetadata, because
             // aiMetadata now also carries token counts and an estimated USD cost per call.

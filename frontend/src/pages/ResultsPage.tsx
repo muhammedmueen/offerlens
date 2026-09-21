@@ -101,11 +101,58 @@ const ResultsPage = () => {
             {a.scoreLabel && (
               <p className="mt-1 text-sm font-medium capitalize text-foreground">{a.scoreLabel}</p>
             )}
+            {/* The rubric's own note when a weight was redistributed. Falls back to the generic
+                line for analyses stored before task 10, which have no breakdown. */}
             {a.scoringMethod === "fallback" && (
-              <p className="mt-2 text-xs text-muted-foreground italic">Estimated score — limited market data</p>
+              <p className="mt-2 text-xs text-muted-foreground italic">
+                {a.scoreNote ?? "Estimated score — limited market data"}
+              </p>
             )}
           </div>
         </div>
+
+        {/* How the score was reached.
+            A score with no explanation is an assertion. Each row shows the component's own
+            0-100 mark and the weight actually applied — which shifts when a component has no
+            data, so the weights are read from the response rather than hardcoded here. */}
+        {a.scoreBreakdown?.length > 0 && (
+          <section className="rounded-2xl p-6 skeu-card">
+            <h2 className="font-semibold mb-4 text-foreground">How this score was reached</h2>
+            <ul className="space-y-3">
+              {a.scoreBreakdown.map(
+                (c: { key: string; label: string; value: number | null; weight: number; note: string }) => (
+                  <li key={c.key}>
+                    <div className="flex items-baseline justify-between gap-3 text-sm">
+                      <span className="font-medium text-foreground">{c.label}</span>
+                      <span className="shrink-0 text-muted-foreground">
+                        {c.value === null ? "not scored" : `${c.value}/100`}
+                        {c.weight > 0 && (
+                          <span className="ml-2 text-xs">· {c.weight}% of total</span>
+                        )}
+                      </span>
+                    </div>
+                    {c.value !== null && (
+                      <div
+                        className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted"
+                        role="progressbar"
+                        aria-valuenow={c.value}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-label={`${c.label}: ${c.value} out of 100`}
+                      >
+                        <div
+                          className="h-full rounded-full bg-primary"
+                          style={{ width: `${c.value}%` }}
+                        />
+                      </div>
+                    )}
+                    <p className="mt-1 text-xs text-muted-foreground">{c.note}</p>
+                  </li>
+                ),
+              )}
+            </ul>
+          </section>
+        )}
 
         {/* Salary Comparison */}
         {market && (

@@ -15,6 +15,13 @@
       "when": 1789028364078,
       "tag": "0001_smiling_roxanne_simpson",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789984229215,
+      "tag": "0002_married_nomad",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,7 @@
 import type { TokenUsage } from '@/providers/ai/usage.js';
 import type { TakeHomeResult } from '@/modules/takehome/takehome.calculator.js';
 import type { BenefitsChecklist } from '@/modules/benefits/benefits.checklist.js';
+import type { ScoreComponent } from './score.rubric.js';
 
 export interface AnalysisResult {
     extractedData: {
@@ -128,6 +129,16 @@ export interface AnalysisResponse extends AnalysisResult {
      * what you want from a display aid.
      */
     benefitsChecklist: BenefitsChecklist;
+
+    /**
+     * How the score was arrived at: each component's sub-score, the weight actually applied
+     * after redistribution, and a plain-language reason.
+     *
+     * Null for analyses produced before task 10, which stored only the number.
+     */
+    scoreBreakdown: ScoreComponent[] | null;
+    /** Set when a weight was redistributed, e.g. no verified salary data for this role and city. */
+    scoreNote: string | null;
     scoreLabel: string;
     /** 'standard' | 'fallback' — 'fallback' means the UI should say "estimated". */
     scoringMethod: string;
@@ -140,7 +151,17 @@ export interface AnalysisResponse extends AnalysisResult {
     ocrConfidence: number | null;
 }
 
-export interface ScoreBreakdown {
+/**
+ * DEAD as written — nothing produced or read it, and its shape predates the rubric: no
+ * transparency component, and a `totalScore` duplicating the `score` column.
+ *
+ * The real breakdown is `ScoreComponent[]` from `score.rubric.ts`, exposed on
+ * `AnalysisResponse.scoreBreakdown`. Left here only so the removal is explicit rather than a
+ * silent deletion in a diff.
+ *
+ * @deprecated Use `ScoreComponent` from `score.rubric.ts`.
+ */
+export interface UnusedLegacyScoreBreakdown {
     salaryScore: number;
     redFlagScore: number;
     benefitsScore: number;

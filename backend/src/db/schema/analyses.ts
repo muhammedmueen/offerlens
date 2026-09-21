@@ -16,6 +16,17 @@ export const analyses = pgTable('analyses', {
     negotiationSuggestions: jsonb('negotiation_suggestions').notNull().default([]),
     benefits: jsonb('benefits').notNull().default([]),
     takeHome: jsonb('take_home'),
+    /**
+     * Per-component rubric breakdown, so a score can be explained rather than asserted.
+     *
+     * Stored rather than recomputed on read, unlike the benefits checklist. The score IS the
+     * headline product number: if the rubric is later revised, a recomputed explanation would no
+     * longer sum to the stored score, and visibly inconsistent arithmetic is worse than a
+     * slightly stale explanation.
+     *
+     * Nullable for rows written before task 10.
+     */
+    scoreBreakdown: jsonb('score_breakdown'),
     aiMetadata: jsonb('ai_metadata').notNull(),
     lowConfidence: boolean('low_confidence').notNull().default(false),
     redFlagsDiscarded: integer('red_flags_discarded').notNull().default(0),

@@ -13,6 +13,7 @@ import { detectRedFlags, mergeRedFlags } from '@/modules/analysis/redflag.rules.
 import { formatUsage } from '@/providers/ai/usage.js';
 import { calculateTakeHome, annualBasicFrom } from '@/modules/takehome/takehome.calculator.js';
 import { checkBenefits, bareBenefitsFlag } from '@/modules/benefits/benefits.checklist.js';
+import { calculateScore } from '@/modules/analysis/score.rubric.js';
 
 const salaryService = new SalaryService();
 
@@ -309,44 +310,33 @@ export const analysisWorker = new Worker(
                 );
             }
 
-            // ── Score ─────────────────────────────────────────────────────────
+            // ── Task 10: weighted scoring rubric ──────────────────────────────
             //
-            // Still the interim `70 ± adjustments` formula. The weighted five-component
-            // rubric (30 flags / 30 salary / 20 benefits / 10 growth / 10 transparency)
-            // is Phase 2 task 10 and is deliberately not attempted here.
+            // Replaces the interim `70 ± adjustments` formula. That baseline of 70 meant a
+            // letter with nothing wrong and nothing good scored "good" by default, and the
+            // result was unexplainable — a 55 gave no way to say which part was weak.
             //
-            // The salary term is only applied when the percentile came from real
-            // submissions. Previously it moved the score by up to 20 points based on a
-            // percentile the AI had invented, which is worse than not scoring salary at
-            // all — it looks like evidence.
-            let score = 70; // Baseline
-            mergedRedFlags.forEach(f => {
-                if (f.severity === 'high') score -= 15;
-                if (f.severity === 'medium') score -= 5;
+            // 30 flags / 30 salary / 20 benefits / 10 growth / 10 transparency, per decision 7.
+            // The percentile is passed as null unless it came from real submissions, which makes
+            // the rubric redistribute salary's weight instead of scoring an invented number.
+            const scoring = calculateScore({
+                redFlags: mergedRedFlags,
+                benefitsChecklist,
+                extractedData: result.extractedData,
+                benefits: result.benefits,
+                offerPercentile: usedRealSalaryData
+                    ? result.salaryComparison.offerPercentile
+                    : null,
             });
 
-            if (usedRealSalaryData) {
-                const percentile = result.salaryComparison.offerPercentile;
-                if (percentile > 75) score += 20;
-                else if (percentile > 50) score += 10;
-            }
+            const { score, label, method: scoringMethod } = scoring;
 
-            if ((result.benefits?.length || 0) > 5) score += 5;
-
-            score = Math.max(0, Math.min(100, score));
-
-            // 'fallback' tells the UI to label this an estimate. It will be the common
-            // case until the crowdsourced table has data, and saying so is the point —
-            // ResultsPage renders "Estimated score — limited market data" from this, and
-            // that line could previously never appear because 'standard' was hardcoded.
-            const scoringMethod = usedRealSalaryData ? 'standard' : 'fallback';
-
-            let label = 'fair';
-            if (score >= 90) label = 'excellent';
-            else if (score >= 75) label = 'good';
-            else if (score >= 60) label = 'fair';
-            else if (score >= 40) label = 'weak';
-            else label = 'poor';
+            console.log(
+                `[Analysis] Score ${score} (${label}, ${scoringMethod}): `
+                + scoring.components
+                    .map((c) => `${c.key} ${c.value ?? '—'}@${c.weight}%`)
+                    .join(', '),
+            );
 
             // Save to DB
             await db.transaction(async (tx) => {
@@ -361,6 +351,8 @@ export const analysisWorker = new Worker(
                     negotiationSuggestions: result.negotiationSuggestions || [],
                     benefits: result.benefits || [],
                     takeHome,
+                    // Stored so the score can be explained later, not just displayed.
+                    scoreBreakdown: { components: scoring.components, note: scoring.note },
                     aiMetadata: result.metadata,
                     lowConfidence: false, // Calculate from AI metadata if possible
                     redFlagsDiscarded: discardedCount,
