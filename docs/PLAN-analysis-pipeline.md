@@ -1154,6 +1154,47 @@ alongside.
 > They are flagged in `constants.ts` and overridable via `OPENAI_MODEL` / `ANTHROPIC_MODEL`. The
 > adapters compile and are unit-tested, but neither has made a real API call.
 
+#### Task 13 outcome — `backend/src/shared/cache.ts`
+
+**What is cached is not either method's output.** `getStats` and `getBenchmark` ran the *same*
+query — approved submissions for a role+city — then computed different things from it. Caching
+`getBenchmark`'s result would also have needed the caller's own CTC in the key, since the
+percentile depends on it, giving a near-zero hit rate.
+
+So the unit is the sorted CTC array: one entry serves both methods and every caller. That also
+removed the duplicated query, which is the larger win — the two had drifted to using different
+`orderBy` clauses and then re-sorting anyway.
+
+**Redis had to become reachable outside Fastify first.** It existed only as `fastify.redis`, but
+`SalaryService` is constructed both in routes *and* in the analysis worker, which has no Fastify
+instance. A cache hanging off the plugin would have worked on exactly one of the two call paths,
+silently. There is now a process-wide client in `shared/cache.ts`, and the plugin decorates with
+that rather than constructing a second — so rate limiting and caching share one connection.
+
+**Every operation fails soft**, and that is the part worth testing. A cache is an optimisation: if
+Redis is unreachable or holds something unparseable, the right outcome is a miss and a database
+hit, never a failed request. Easy to get wrong and impossible to notice locally where Redis is
+always up, so read/write/delete failures and unparseable data are all asserted to degrade to a
+miss. An `error` listener is registered because ioredis emits one per reconnect attempt and
+unhandled error events kill the process.
+
+`cached()` deliberately **does not cache null**. Here null means "not enough data yet" — precisely
+the state a new submission is meant to change — so caching it would keep a role+city reading "no
+data" for an hour after it crossed `MIN_SAMPLE_SIZE`. Falsy-but-real values (`0`, `[]`) are cached,
+and that distinction is tested.
+
+Invalidation is on write, with the hour TTL as backstop. It matters most at the moment a role+city
+crosses the sample threshold, which is the one case where staleness is actively confusing.
+
+> [!NOTE]
+> **Honest about the size of this one.** With 17 rows the saved query is trivial, and the code says
+> so rather than dressing it up. What it buys: `GET /salaries/stats` is public and rate-limited at
+> 30/min, so it was a cheap way for a stranger to make the database work — and the path is ready
+> for the Phase 4 seeded dataset without revisiting.
+
+Verified live: cache flushed → first read created the key with `ttl 3599` → second read served the
+same answer → a submission invalidated it.
+
 #### Task 11 outcome — `backend/src/modules/analysis/confidence.ts`
 
 **The design decision that matters: confidence is not asked of the model.** The obvious
@@ -1525,7 +1566,12 @@ guard in the harness, and it earned its keep on the first real run.
 | 10 | Implement weighted scoring rubric — **30 flags / 30 salary / 20 benefits / 10 growth / 10 transparency** per decision 7, with redistribution when salary data is absent | Fair, auditable scores | ✅ **Done.** See below |
 | 11 | Add confidence tags to all output fields | User trust signals | ✅ **Done.** See below |
 | 12 | Add standard benefits checklist + missing detection | Complete benefits analysis | ✅ **Done**, pulled ahead of 10 and 11. See below |
-| 13 | Add salary data caching in Redis (1hr TTL) | Performance | |
+| 13 | Add salary data caching in Redis (1hr TTL) | Performance | ✅ **Done.** See below |
+
+**Phase 2 complete — all six tasks.** What it changed, measured: red-flag F1 from ~74% to 86.0%
+with a noise floor that halved; the invented-basic failure eliminated (15 of 51 case-passes to 0);
+take-home and scoring moved from model guesses to arithmetic; and every field now carries a
+confidence tag derived from evidence.
 
 #### Task 8 outcome — `backend/src/modules/analysis/redflag.rules.ts`
 

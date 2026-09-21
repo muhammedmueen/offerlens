@@ -179,7 +179,7 @@ curl http://localhost:8000/api/v1/health
 ### Unit tests — no services required
 
 ```bash
-cd backend && npm test        # 313 tests
+cd backend && npm test        # 330 tests
 cd frontend && npm test       # 1 placeholder test
 ```
 
@@ -387,6 +387,7 @@ Things you may notice that are understood and tracked:
 | CORS error in the browser console | `CORS_ORIGIN` doesn't match the frontend origin exactly, scheme and port included |
 | Guest features behave oddly across tabs | Expected — identity is a per-browser cookie |
 | `db:push` hangs | Use `db:migrate`. See §4 |
+| Salary stats look stale after you submit | They shouldn't — an approved submission invalidates the cache for that role and city. If it persists, check Redis is reachable: `docker exec offerlens-redis redis-cli --scan --pattern "salary:*"`. Cache failures are deliberately silent and fall back to the database, so a broken Redis shows up as slowness, not errors |
 | `ECONNRESET` mid-test | `tsx watch` restarted from a stray keystroke. See §6 |
 | Analysis fails with a rate-limit message | Gemini free-tier quota. Wait, set a different key, or switch provider with `AI_PROVIDER` |
 | Log says "using MockAiProvider" | No key for the selected `AI_PROVIDER`. Responses are canned sample data |
@@ -409,7 +410,7 @@ npm run db:migrate && npm run db:seed
 
 Being precise about this, because "the tests pass" is not the same as "the app works".
 
-**Verified by execution:** both packages typecheck and lint clean; 313 backend unit tests;
+**Verified by execution:** both packages typecheck and lint clean; 330 backend unit tests;
 the frontend builds (177.6 KB gzip initial); all three integration suites pass against a
 live stack with a real Gemini key; extraction accuracy measured at 96.1%/82.3% over three
 passes with a 2.4% noise floor; the browser
