@@ -1154,6 +1154,66 @@ alongside.
 > They are flagged in `constants.ts` and overridable via `OPENAI_MODEL` / `ANTHROPIC_MODEL`. The
 > adapters compile and are unit-tested, but neither has made a real API call.
 
+#### Task 11 outcome — `backend/src/modules/analysis/confidence.ts`
+
+**The design decision that matters: confidence is not asked of the model.** The obvious
+implementation is a `confidence` number in the response schema. That produces something that
+looks like information and is not — models are systematically overconfident and report
+near-certainty almost everywhere, so the field would read ~0.9 on the values read correctly *and*
+on the ones invented. A signal that does not move when the answer is wrong is worse than none,
+because it launders a guess as a measurement.
+
+There is precedent here: `salaryComparison.roleMatchConfidence` was a model-supplied number and
+had to be overwritten with a hardcoded `1` once the benchmark came from real data, precisely
+because the model's version meant nothing.
+
+So it is derived from four kinds of checkable evidence:
+
+| | |
+|---|---|
+| **Verbatim** | Does the extracted value appear in the letter? A company name that cannot be found was inferred, not read — the hallucination-guard trick applied to scalars |
+| **Provenance** | Crowdsourced benchmark, or the model's impression |
+| **Derivation** | Computed by us (tax slabs, set difference) or produced by the model. Arithmetic needs no confidence tag |
+| **Input** | Text recognised from an image is less trustworthy than text a human typed |
+
+Numbers get a three-way trace rather than a boolean: `exact` when the digits are in the letter
+separators aside, `expanded` when a magnitude word did the work ("24 LPA" → 2400000, correct but
+not copied), `absent` when neither. The middle case earns its own level because **expansion is
+where magnitude bugs live** — it was worth five orders of magnitude in the benefits calculator
+before `extractMoney` handled units.
+
+Absence is never `high`: we cannot verify that a letter omits something, since extraction may have
+missed it. The one exception is basic pay, where absence *is* the normal case for an Indian letter
+and reporting it as low confidence would blame the tool for the letter's choice.
+
+Computed on read like the benefits checklist — a pure function of the analysis plus
+`offers.rawText`, both already persisted.
+
+##### Two bugs I shipped into the first pass, and what caught them
+
+Checking against the live API showed every field on a **pasted** letter tagged medium with the
+caveat *"read from a scan or photo"*, and reasons reading *"Found word-for-word in the letter"*
+next to a medium badge.
+
+One wrong premise, two symptoms. The OCR worker writes `ocrConfidence = 1.0` on both non-OCR
+paths — pasted text and uploaded `.txt` — so **non-null never meant a scan was involved**. Now
+keyed on `< 1`, which is correct today and stays correct if item 21d makes Vision report real
+numbers.
+
+The second symptom was independent and worth fixing on its own: downgrading a level without
+touching its reason produces output that contradicts itself on screen. The reason now moves with
+the level. Both are pinned by tests.
+
+Verified through the API on a pasted letter — overall high, no caveat, verbatim fields high,
+red flags medium (3 of 4 deterministic), take-home medium (PF range), benefits medium,
+salary high. **It discriminates**, rather than tagging everything the same, which was the failure
+mode to avoid.
+
+The badge shows the **reason**, not just the level. "Medium confidence" alone tells a candidate
+nothing actionable; "stated with a magnitude word, so the figure is expanded rather than copied"
+tells them exactly what to check against their copy. Colour is never the only signal, and the
+reason is part of the accessible name since the tooltip is hover/focus only.
+
 #### Task 10 outcome — `backend/src/modules/analysis/score.rubric.ts`
 
 Replaces the interim formula — start at 70, −15 per high flag, up to +20 for a good percentile,
@@ -1463,7 +1523,7 @@ guard in the harness, and it earned its keep on the first real run.
 | 8 | Build red flag pattern rule engine (includes > regex, 100ms timeout) | Reliable, deterministic detection | ✅ **Done.** See below |
 | 9 | Build Indian tax take-home calculator | Accurate take-home | ✅ **Done.** See below |
 | 10 | Implement weighted scoring rubric — **30 flags / 30 salary / 20 benefits / 10 growth / 10 transparency** per decision 7, with redistribution when salary data is absent | Fair, auditable scores | ✅ **Done.** See below |
-| 11 | Add confidence tags to all output fields | User trust signals |
+| 11 | Add confidence tags to all output fields | User trust signals | ✅ **Done.** See below |
 | 12 | Add standard benefits checklist + missing detection | Complete benefits analysis | ✅ **Done**, pulled ahead of 10 and 11. See below |
 | 13 | Add salary data caching in Redis (1hr TTL) | Performance | |
 

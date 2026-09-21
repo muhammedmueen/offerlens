@@ -179,7 +179,7 @@ curl http://localhost:8000/api/v1/health
 ### Unit tests — no services required
 
 ```bash
-cd backend && npm test        # 279 tests
+cd backend && npm test        # 313 tests
 cd frontend && npm test       # 1 placeholder test
 ```
 
@@ -356,6 +356,9 @@ Things you may notice that are understood and tracked:
 | Score says "Score based on limited market data" | Follows from the above. With no verified submissions for the role and city, salary is not scored and its 30 points are redistributed across the other four components — see "How this score was reached" on the results page |
 | Scores moved after task 10 | Expected. The old formula started every offer at 70 and nudged; the rubric builds the score from five weighted components instead. Flag-heavy offers score lower, and featureless ones no longer start at "good" |
 | The same letter scores a few points differently between uploads | The rubric is deterministic, but its inputs include model-extracted benefits and equity, which vary. The breakdown shows which component moved — usually growth, when a learning allowance is picked up in one run and not the next |
+| A field is tagged "Unverified" even though it looks right | It means the value could not be found in the letter, so it was inferred rather than read. Often that is legitimate (an abbreviation expanded, a city inferred from an address) — but it is exactly where a fabricated value would show up, so it is worth a glance |
+| Benefits and red flags rarely show "Verified" | By design. The benefits list and any flag the clause rules did not find are the model's reading, and that is the half that varies between runs. Hover the badge for which flags were deterministic |
+| Confidence tags are not asked of the AI | Deliberate. Models report near-certainty almost everywhere, including on values they invent. Tags here come from checkable evidence — verbatim presence in the letter, benchmark provenance, whether we computed the value ourselves, and whether the text came from a scan |
 | Salary chart is a flat line locally | The test scripts insert identical values, so all four percentiles match |
 | A **scanned** PDF fails | Cloud Vision's `textDetection` doesn't accept PDF input. Text PDFs and images work |
 | Take-home shows a **range**, not one figure | Correct, and deliberate. PF is 12% of basic, and whether an employer deducts on full basic or only to the ₹25,000 statutory ceiling is policy the letter does not state. At ₹1,00,000 monthly basic that is ₹9,000/month of take-home. Open "What this assumes" for the full list |
@@ -406,7 +409,7 @@ npm run db:migrate && npm run db:seed
 
 Being precise about this, because "the tests pass" is not the same as "the app works".
 
-**Verified by execution:** both packages typecheck and lint clean; 279 backend unit tests;
+**Verified by execution:** both packages typecheck and lint clean; 313 backend unit tests;
 the frontend builds (177.6 KB gzip initial); all three integration suites pass against a
 live stack with a real Gemini key; extraction accuracy measured at 96.1%/82.3% over three
 passes with a 2.4% noise floor; the browser
