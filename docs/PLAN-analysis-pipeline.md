@@ -1154,6 +1154,68 @@ alongside.
 > They are flagged in `constants.ts` and overridable via `OPENAI_MODEL` / `ANTHROPIC_MODEL`. The
 > adapters compile and are unit-tested, but neither has made a real API call.
 
+#### Task 10 outcome — `backend/src/modules/analysis/score.rubric.ts`
+
+Replaces the interim formula — start at 70, −15 per high flag, up to +20 for a good percentile,
++5 for more than five benefits. Two problems with it: the baseline of 70 meant a letter with
+nothing wrong and nothing good scored **"good"** by default, and the result was unexplainable. A
+55 gave no way to say which part was weak.
+
+Five components, each scored 0-100 on its own terms, then weighted per decision 7. The
+crowdsourced table being mostly empty is why salary lost the top weight during planning.
+
+##### Redistribution
+
+A component with no data contributes nothing and its weight spreads proportionally over the
+rest. Scoring it as zero would penalise the offer for a gap in **our** data — the mirror of the
+old formula's mistake of moving the score up to 20 points on a percentile the model invented.
+
+With no verified salary data the applied weights become **43 / 0 / 29 / 14 / 14**, and the
+response carries the roadmap's *"Score based on limited market data"* note, which the UI renders
+in place of its generic line.
+
+##### Calibration I tuned, and one I declined to add
+
+Flag penalties are **high 40 / medium 15 / low 5**, so two high-severity clauses leave almost
+nothing. A weighted average is inherently forgiving — at 30% weight even a zero there costs only
+30 points — and a gentler curve let a letter with a 12-month non-compete *and* no-notice
+probation land in "fair".
+
+I did **not** add a hard cap letting one severe flag limit the overall score. It is a reasonable
+pattern, but it overrides the agreed weights, which is a policy decision rather than an
+implementation detail. Open if you want it.
+
+##### The score is now auditable
+
+`scoreBreakdown` is stored in a new nullable jsonb column — migration `0002`, additive and
+single-column. **Stored rather than recomputed on read**, unlike the benefits checklist, because
+the score is the headline product number: if the rubric is revised later, a recomputed
+explanation would no longer sum to the stored score, and visibly inconsistent arithmetic is
+worse than a slightly stale explanation.
+
+Verified through the API on the `test-m2` fixture:
+
+```
+redFlags         0/100 @ 30%  4 red flag(s): 2 high, 2 medium severity.
+salary          50/100 @ 30%  Offer sits at roughly the 50th percentile of verified submissions.
+benefits        75/100 @ 20%  3 of 3 essential benefits, 0 of 4 additional ones.
+growth           0/100 @ 10%  No equity and no learning budget stated.
+transparency    80/100 @ 10%  part of the pay is left to the employer's discretion.
+parts sum to 38.0 vs stored score 38 — MATCH
+```
+
+That fixture moved from 30-35 "poor" to 38-44 depending on what the model extracts. The breakdown
+makes the variance **diagnosable rather than mysterious**: two consecutive runs differed only
+because one picked up the learning allowance and the other did not, visible in the growth row.
+
+Also removed a dead `ScoreBreakdown` interface — never produced or read, and its shape predated
+the rubric (no transparency component, a `totalScore` duplicating the score column).
+
+> [!NOTE]
+> No eval run for this task. The rubric is worker-side and does not touch extraction, which is
+> what the harness measures — running it would have burned 51 model calls to confirm nothing
+> moved.
+
 #### Task 12 outcome — `backend/src/modules/benefits/benefits.checklist.ts`
 
 Pulled ahead of tasks 10 and 11, because it targets the largest remaining error group and both
@@ -1400,7 +1462,7 @@ guard in the harness, and it earned its keep on the first real run.
 |---|------|--------|---|
 | 8 | Build red flag pattern rule engine (includes > regex, 100ms timeout) | Reliable, deterministic detection | ✅ **Done.** See below |
 | 9 | Build Indian tax take-home calculator | Accurate take-home | ✅ **Done.** See below |
-| 10 | Implement weighted scoring rubric — **30 flags / 30 salary / 20 benefits / 10 growth / 10 transparency** per decision 7, with redistribution when salary data is absent | Fair, auditable scores |
+| 10 | Implement weighted scoring rubric — **30 flags / 30 salary / 20 benefits / 10 growth / 10 transparency** per decision 7, with redistribution when salary data is absent | Fair, auditable scores | ✅ **Done.** See below |
 | 11 | Add confidence tags to all output fields | User trust signals |
 | 12 | Add standard benefits checklist + missing detection | Complete benefits analysis | ✅ **Done**, pulled ahead of 10 and 11. See below |
 | 13 | Add salary data caching in Redis (1hr TTL) | Performance | |
