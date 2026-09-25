@@ -11,11 +11,8 @@ import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 import { randomUUID } from 'node:crypto';
 import { sanitizeFilename } from '@/shared/sanitize.js';
-import { GoogleVisionOcrProvider } from '@/providers/ocr/google-vision.ocr.js';
-import { MockOcrProvider } from '@/providers/ocr/mock.ocr.js';
 import { createAiProvider, type AiProviderSelection } from '@/providers/ai/ai.factory.js';
 import { redactSelection } from '@/providers/ai/request-override.js';
-import { config } from '@/config/index.js';
 import { DEFAULT_GEMINI_MODEL } from '@/config/constants.js';
 import { resolveDedupScope } from './offer.dedup.js';
 import os from 'node:os';
@@ -203,6 +200,16 @@ export class OfferService {
             .where(eq(offers.id, id));
     }
 
+    /**
+     * Step 2 of autofill: offer text in, structured fields out.
+     *
+     * `POST /offers/extract-file` returns text and nothing else, so the frontend calls
+     * `POST /offers/extract` with that text. There used to be a third method,
+     * `extractMetadata(file)`, that did both halves in one pass — it had no caller anywhere
+     * in the codebase and has been deleted. It also held the only copy of a comment
+     * describing a `NODE_ENV === 'production'` gating fix, so the fix was documented on the
+     * dead path while the live one gated on credentials all along.
+     */
     async extractMetadataFromText(text: string, selection: AiProviderSelection = {}): Promise<any> {
         const aiProvider = createAiProvider(selection);
 
@@ -214,12 +221,15 @@ export class OfferService {
         return aiProvider.extractMetadata(text);
     }
 
+    /** Step 1 of autofill: uploaded file in, plain text out. */
     async extractTextFromFile(file: { toBuffer: () => Promise<Buffer>, filename: string, mimetype: string }): Promise<string> {
         this.fastify.log.info({ filename: file.filename, mimetype: file.mimetype }, 'Starting text extraction from file');
-        
-        const ocrProvider = config.GOOGLE_CLOUD_CREDENTIALS
-            ? new GoogleVisionOcrProvider()
-            : new MockOcrProvider();
+
+        // The instance the providers plugin already built, not a fresh one. This used to
+        // re-run the same `GOOGLE_CLOUD_CREDENTIALS` check and construct a new
+        // GoogleVisionOcrProvider on every request — a second gRPC client and another read
+        // of the credentials file, per call, on a route reachable without an account.
+        const ocrProvider = this.fastify.ocr;
 
         this.fastify.log.info({ provider: ocrProvider.constructor.name }, 'Using OCR provider');
 
@@ -249,54 +259,6 @@ export class OfferService {
             await fs.unlink(tempPath).catch((err) => {
                 this.fastify.log.warn({ error: err }, 'Failed to delete temp file');
             });
-        }
-    }
-
-    async extractMetadata(
-        file: { toBuffer: () => Promise<Buffer>, filename: string, mimetype: string },
-        selection: AiProviderSelection = {},
-    ): Promise<any> {
-        /**
-         * Both providers used to be gated on `config.NODE_ENV === 'production'`, so outside
-         * production this method always returned mock data regardless of the credentials
-         * present. File-upload autofill therefore appeared broken in development while the
-         * paste-text path worked, because that one had no such gate — and the two were
-         * supposed to do the same thing.
-         *
-         * Now gated on credentials only, which is what `plugins/providers.ts` has always
-         * done. OCR reuses the already-configured instance rather than building a second one.
-         */
-        const ocrProvider = this.fastify.ocr;
-        const aiProvider = createAiProvider(selection);
-
-        // 1. Save temp file for OCR (some providers need path) or use buffer if supported
-        // Google Vision needs path or buffer. Our OcrProvider interface takes path currently?
-        // Let's check OcrProvider interface.
-        // Assuming it takes path. We need to save file temporarily.
-        const buffer = await file.toBuffer();
-        const tempPath = buildTempPath(file.filename);
-
-        // This is a bit hacky for temp file. Better: rely on storage provider or fs.
-        // Let's use fs to write temp file
-        const fs = await import('fs/promises');
-        await fs.writeFile(tempPath, buffer);
-
-        try {
-            // 2. OCR
-            let text = '';
-            if (file.filename.endsWith('.txt')) {
-                text = await fs.readFile(tempPath, 'utf-8');
-            } else {
-                const ocrResult = await ocrProvider.extractText(tempPath);
-                text = ocrResult.text;
-            }
-
-            // 3. AI Extraction
-            const metadata = await aiProvider.extractMetadata(text);
-            return metadata;
-        } finally {
-            // Cleanup
-            await fs.unlink(tempPath).catch(() => { });
         }
     }
 
