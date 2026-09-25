@@ -14,6 +14,7 @@ import { formatUsage } from '@/providers/ai/usage.js';
 import { calculateTakeHome, annualBasicFrom } from '@/modules/takehome/takehome.calculator.js';
 import { checkBenefits, bareBenefitsFlag } from '@/modules/benefits/benefits.checklist.js';
 import { calculateScore } from '@/modules/analysis/score.rubric.js';
+import { optionalStage } from '@/shared/stage.js';
 
 const salaryService = new SalaryService();
 
@@ -225,11 +226,19 @@ export const analysisWorker = new Worker(
             // So the checklist owns this flag type outright: `suppress` drops the model's
             // version even when the checklist raises nothing, because "we checked the list and
             // it is fine" is a verdict, not silence.
-            const benefitsChecklist = checkBenefits(result.benefits);
-            const bareFlag = bareBenefitsFlag(
-                benefitsChecklist,
-                result.extractedData?.employmentType,
+            //
+            // Optional stage (task 15): null on failure. The rubric then marks benefits and
+            // growth unscored and redistributes their weight, which is the same path absent
+            // salary data already takes.
+            const benefitsChecklist = optionalStage(
+                'benefits checklist',
+                () => checkBenefits(result.benefits),
+                null,
             );
+
+            const bareFlag = benefitsChecklist
+                ? bareBenefitsFlag(benefitsChecklist, result.extractedData?.employmentType)
+                : null;
 
             const deterministicFlags = [
                 ...ruleFlags,
@@ -237,7 +246,11 @@ export const analysisWorker = new Worker(
             ];
 
             const mergedRedFlags = mergeRedFlags(deterministicFlags, verifiedRedFlags, {
-                suppress: ['missing_benefit'],
+                // Suppression is only justified by having actually checked. The checklist owns
+                // `missing_benefit` because it is measurably better than the model at it — but if
+                // it did not run, dropping the model's flag would be silencing the only opinion
+                // available, on the authority of a check that never happened.
+                suppress: benefitsChecklist ? ['missing_benefit'] : [],
             });
 
             if (deterministicFlags.length > 0) {
@@ -247,8 +260,10 @@ export const analysisWorker = new Worker(
                 );
             }
             console.log(
-                `[Analysis] Benefits checklist: ${benefitsChecklist.corePresent}/3 core present`
-                + (benefitsChecklist.isBare ? ' — flagged as bare' : ''),
+                benefitsChecklist
+                    ? `[Analysis] Benefits checklist: ${benefitsChecklist.corePresent}/3 core present`
+                        + (benefitsChecklist.isBare ? ' — flagged as bare' : '')
+                    : '[Analysis] Benefits checklist unavailable — benefits and growth will not be scored',
             );
 
             // ── Task 2: replace the AI's guessed benchmark with real submissions ──
@@ -304,10 +319,17 @@ export const analysisWorker = new Worker(
             // `annualBasicFrom` returns null when the letter never stated basic, which is most
             // of them. The calculator then excludes PF and says so in its assumptions rather
             // than inventing a basic-to-CTC ratio.
-            const takeHome = calculateTakeHome({
-                totalCtc: result.extractedData?.compensation?.totalCTC ?? null,
-                annualBasic: annualBasicFrom(result.extractedData?.compensation?.baseSalary),
-            });
+            //
+            // Optional stage (task 15): null on failure, which is the same value it returns for
+            // a letter with no CTC, so the UI section is already guarded for it.
+            const takeHome = optionalStage(
+                'take-home calculator',
+                () => calculateTakeHome({
+                    totalCtc: result.extractedData?.compensation?.totalCTC ?? null,
+                    annualBasic: annualBasicFrom(result.extractedData?.compensation?.baseSalary),
+                }),
+                null,
+            );
 
             if (takeHome) {
                 console.log(

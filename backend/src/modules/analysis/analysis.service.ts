@@ -6,6 +6,7 @@ import { FastifyInstance } from 'fastify';
 import { AnalysisResult, AnalysisResponse } from './analysis.types.js';
 import { checkBenefits } from '@/modules/benefits/benefits.checklist.js';
 import { assessConfidence } from './confidence.js';
+import { optionalStage } from '@/shared/stage.js';
 
 export class AnalysisService {
     constructor(private fastify: FastifyInstance) { }
@@ -50,7 +51,16 @@ export class AnalysisService {
 
             // Derived here rather than stored: a pure function of the benefits column, so it
             // needs no migration and always reflects the current checklist.
-            benefitsChecklist: checkBenefits(analysis.benefits as AnalysisResult['benefits']),
+            //
+            // Guarded (task 15) because a throw here is worse than the same throw in the worker.
+            // The worker runs once; this runs on every GET, so a single malformed row would mean
+            // a permanent 500 on that offer's results page — the user's analysis exists and is
+            // simply unreachable. The section is null-guarded in the UI.
+            benefitsChecklist: optionalStage(
+                'benefits checklist (read)',
+                () => checkBenefits(analysis.benefits as AnalysisResult['benefits']),
+                null,
+            ),
 
             // Stored at analysis time, so the parts always sum to the score that was recorded.
             // Null for rows written before task 10.
@@ -61,15 +71,24 @@ export class AnalysisService {
             // letter, both already persisted. Needs the raw text, which is why it cannot be
             // computed by the provider — and should not be, since the point is to check the
             // model's output against its own input rather than to ask the model how sure it is.
-            confidence: assessConfidence({
-                extractedData: analysis.extractedData as AnalysisResult['extractedData'],
-                redFlags: analysis.redFlags as AnalysisResult['redFlags'],
-                benefits: analysis.benefits as AnalysisResult['benefits'],
-                salaryComparison: analysis.salaryComparison as AnalysisResult['salaryComparison'],
-                takeHome: analysis.takeHome as AnalysisResponse['takeHome'],
-                rawText: offer?.rawText ?? null,
-                ocrConfidence: offer?.ocrConfidence ?? null,
-            }),
+            //
+            // Guarded for the same reason, but with a SHAPE rather than null as the fallback:
+            // the response contract says confidence is never null — there is always an
+            // assessment, even if it is "we cannot check" — and `app.contract.test.ts` asserts
+            // that. An empty assessment renders as no badges, which is the honest outcome.
+            confidence: optionalStage(
+                'confidence assessment (read)',
+                () => assessConfidence({
+                    extractedData: analysis.extractedData as AnalysisResult['extractedData'],
+                    redFlags: analysis.redFlags as AnalysisResult['redFlags'],
+                    benefits: analysis.benefits as AnalysisResult['benefits'],
+                    salaryComparison: analysis.salaryComparison as AnalysisResult['salaryComparison'],
+                    takeHome: analysis.takeHome as AnalysisResponse['takeHome'],
+                    rawText: offer?.rawText ?? null,
+                    ocrConfidence: offer?.ocrConfidence ?? null,
+                }),
+                { fields: {}, overall: 'medium', caveat: null },
+            ),
 
             // Fields are picked explicitly rather than spreading aiMetadata, because
             // aiMetadata now also carries token counts and an estimated USD cost per call.

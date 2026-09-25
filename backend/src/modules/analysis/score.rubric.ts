@@ -81,7 +81,12 @@ export interface ScoreResult {
 
 export interface ScoreInput {
     redFlags: RedFlag[];
-    benefitsChecklist: BenefitsChecklist;
+    /**
+     * `null` when the checklist stage failed (task 15). Benefits and growth then score as
+     * unscored and their weight is redistributed, exactly as absent salary data already does —
+     * rather than reading as "this offer has no benefits", which is a different claim.
+     */
+    benefitsChecklist: BenefitsChecklist | null;
     extractedData: AnalysisResult['extractedData'] | null | undefined;
     benefits: AnalysisResult['benefits'];
     /** Percentile from REAL submissions, or null when the benchmark was AI-estimated. */
@@ -138,7 +143,14 @@ export function scoreSalary(offerPercentile: number | null): { value: number | n
  * while gratuity, term life, a learning budget and flexible working are nice rather than
  * expected, so a letter without them should not be marked down heavily.
  */
-export function scoreBenefits(checklist: BenefitsChecklist): { value: number; note: string } {
+export function scoreBenefits(checklist: BenefitsChecklist | null): { value: number | null; note: string } {
+    if (!checklist) {
+        return {
+            value: null,
+            note: 'The benefits checklist could not be run, so benefits are not scored.',
+        };
+    }
+
     const core = checklist?.core ?? [];
     const notable = checklist?.notable ?? [];
 
@@ -165,8 +177,18 @@ export function scoreBenefits(checklist: BenefitsChecklist): { value: number; no
  */
 export function scoreGrowth(
     extractedData: ScoreInput['extractedData'],
-    checklist: BenefitsChecklist,
-): { value: number; note: string } {
+    checklist: BenefitsChecklist | null,
+): { value: number | null; note: string } {
+    if (!checklist) {
+        // Not scored on equity alone. Half this component's evidence comes from the checklist, so
+        // without it a letter that does fund learning would read as one that does not — an
+        // understated score presented as a measured one.
+        return {
+            value: null,
+            note: 'Growth needs the benefits checklist, which could not be run, so it is not scored.',
+        };
+    }
+
     const hasLearning = (checklist?.notable ?? []).some((e) => e.key === 'learning' && e.present);
     const equity = extractedData?.compensation?.equity;
     const hasEquity = Boolean(equity && (equity.quantity || equity.type));

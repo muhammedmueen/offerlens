@@ -104,9 +104,10 @@ describe('scoreBenefits', () => {
             benefit('Gratuity'), benefit('Term Life'), benefit('Learning'), benefit('Remote'),
         ])).value;
 
+        // The exact values carry the ordering; a further toBeGreaterThan between two literals
+        // asserted one line above adds nothing, and `value` is now `number | null`.
         expect(coreOnly).toBe(75);
         expect(extrasOnly).toBe(25);
-        expect(coreOnly).toBeGreaterThan(extrasOnly);
     });
 });
 
@@ -327,5 +328,50 @@ describe('the interim formula it replaces', () => {
         // No flags is genuinely good, so this is not zero — but nothing else is present.
         expect(bare.score).toBeLessThan(60);
         expect(['weak', 'poor', 'fair']).toContain(bare.label);
+    });
+});
+
+describe('a missing benefits checklist (task 15)', () => {
+    it('does not score benefits as zero', () => {
+        // The distinction that matters: "we could not check" is not "this offer has no
+        // benefits". Scoring it as zero would penalise the candidate for our own bug.
+        expect(scoreBenefits(null).value).toBeNull();
+        expect(scoreBenefits(null).note.toLowerCase()).toContain('not scored');
+    });
+
+    it('does not score growth on equity alone', () => {
+        // Half of growth's evidence is the learning-budget entry in the checklist. Scoring on
+        // equity alone would report a letter that does fund learning as one that does not.
+        expect(scoreGrowth({ compensation: { equity: { quantity: '1000 units' } } } as never, null).value)
+            .toBeNull();
+    });
+
+    it('redistributes the weight instead of failing', () => {
+        const result = calculateScore(baseInput({ benefitsChecklist: null }));
+
+        expect(result.method).toBe('fallback');
+        expect(result.note).toContain('could not be scored');
+
+        const byKey = Object.fromEntries(result.components.map((c) => [c.key, c]));
+        expect(byKey.benefits.weight).toBe(0);
+        expect(byKey.growth.weight).toBe(0);
+
+        // Flags 30, salary 30 and transparency 10 remain, scaled to 100.
+        expect(byKey.redFlags.weight + byKey.salary.weight + byKey.transparency.weight).toBe(100);
+    });
+
+    it('still produces a usable score, because the columns are NOT NULL', () => {
+        const result = calculateScore(baseInput({ benefitsChecklist: null }));
+
+        expect(Number.isFinite(result.score)).toBe(true);
+        expect(result.score).toBeGreaterThan(0);
+        expect(result.label).toBeTruthy();
+    });
+
+    it('names the missing components so the UI note is specific', () => {
+        // ResultsPage prints `scoreNote` verbatim under the score when method is 'fallback'.
+        const note = calculateScore(baseInput({ benefitsChecklist: null, offerPercentile: 60 })).note!;
+        expect(note.toLowerCase()).toContain('benefits');
+        expect(note.toLowerCase()).toContain('growth');
     });
 });

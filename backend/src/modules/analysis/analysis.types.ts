@@ -128,8 +128,12 @@ export interface AnalysisResponse extends AnalysisResult {
      * IS stored — so there is nothing to migrate and it can never drift out of step with the
      * current checklist definition. Old analyses pick up a revised list automatically, which is
      * what you want from a display aid.
+     *
+     * Nullable since task 15: the checklist is an optional stage, and returning null keeps the
+     * rest of a completed analysis reachable rather than 500ing the results page on every visit.
+     * The UI section is already guarded on it.
      */
-    benefitsChecklist: BenefitsChecklist;
+    benefitsChecklist: BenefitsChecklist | null;
 
     /**
      * How the score was arrived at: each component's sub-score, the weight actually applied
