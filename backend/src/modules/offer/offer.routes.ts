@@ -7,6 +7,7 @@ import { requireRegistered } from '@/middleware/authenticate.js';
 import { loadAuthorizedOffer } from '@/shared/access/offer-guard.js';
 import { routeLimit } from '@/middleware/rate-limiter.js';
 import { MAX_EXTRACT_TEXT_CHARS } from '@/config/constants.js';
+import { readUploadedFile } from './multipart.js';
 
 export async function offerRoutes(fastify: FastifyInstance) {
     const guestService = new GuestService();
@@ -19,30 +20,31 @@ export async function offerRoutes(fastify: FastifyInstance) {
         
         // With attachFieldsToBody: true, fields are in req.body as objects with .value property
         const body = req.body as any;
-        
-        let file: any = null;
+
+        // Same reader as /extract-file, which also gets the file its type validated against
+        // SUPPORTED_FILE_TYPES — a list that until now was declared and used by nothing.
+        const file = readUploadedFile(body);
         let text: string | undefined = undefined;
         const fields: Record<string, any> = {};
-        
+
         // Extract values from the field objects
         if (body) {
             for (const [key, fieldObj] of Object.entries(body)) {
                 // Each field is an object with { type, fieldname, value, ... }
                 const field = fieldObj as any;
-                
-                // Check if it's a file object
-                if (field.type === 'file') {
-                    console.log('[Offer Routes] Found file field');
-                    file = field;
-                } else if (field.type === 'field') {
+
+                if (field.type === 'field') {
                     const value = field.value;
-                    console.log(`[Offer Routes] Field: ${key} = ${typeof value === 'string' ? value.substring(0, 100) : value}`);
-                    
+
                     if (key === 'text') {
                         text = value as string;
-                        console.log('[Offer Routes] ✅ Text field found, length:', text.length);
+                        // Length only. This used to log the first 100 characters of every
+                        // field, which for `text` is the opening lines of someone's offer
+                        // letter — name, employer and salary — written to stdout.
+                        console.log('[Offer Routes] Text field found, length:', text.length);
                     } else {
                         fields[key] = value;
+                        console.log(`[Offer Routes] Field: ${key} = ${typeof value === 'string' ? value.substring(0, 100) : value}`);
                     }
                 }
             }
@@ -62,7 +64,9 @@ export async function offerRoutes(fastify: FastifyInstance) {
         }
 
         const input = {
-            file: file,
+            // `?? undefined` because CreateOfferInput.file is optional, not nullable. The old
+            // `let file: any = null` hid the mismatch; typing the reader surfaced it.
+            file: file ?? undefined,
             text: text,
             role: fields.role,
             experienceLevel: fields.experienceLevel,
@@ -137,7 +141,11 @@ export async function offerRoutes(fastify: FastifyInstance) {
         ...routeLimit('offerExtractFile'),
         handler: async (req, reply) => {
             try {
-                const data = await req.file();
+                // Read from req.body, not req.file(). The multipart plugin runs with
+                // attachFieldsToBody, so the stream is already drained by the time a handler
+                // runs and req.file() always returned undefined — this route answered
+                // "File is required" to every upload ever sent to it.
+                const data = readUploadedFile(req.body);
 
                 fastify.log.info({
                     hasFile: !!data,
