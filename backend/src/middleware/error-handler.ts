@@ -12,7 +12,9 @@ export const errorHandler = (
 
     // 1. Handle Known App Errors
     if (error instanceof AppError) {
-        if (error.statusCode >= 500) {
+        const isServerFault = error.statusCode >= 500;
+
+        if (isServerFault) {
             request.log.error({ err: error, requestId }, 'AppError (5xx)');
         } else {
             request.log.warn({ err: error, requestId }, 'AppError (4xx)');
@@ -23,7 +25,13 @@ export const errorHandler = (
             error: {
                 code: error.code,
                 message: error.message,
-                details: error.details,
+                // 4xx details describe what the caller got wrong and are meant to be read.
+                // 5xx details are whatever the failing internal threw, and several call sites
+                // pass the raw provider error straight in — `GoogleVisionOcrProvider` does,
+                // which put a gRPC error carrying our Google Cloud project number and its
+                // billing console URL into the body of a public, unauthenticated response.
+                // Logged above either way, so nothing is lost.
+                details: isServerFault ? undefined : error.details,
             },
         });
     }
