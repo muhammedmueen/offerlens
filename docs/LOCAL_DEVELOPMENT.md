@@ -384,6 +384,12 @@ regression worth reporting. Specifically:
   data found" on a letter that clearly has benefits is the bug that was fixed in `b798415`.
 - **Correct** should arrive **pre-filled** with what was extracted, and Save should be
   disabled until you actually change something.
+- **Negotiation** on a letter quoting only a single CTC figure should produce a *tailored*
+  script, not one full of `[BRACKETS]`. Until round 2 it returned the template for any letter
+  with no separately stated basic pay, which is about a third of them. If you do get a
+  template, a yellow note above it now says why — an AI outage, or too little extracted
+  detail. The template fills in the company, role and offer figure and brackets only what you
+  have to decide: your target figure, your name, and who you are writing to.
 
 Then **Compare** with two completed offers, and check the dashboard shows a score
 distribution.
@@ -421,6 +427,8 @@ Things you may notice that are understood and tracked:
 | Salary benchmarks say "estimated, not enough submissions" | Correct. Real crowdsourced data needs Phase 4 seeding |
 | Score says "Score based on limited market data" | Follows from the above. With no verified submissions for the role and city, salary is not scored and its 30 points are redistributed across the other four components — see "How this score was reached" on the results page |
 | Scores moved after task 10 | Expected. The old formula started every offer at 70 and nudged; the rubric builds the score from five weighted components instead. Flag-heavy offers score lower, and featureless ones no longer start at "good" |
+| An analysis completed but a whole section is missing | Task 15. The deterministic stages after the AI call — benefits checklist, take-home — now degrade to absent rather than failing the analysis, so a bug in one of them no longer throws away a paid-for AI call. Look for `[Stage] "..." threw and was skipped` in the worker or API log; every occurrence is a bug, not an expected condition. Red flags and the score are deliberately **not** degradable: a score missing its 30-point flag component would be wrong rather than partial |
+| A degraded analysis scored *higher* than you expected | Known consequence of the above. Unscored components are removed and their weight redistributed, not scored as zero — so the components that would have pulled the score down disappear with them. Measured: a letter with the checklist forced to fail scored 90/"excellent" off red flags and transparency alone. "How this score was reached" names what was not scored, and the weights shown are the ones actually applied |
 | The same letter scores a few points differently between uploads | The rubric is deterministic, but its inputs include model-extracted benefits and equity, which vary. The breakdown shows which component moved — usually growth, when a learning allowance is picked up in one run and not the next |
 | A field is tagged "Unverified" even though it looks right | It means the value could not be found in the letter, so it was inferred rather than read. Often that is legitimate (an abbreviation expanded, a city inferred from an address) — but it is exactly where a fabricated value would show up, so it is worth a glance |
 | Benefits and red flags rarely show "Verified" | By design. The benefits list and any flag the clause rules did not find are the model's reading, and that is the half that varies between runs. Hover the badge for which flags were deterministic |

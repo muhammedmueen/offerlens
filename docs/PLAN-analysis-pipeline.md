@@ -1658,18 +1658,18 @@ column and not across.
 ### Phase 3: Full Pipeline Refactor (2-3 days)
 
 Worked in rounds rather than in task order, because reading the code against the list changed
-three items' status and turned up a fourth that was not on it. **Round 1 is done.**
+three items' status and turned up a fourth that was not on it. **Rounds 1 and 2 are done.**
 
 | # | Task | Impact | Status |
 |---|------|--------|---|
 | 14 | Refactor worker into 4-stage pipeline with `Promise.all()` Stage 2 | Separation of concerns | ⏸ Deferred — the `Promise.all()` buys nothing. See below |
-| 15 | Add partial failure fallbacks per stage | Reliability | Round 2 — this is the half of 14/15 that pays |
+| 15 | Add partial failure fallbacks per stage | Reliability | ✅ **Done** (round 2). See below |
 | 16 | Stage 3: Contextual AI via system instruction (no raw text re-send) | Grounded + secure | ✅ **Already satisfied by Phase 1.** See below |
 | 17 | Add prompt versioning to `aiMetadata` | Rollback + A/B testing | ✅ **Done** (round 1). See below |
 | 18 | Progressive results: store stage outputs, poll returns partial data | UX during longer processing | ⏸ Deferred — contract change + frontend, for a ~20s wait |
 | 19 | Update comparison to use rubric sub-scores | Dimension-by-dimension | Round 3 — cheap now, and it fixes a live ranking bug. See below |
 | 20 | Enhance career path with real context + salary progression | Realistic trajectories | ⏸ Deferred |
-| 21 | Add negotiation template library | Non-AI fallback | Round 2 — the existing template never fires on provider failure |
+| 21 | Add negotiation template library | Non-AI fallback | ✅ **Done** (round 2) — plus a measured regression from task 9. See below |
 | 21a | Stale job reaper — `PROCESSING` > 5 min → `FAILED` (use the existing `ANALYSIS_TIMEOUT_MS`) | Stuck offers currently never recover | ✅ **Done** (round 1). See below |
 | 21b | Redis-down fallback to synchronous processing | Roadmap requirement, not implemented | ⏸ Deferred |
 | 21c | Scanned-PDF OCR via `asyncBatchAnnotateFiles` + GCS, or a different provider | Scanned PDFs currently fail outright | 🔴 **Blocked** — Cloud Vision billing is disabled. See below |
@@ -1840,6 +1840,106 @@ database. While reading `comparison.service.ts` for sizing, two defects turned u
   differently-weighted numbers as though they were the same scale.
 - `Math.min(...others.map(...))` returns `Infinity` when `others` is empty, so a single-offer
   comparison always claims *"Fewer red flags"*.
+
+#### Round 2 outcome
+
+Two commits, 393 backend tests (from 367). Both items were verified by forcing the failure
+they exist for — patching the function to throw, running a real analysis end to end, then
+reverting — because a fallback that has never been exercised is a fallback nobody should trust.
+
+##### Task 15 — `backend/src/shared/stage.ts`
+
+The worker calls the model first and the deterministic stages afterwards, and only the salary
+benchmark lookup had a `try/catch`. A throw in the benefits checklist or the tax calculator
+failed the whole analysis **after** the AI call had been made and paid for — after the one
+expensive, rate-limited, non-idempotent step had already succeeded. The user saw `FAILED` and
+had to upload again, spending a second call to redo work that was already done.
+
+`optionalStage(name, compute, fallback)` wraps the benefits checklist and take-home in the
+worker, and the benefits checklist and confidence assessment in `AnalysisService`.
+
+> [!IMPORTANT]
+> **The read path mattered more than the worker path.** `checkBenefits` and `assessConfidence`
+> run on every `GET /analysis`, not once at analysis time. A single malformed row meant a
+> permanent 500 on that offer's results page — the analysis exists and is simply unreachable,
+> forever, with no retry that could produce a different outcome. That is a worse failure than
+> the one this task was written for, and it was not on the list.
+
+**`detectRedFlags` and `calculateScore` are deliberately not wrapped.** A score computed without
+the 30-point red flag component is not a degraded score, it is a wrong one, and publishing a
+wrong headline number is worse than failing the analysis.
+
+**No new column and no "degraded" flag**, because every fallback is a state the schema and the
+UI already represent. A missing checklist makes the rubric mark benefits and growth unscored and
+redistribute their weight — the machinery that already handles absent salary submissions, which
+sets `scoringMethod: 'fallback'` and surfaces a note naming what could not be scored.
+`scoringMethod` could not have carried a "something crashed" signal anyway, since nearly every
+analysis is already `'fallback'` for want of salary data.
+
+`scoreBenefits(null)` and `scoreGrowth(null)` return `value: null` rather than 0. "We could not
+check" is not "this offer has no benefits", and scoring it as zero would penalise the candidate
+for our bug. Growth is not scored on equity alone either: half its evidence is the checklist's
+learning-budget entry, so scoring without it would report a letter that *does* fund learning as
+one that does not.
+
+`mergeRedFlags` no longer suppresses the model's `missing_benefit` when the checklist did not
+run. The checklist owns that flag type because it is measurably better at it — but suppression is
+justified by having actually checked, and dropping the model's flag on the authority of a check
+that never happened would silence the only opinion available.
+
+> [!WARNING]
+> **A degraded score can read HIGHER than the real one.** Measured: with the checklist forced to
+> fail, a letter scored **90 / "excellent"** from `redFlags 100@75 + transparency 60@25`, because
+> the components that would have pulled it down were removed rather than scored badly. The
+> fallback note names them, but a user seeing "excellent" will not necessarily register that it
+> rests on two of five components. This is a property of the existing redistribution mechanism
+> rather than something new, but it is far more visible when three components drop out at once.
+> Worth revisiting if stage failures ever turn out to be common — they should not be.
+
+Verified live: with `checkBenefits` patched to throw, the analysis **COMPLETED** where it
+previously would have been `FAILED`, and `GET /analysis` returned 200 with a 5300-byte body,
+`benefitsChecklist: null`, `confidence.fields` still populated with 11 entries, and weights
+summing to 100.
+
+##### Task 21 — and a regression task 9 introduced without anything failing
+
+The negotiation service chose between a personalised script and a template with
+`companyName && compensation?.baseSalary`. Correct until task 9, which made `baseSalary` nullable
+so a letter quoting one CTC figure stops reporting CTC as basic. **6 of the 17 corpus letters
+have `baseSalary: null` in ground truth**, so roughly a third of real offers had silently started
+dropping to a fill-in-the-blanks email. A correctness fix in one module degraded a feature in
+another, and no test or metric registered it.
+
+The gate now accepts `totalCTC` or basic — `totalCTC` is the figure a candidate actually
+negotiates against and is in nearly every letter. It checks the *amount* rather than the object,
+because `baseSalary` is `{ amount, period }` and a truthiness test passes on `{ amount: 0 }`,
+which is exactly the shape the pre-task-9 coercion produced.
+
+Task 21 proper: `generateNegotiationScript` had no `try/catch` around the provider call, so an
+outage or an exhausted quota returned a 500 — even though the company, role and offer figure
+needed to write the email by hand were already extracted and in the database. The template
+existed but only ever fired for thin extraction, which is not the case this task was about.
+
+**The template now substitutes.** It was one hardcoded string with every field bracketed, and it
+served two very different situations; in the AI-failure one we held the company, the role and the
+figure and were still printing `[COMPANY NAME]`. One function serves both paths, because the only
+difference is how much is known. Brackets remain where the user genuinely has to decide
+something — their target figure, their name, who they are writing to.
+
+**The `note` is finally rendered.** The backend had always sent one on both fallback paths and
+`NegotiationPanel` never displayed it, so a user received an email full of `[BRACKETS]` with no
+explanation of what had gone wrong.
+
+A test caught a real bug during this: `formatMoney` used `toLocaleString('en-IN')` for every
+currency, so a dollar figure came out as `USD 1,20,000` — lakh grouping on a currency that does
+not use it. The locale is chosen per currency now, and anything that is not INR prints its code
+rather than a guessed symbol.
+
+Verified live: a CTC-only letter (`baseSalary: null`, `totalCTC: 1500000`) returned
+`type=personalized` where it previously returned `type=template`. Then with
+`generateNegotiationScript` patched to throw: 200 with `type=template` rather than a 500, company,
+role and `15,00,000` all substituted, three numbered points for three requested focus areas, no
+`[COMPANY NAME]` left, `[YOUR TARGET FIGURE]` retained, and the note explaining why.
 
 ##### 🔴 Blocker: Cloud Vision billing is disabled
 
