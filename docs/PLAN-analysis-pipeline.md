@@ -1657,21 +1657,197 @@ column and not across.
 
 ### Phase 3: Full Pipeline Refactor (2-3 days)
 
-| # | Task | Impact |
-|---|------|--------|
-| 14 | Refactor worker into 4-stage pipeline with `Promise.all()` Stage 2 | Separation of concerns |
-| 15 | Add partial failure fallbacks per stage | Reliability |
-| 16 | Stage 3: Contextual AI via system instruction (no raw text re-send) | Grounded + secure |
-| 17 | Add prompt versioning to `aiMetadata` | Rollback + A/B testing |
-| 18 | Progressive results: store stage outputs, poll returns partial data | UX during longer processing |
-| 19 | Update comparison to use rubric sub-scores | Dimension-by-dimension |
-| 20 | Enhance career path with real context + salary progression | Realistic trajectories |
-| 21 | Add negotiation template library | Non-AI fallback |
-| 21a | Stale job reaper — `PROCESSING` > 5 min → `FAILED` (use the existing `ANALYSIS_TIMEOUT_MS`) | Stuck offers currently never recover |
-| 21b | Redis-down fallback to synchronous processing | Roadmap requirement, not implemented |
-| 21c | Scanned-PDF OCR via `asyncBatchAnnotateFiles` + GCS, or a different provider | Scanned PDFs currently fail outright |
-| 21d | Make the OCR confidence signal real: drop the `\|\| 0.85` default, surface `lowConfidence` instead of hard-failing | Confidence gate is currently inert end-to-end |
-| 21e | Consolidate `OfferService`'s three duplicate extraction methods into one with consistent provider gating | Removes divergent `NODE_ENV` behaviour |
+Worked in rounds rather than in task order, because reading the code against the list changed
+three items' status and turned up a fourth that was not on it. **Round 1 is done.**
+
+| # | Task | Impact | Status |
+|---|------|--------|---|
+| 14 | Refactor worker into 4-stage pipeline with `Promise.all()` Stage 2 | Separation of concerns | ⏸ Deferred — the `Promise.all()` buys nothing. See below |
+| 15 | Add partial failure fallbacks per stage | Reliability | Round 2 — this is the half of 14/15 that pays |
+| 16 | Stage 3: Contextual AI via system instruction (no raw text re-send) | Grounded + secure | ✅ **Already satisfied by Phase 1.** See below |
+| 17 | Add prompt versioning to `aiMetadata` | Rollback + A/B testing | ✅ **Done** (round 1). See below |
+| 18 | Progressive results: store stage outputs, poll returns partial data | UX during longer processing | ⏸ Deferred — contract change + frontend, for a ~20s wait |
+| 19 | Update comparison to use rubric sub-scores | Dimension-by-dimension | Round 3 — cheap now, and it fixes a live ranking bug. See below |
+| 20 | Enhance career path with real context + salary progression | Realistic trajectories | ⏸ Deferred |
+| 21 | Add negotiation template library | Non-AI fallback | Round 2 — the existing template never fires on provider failure |
+| 21a | Stale job reaper — `PROCESSING` > 5 min → `FAILED` (use the existing `ANALYSIS_TIMEOUT_MS`) | Stuck offers currently never recover | ✅ **Done** (round 1). See below |
+| 21b | Redis-down fallback to synchronous processing | Roadmap requirement, not implemented | ⏸ Deferred |
+| 21c | Scanned-PDF OCR via `asyncBatchAnnotateFiles` + GCS, or a different provider | Scanned PDFs currently fail outright | 🔴 **Blocked** — Cloud Vision billing is disabled. See below |
+| 21d | Make the OCR confidence signal real: drop the `\|\| 0.85` default, surface `lowConfidence` instead of hard-failing | Confidence gate is currently inert end-to-end | 🔴 **Blocked** — same reason |
+| 21e | Consolidate `OfferService`'s three duplicate extraction methods into one with consistent provider gating | Removes divergent `NODE_ENV` behaviour | ✅ **Done** (round 1) — it was dead code. See below |
+
+#### Round 1 outcome
+
+Four items shipped, five commits, 367 backend tests (from 330). Verified against the running
+stack each time, not just compiled: `tsc` + `eslint` clean on `src` and `eval`,
+`test-security.mjs` 20/0, `test-m2.mjs` 26/0/0, `test-m3.mjs` 19/0/0, frontend 178.05 KB gzip.
+
+##### Three items had the wrong status on the list
+
+**Task 16 was already done.** It was written for a multi-call design that Phase 1's option A
+replaced. `SYSTEM_INSTRUCTION` travels through `CompletionRequest` and is honoured by all three
+adapters — `systemInstruction` on Gemini, `system` on Anthropic, `role: 'system'` on OpenAI —
+the offer text is delimited and sanitised, and there is one call, so there is no raw-text
+re-send left to eliminate.
+
+**Task 14's headline benefit does not exist.** Rule flags, the benefits checklist, the tax
+calculator and the rubric are all synchronous CPU work; the only I/O in that stage is the
+salary benchmark, and it depends on the role the model extracted, so it cannot start earlier.
+`Promise.all()` over four synchronous calls is decoration. What remains of 14 is seams for
+testability, which is a refactor with no behaviour change — deferred below 15, which does
+change behaviour.
+
+**Task 15 is where the reliability is.** In the worker only the salary lookup has a
+`try/catch`. `detectRedFlags`, `checkBenefits`, `calculateTakeHome` and `calculateScore` are
+unguarded, so a throw in any of them fails the whole analysis *after* the AI call has been
+paid for.
+
+##### Task 21a — `backend/src/workers/reap.ts`
+
+`ANALYSIS_TIMEOUT_MS` had been in `constants.ts` since Phase 1 referenced by nothing, which is
+why nothing ever timed out. BullMQ moves a stalled *job* to failed, but it knows nothing about
+the `offers` table, so the row stayed `PROCESSING` and the frontend polled it forever. Seen
+repeatedly in development whenever `tsx watch` restarted mid-analysis.
+
+Three judgement calls:
+
+- **The threshold is `5 × ANALYSIS_TIMEOUT_MS`, not `ANALYSIS_TIMEOUT_MS`**, which is what this
+  task suggested reusing. That constant is the budget for *one analysis call*; an upload can
+  legitimately spend longer end to end — queue wait, OCR, then an analysis walking the whole
+  model fallback chain after a 503. Reaping at 60s would cancel work that was still going to
+  succeed, which is a worse failure than the one being fixed.
+
+- **Keyed on `createdAt`, not `updatedAt`.** `offers.updatedAt` is `defaultNow()` with no
+  `$onUpdate`, no trigger, and no writer that sets it, so it is frozen at insert time. Keying
+  off it would have appeared to work purely by accident.
+
+- **No `CODE:` prefix on the failure reason.** `ProcessingPage.getErrorMessage` strips the three
+  prefixes it knows and prints anything else verbatim, so a fourth tag would have put
+  `TIMED_OUT:` on screen.
+
+`QUEUED` is reaped on the same terms — an offer sits there when no worker picked the job up at
+all, which from the user's side is the same dead end. The write is one conditional `UPDATE`, so
+a slow job finishing mid-sweep cannot have its `COMPLETED` verdict clobbered. Verified live
+against the dev database with all four branches seeded, and the repeatable job confirmed
+registered in Redis at `every=60000ms`.
+
+##### Task 21e — the third method had no callers
+
+`OfferService` had three extraction methods. Two are live: `extractTextFromFile` behind
+`POST /offers/extract-file`, and `extractMetadataFromText` behind `POST /offers/extract`. The
+third, `extractMetadata(file)`, did both halves in one pass and was called by nothing — no
+route, no worker, no test. Deleted, 45 lines.
+
+> [!IMPORTANT]
+> It held the only copy of a comment documenting a real fix: *"both providers used to be gated
+> on `config.NODE_ENV === 'production'`, so outside production this always returned mock data"*.
+> That fix was applied to the path with no callers. So the earlier diagnosis of broken
+> file-upload autofill recorded in this document was **wrong** — the live path gated on
+> credentials all along, and the actual cause was a multipart bug, below.
+
+`extractTextFromFile` now uses `this.fastify.ocr` instead of re-running the credentials check
+and constructing a fresh `GoogleVisionOcrProvider` per call — a second gRPC client and another
+read of the credentials file, on every request to a route reachable without an account.
+
+##### Found while verifying 21e: `/offers/extract-file` rejected every upload ever sent to it
+
+`plugins/multipart.ts` registers `@fastify/multipart` with `attachFieldsToBody: true`. That
+consumes the multipart stream during validation and hangs the parsed parts off `request.body`,
+so `request.file()` finds nothing and returns `undefined`. `POST /offers` was written for that
+shape and works. `POST /offers/extract-file` was written against `request.file()`, so it
+answered `400 "File is required"` to every upload, always. **File-upload autofill has never
+worked**, and not for any of the reasons previously recorded against it.
+
+Both routes now share one reader, `modules/offer/multipart.ts`, so a future route cannot pick
+the wrong half of the plugin API. The reader also validates the file type, which nothing did:
+`SUPPORTED_FILE_TYPES` had been sitting in `constants.ts` referenced by zero call sites. That
+was harmless on extract-file only because the route rejected everything; fixing the route makes
+it live, on an unauthenticated endpoint that writes the payload to disk and hands the path to an
+OCR provider.
+
+Two smaller things in the same diff: `POST /offers` was logging the first 100 characters of
+every field — for `text`, the opening lines of someone's offer letter, to stdout. And
+`file: file ?? undefined`, because `CreateOfferInput.file` is optional rather than nullable;
+the old `let file: any = null` hid the mismatch until the reader had a return type.
+
+##### Also found: 5xx responses were returning internal error details
+
+The error handler sent `details: error.details` for every `AppError`, and several call sites
+pass the raw thrown error in. `GoogleVisionOcrProvider` does. So an image upload to the public
+`POST /offers/extract-file` returned a ~5KB body containing the full gRPC error, **our Google
+Cloud project number**, the billing console URL for that project, and several base64 protobuf
+buffers. 4xx details stay — they describe what the caller got wrong. 5xx details are now
+dropped from the response and logged only. Measured: the same request went from ~5KB to 85
+bytes.
+
+##### Also found: the `DEFAULT_GEMINI_MODEL` fix was only half applied
+
+`offer.routes.ts` stopped defaulting the model, then `offer.service.ts` re-applied
+`input.model || DEFAULT_GEMINI_MODEL` at both enqueue sites and `ocr.worker.ts` did it again on
+hand-off. So selecting OpenAI or Anthropic still put `gemini-2.5-flash` in the job payload —
+and an invalid-model error is a 404 that no adapter classifies as retryable, correctly, so
+`withFallback` rethrew on the first attempt and the analysis died with nothing in the log naming
+the cause.
+
+The three defaults are gone, and `resolveModel` now filters **both** candidate ids through
+`modelVendor()` so a fourth call site cannot reintroduce it. Both, not just `requested`:
+`modelOverride` is set from `AiProviderSelection.model`, which arrives from the upload form
+field and the `X-AI-Model` development header, neither of which knows which provider will run.
+Checking only `requested` was the first version of the patch and it left that path open.
+
+The check **fails open** — an unrecognised prefix is accepted, so a vendor shipping ids in a new
+format keeps working, and the only ids it can veto are ones positively matching a *different*
+vendor. It warns rather than throwing: the request is answerable, just not with that model.
+
+##### Task 17 — `backend/src/providers/ai/prompt-version.ts`
+
+`analysisVersion` already existed and was already useless. It was a field in the response schema
+described to the model as `Always "1.0"`, so **every analysis in the database reports 1.0** —
+through Phase 1's complete prompt rewrite, the switch to a strict response schema, and the
+addition of three providers. A model cannot know which revision of a prompt it was handed.
+
+Same mistake as `modelUsed`, which used to arrive as the literal string `'unknown'` and was
+fixed the same way. Both are now removed from the response schema outright rather than merely
+overwritten, so we stop paying output tokens for values that get discarded — the precedent is
+`takeHome`, dropped from the schema in task 9.
+
+`PROMPT_VERSION` is `revision + fingerprint`, currently `2.0+5f1a12cd`. The revision is bumped
+by hand and says what changed; the fingerprint is 8 hex characters of sha256 over the system
+instruction, the rendered prompt and the response schema. **The fingerprint is the half that
+makes the string trustworthy**, because a hand-bumped number provably goes stale — this codebase
+is the evidence. Two eval runs sharing a version string really did share a contract.
+
+The prompt is rendered against a fixed sentinel rather than hashing the source constants, so the
+fixed sentences written inline in `buildAnalysisPrompt` are covered too. Known gap: the optional
+candidate-context block is absent from that material, so its wording is not fingerprinted.
+Scope is deliberately *the contract with the model* — the deterministic stages after the reply
+change the stored analysis without moving this string, and `scoringMethod` plus `scoreBreakdown`
+already record the rubric's own behaviour.
+
+`processingTimeMs` went in the same commit, being the same class of untrue stored metadata: it
+was `Date.now() - offer.updatedAt`, annotated *"Approx"*. It was not approximate. With
+`updatedAt` frozen at insert, that expression measured time since the upload was accepted,
+including queue wait and OCR. Now measured from the top of the job handler — observable in the
+numbers, ~21-22s before, 19.1s for the same shape of analysis after.
+
+##### Round 3 preview: comparison is ranking two different scales
+
+`scoreBreakdown` is stored as of migration `0002`, so task 19's sub-scores are already in the
+database. While reading `comparison.service.ts` for sizing, two defects turned up:
+
+- It ranks on `score` alone, but task 10's rubric **redistributes salary's 30% when no benchmark
+  data exists**. Comparing an offer that had submissions against one that did not ranks two
+  differently-weighted numbers as though they were the same scale.
+- `Math.min(...others.map(...))` returns `Infinity` when `others` is empty, so a single-offer
+  comparison always claims *"Fewer red flags"*.
+
+##### 🔴 Blocker: Cloud Vision billing is disabled
+
+`GOOGLE_CLOUD_CREDENTIALS` **is** set, so `fastify.ocr` is the real provider rather than the
+mock. An image upload returns `BILLING_DISABLED` from Cloud Vision. **Real OCR has never
+succeeded**, so scanned PDFs and photographed letters fail regardless of what the code does.
+Tasks 21c and 21d cannot be tested until billing is enabled on the GCP project — and 21c would
+additionally need a GCS bucket, since `asyncBatchAnnotateFiles` cannot read a local path.
 
 ### Phase 4: Data Flywheel (Ongoing)
 

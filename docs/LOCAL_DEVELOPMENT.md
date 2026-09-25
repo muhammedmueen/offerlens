@@ -426,7 +426,8 @@ Things you may notice that are understood and tracked:
 | Benefits and red flags rarely show "Verified" | By design. The benefits list and any flag the clause rules did not find are the model's reading, and that is the half that varies between runs. Hover the badge for which flags were deterministic |
 | Confidence tags are not asked of the AI | Deliberate. Models report near-certainty almost everywhere, including on values they invent. Tags here come from checkable evidence — verbatim presence in the letter, benchmark provenance, whether we computed the value ourselves, and whether the text came from a scan |
 | Salary chart is a flat line locally | The test scripts insert identical values, so all four percentiles match |
-| A **scanned** PDF fails | Cloud Vision's `textDetection` doesn't accept PDF input. Text PDFs and images work |
+| **Any image or scanned PDF fails with "OCR extraction failed"** | Cloud Vision returns `BILLING_DISABLED` for this GCP project, so real OCR has never succeeded. `GOOGLE_CLOUD_CREDENTIALS` *is* set, so the app uses the real provider rather than the mock and the call reaches Google before failing. **Enable billing on the project to unblock this.** Separately, `textDetection` doesn't accept PDF input at all, so scanned PDFs need task 21c even after billing. Pasted text and `.txt` uploads bypass OCR entirely and work |
+| File upload on the form used to do nothing | Fixed in Phase 3 round 1. `POST /offers/extract-file` read `request.file()`, which is always `undefined` under `@fastify/multipart`'s `attachFieldsToBody`, so it returned `400 "File is required"` for every upload ever sent. A `.txt` upload now autofills; an image still needs the billing fix above |
 | Take-home shows a **range**, not one figure | Correct, and deliberate. PF is 12% of basic, and whether an employer deducts on full basic or only to the ₹25,000 statutory ceiling is policy the letter does not state. At ₹1,00,000 monthly basic that is ₹9,000/month of take-home. Open "What this assumes" for the full list |
 | Take-home looks higher than you expected | It excludes PF entirely when the letter never states basic separately, which is most letters. That is said in the assumptions list. It also treats full CTC as taxable salary, which slightly overstates tax in the other direction |
 | No old-regime comparison | The old regime needs your HRA, home-loan interest and 80C figures. An offer letter contains none of them, so a comparison would be invented |
@@ -436,7 +437,7 @@ Things you may notice that are understood and tracked:
 | A hostile letter now scores lower than it used to | Expected. The rule engine catches clauses the model was missing, and each one costs 5-15 points. The `test-m2.mjs` fixture went to "poor", which is right for a letter with no-notice probation and a 12-month non-compete |
 | Benefits drawer lists every benefit with no rupee value | Correct when the letter doesn't quantify them. "Medical Insurance" with no sum assured and "Paid Leave" with no day count are not valuable — the calculator reads amounts, it doesn't invent them. Enter your own figure and recalculate |
 | Provident Fund shows no value even though PF is statutory | PF is 12% of **basic**, and a letter quoting a single CTC figure never states basic. Guessing a basic-to-CTC ratio would push a fabricated number into total comp. Phase 2's salary breakdown gives it a real value |
-| Base salary equals total CTC on a CTC-only letter | Known and measured — `base := CTC` fires on 5 of 17 eval cases. The response schema marks `baseSalary` required, so the model must supply a figure the letter doesn't contain. Fix is queued at the front of task 9 |
+| Base salary is blank on a CTC-only letter | Correct as of task 9. `baseSalary` is nullable now, so a letter quoting one CTC figure reports no basic instead of copying CTC into it — `base := CTC` went from 15 of 51 case-passes to 0. The consequence is visible in take-home, which then excludes PF and says so |
 | Joining bonus stated in prose is sometimes dropped | Known: stated-components F1 ~78%. Reproduced on the real eval case in two consecutive runs |
 | OpenAI and Anthropic model ids are unverified | No key for either was available when the adapters were written. The ids in `src/config/constants.ts` are best-effort and flagged as such; override with `OPENAI_MODEL` / `ANTHROPIC_MODEL` if a call 404s |
 | No content moderation on forum or feature requests | Not built |
@@ -449,7 +450,7 @@ Things you may notice that are understood and tracked:
 | Symptom | Cause |
 |---|---|
 | Server exits on boot | `JWT_SECRET` or `JWT_REFRESH_SECRET` missing or under 32 chars |
-| Offers stay `QUEUED` forever | The workers process isn't running |
+| Offers stay `QUEUED` or `PROCESSING`, then fail after ~5 min | The workers process isn't running, or it died mid-analysis. Since task 21a a reaper sweeps `maintenance-queue` every minute and fails anything unfinished for over 5 minutes, so the page now reaches an error instead of spinning forever. `[Reaper] Failed N offer(s)` in the worker log means work is being dropped — start the workers, or look for why they exited |
 | CORS error in the browser console | `CORS_ORIGIN` doesn't match the frontend origin exactly, scheme and port included |
 | Guest features behave oddly across tabs | Expected — identity is a per-browser cookie |
 | `db:push` hangs | Use `db:migrate`. See §4 |
@@ -458,7 +459,8 @@ Things you may notice that are understood and tracked:
 | Analysis fails with a rate-limit message | Gemini free-tier quota. Wait, set a different key, or switch provider with `AI_PROVIDER` |
 | Log says "using MockAiProvider" | No key for the selected `AI_PROVIDER`. Responses are canned sample data |
 | `X-AI-Provider` header seems ignored | `ALLOW_AI_REQUEST_OVERRIDE` is not `true`, or `NODE_ENV=production`. Both gates must pass. See §3.1 |
-| A provider returns 404 for the model | A model id from one provider passed to another, or an id that has been retired. Clear `*_MODEL` to use the provider's default |
+| A provider returns 404 for the model | An id that has been retired. Cross-provider ids no longer reach the vendor: since Phase 3 round 1 `resolveModel` ignores a model whose prefix belongs to another vendor and logs `Ignoring model "..."`, so check the worker log for that line. Clear `*_MODEL` to use the provider's default |
+| `OCR extraction failed` on any image | Cloud Vision billing. See §9 |
 | Dropdowns empty on the upload form | `npm run db:seed` not run, or the API is unreachable |
 
 ### Resetting
