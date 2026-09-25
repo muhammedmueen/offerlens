@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { estimateCostUsd, emptyUsage, addCall, formatUsage, PRICING } from './usage.js';
+import { estimateCostUsd, emptyUsage, addCall, formatUsage, modelVendor, PRICING } from './usage.js';
+import {
+    DEFAULT_GEMINI_MODEL, DEFAULT_OPENAI_MODEL, DEFAULT_ANTHROPIC_MODEL,
+} from '@/config/constants.js';
 
 describe('estimateCostUsd', () => {
     it('prices a known model from the table', () => {
@@ -106,5 +109,39 @@ describe('formatUsage', () => {
         expect(line).toContain('1000 in');
         expect(line).toContain('200 out');
         expect(line).toContain('1 call');
+    });
+});
+
+describe('modelVendor', () => {
+    it('recognises each vendor by prefix', () => {
+        expect(modelVendor('gemini-2.5-flash')).toBe('gemini');
+        expect(modelVendor('gpt-4.1-mini')).toBe('openai');
+        expect(modelVendor('o3-mini')).toBe('openai');
+        expect(modelVendor('claude-sonnet-4-5-20250929')).toBe('anthropic');
+    });
+
+    it('fails open on an unrecognised prefix', () => {
+        // The caller treats null as "no objection". A vendor shipping an id in a new format
+        // must not have it vetoed here — the only ids this can reject are ones that
+        // positively match a different vendor.
+        expect(modelVendor('some-future-model-v9')).toBeNull();
+        expect(modelVendor('')).toBeNull();
+    });
+
+    it('classifies every model in the pricing table', () => {
+        // Keeps the two tables honest with each other: a priced model whose vendor cannot be
+        // determined would be silently ignored by resolveModel on its own provider.
+        for (const model of Object.keys(PRICING)) {
+            expect(modelVendor(model), model).not.toBeNull();
+        }
+    });
+
+    it('agrees with the configured default for each provider', () => {
+        // The bug this guard exists for: DEFAULT_GEMINI_MODEL was being handed to whichever
+        // provider ran. If any of these three drifted to an unrecognised prefix, the guard
+        // would stop protecting that provider without any test failing.
+        expect(modelVendor(DEFAULT_GEMINI_MODEL)).toBe('gemini');
+        expect(modelVendor(DEFAULT_OPENAI_MODEL)).toBe('openai');
+        expect(modelVendor(DEFAULT_ANTHROPIC_MODEL)).toBe('anthropic');
     });
 });

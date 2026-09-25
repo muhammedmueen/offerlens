@@ -8,7 +8,7 @@ import { GoogleVisionOcrProvider } from '@/providers/ocr/google-vision.ocr.js';
 import { MockOcrProvider } from '@/providers/ocr/mock.ocr.js';
 import { config } from '@/config/index.js';
 import { analysisQueue } from '@/queue/queues.js';
-import { OCR_MIN_CONFIDENCE, DEFAULT_GEMINI_MODEL } from '@/config/constants.js';
+import { OCR_MIN_CONFIDENCE } from '@/config/constants.js';
 
 // Setup provider (should be injected or singleton, but new instance per worker process is fine)
 const ocrProvider: OcrProvider = config.GOOGLE_CLOUD_CREDENTIALS
@@ -71,14 +71,17 @@ export const ocrWorker = new Worker(
             // Enqueue Analysis with model parameter
             await analysisQueue.add('analyze-offer', {
                 offerId,
+                // Forwarded as-is, including undefined. Defaulting to DEFAULT_GEMINI_MODEL
+                // here meant this worker decided the model for a provider it knows nothing
+                // about — the analysis worker may run OpenAI or Anthropic.
                 text,
-                model: model || DEFAULT_GEMINI_MODEL,
+                model,
                 // Forwarded, not re-derived: there is no request here, so the selection can
                 // only come from the job that queued this one.
                 aiSelection: aiSelection ?? {},
             });
 
-            console.log(`[OCR] Job ${job.id} completed. Enqueued analysis with model: ${model || DEFAULT_GEMINI_MODEL}`);
+            console.log(`[OCR] Job ${job.id} completed. Enqueued analysis with model: ${model || 'provider default'}`);
         } catch (error: any) {
             console.error(`[OCR] Job ${job.id} failed:`, error);
             

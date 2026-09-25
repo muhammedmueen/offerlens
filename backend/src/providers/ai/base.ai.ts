@@ -10,7 +10,7 @@ import {
 } from '@/shared/prompt-safety.js';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
-import { addCall, emptyUsage, formatUsage, type AiProviderName, type TokenUsage } from './usage.js';
+import { addCall, emptyUsage, formatUsage, modelVendor, type AiProviderName, type TokenUsage } from './usage.js';
 import { describeMarketData } from './market-data.js';
 
 /**
@@ -100,9 +100,38 @@ export abstract class BaseAiProvider implements AiProvider {
     /**
      * Precedence: an explicitly requested model, then a pinned override, then the per-task
      * default. Callers should use this rather than `modelFor` directly.
+     *
+     * Either of the first two can carry another vendor's model id, so both are filtered
+     * through `usable`. Only `modelFor` is unconditionally ours.
      */
     protected resolveModel(task: AiTask, requested?: string): string {
-        return requested || this.modelOverride || this.modelFor(task);
+        return this.usable(requested)
+            ?? this.usable(this.modelOverride)
+            ?? this.modelFor(task);
+    }
+
+    /**
+     * The id, unless it positively belongs to another vendor. Unknown prefixes pass through.
+     *
+     * Both candidates are checked, not just `requested`: `modelOverride` is set from
+     * `AiProviderSelection.model`, which reaches the factory from the upload form field and
+     * from the `X-AI-Model` development header — neither of which knows which provider will
+     * end up running.
+     */
+    private usable(model?: string): string | undefined {
+        if (!model) return undefined;
+
+        const vendor = modelVendor(model);
+        if (vendor === null || vendor === this.name) return model;
+
+        // Warn rather than throw. The request is answerable, just not with that model, and
+        // failing an analysis over a stale field in a queued job payload would turn a
+        // recoverable mismatch into a dead offer.
+        console.warn(
+            `[${this.name} AI] Ignoring model "${model}": it belongs to ${vendor}, `
+            + `not ${this.name}. Falling back to this provider's default.`,
+        );
+        return undefined;
     }
 
     /** Send one request. The only method that touches a vendor SDK. */

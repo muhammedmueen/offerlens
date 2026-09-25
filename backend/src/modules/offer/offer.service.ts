@@ -13,7 +13,6 @@ import { randomUUID } from 'node:crypto';
 import { sanitizeFilename } from '@/shared/sanitize.js';
 import { createAiProvider, type AiProviderSelection } from '@/providers/ai/ai.factory.js';
 import { redactSelection } from '@/providers/ai/request-override.js';
-import { DEFAULT_GEMINI_MODEL } from '@/config/constants.js';
 import { resolveDedupScope } from './offer.dedup.js';
 import os from 'node:os';
 import path from 'node:path';
@@ -149,7 +148,11 @@ export class OfferService {
             await ocrQueue.add('process-text', {
                 offerId,
                 text: input.text,
-                model: input.model || DEFAULT_GEMINI_MODEL,
+                // Left undefined when the caller named no model, so whichever provider runs
+                // resolves its own per-task default. This used to default to
+                // DEFAULT_GEMINI_MODEL here, which undid the same fix already made in
+                // offer.routes.ts and put a Gemini id in every job regardless of provider.
+                model: input.model,
                 // Carried to the worker so a development provider override survives the
                 // queue hop. The analysis worker redacts any key from the stored payload
                 // once the job finishes — see analysis.worker.ts.
@@ -162,7 +165,7 @@ export class OfferService {
             await ocrQueue.add('process-ocr', {
                 offerId,
                 storedPath,
-                model: input.model || DEFAULT_GEMINI_MODEL,
+                model: input.model,
                 aiSelection: input.aiSelection ?? {},
             });
             console.log('[Offer Service] ✅ Job added to queue successfully');

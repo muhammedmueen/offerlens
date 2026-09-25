@@ -93,6 +93,34 @@ function priceFor(model: string): Price | null {
     return candidates.length > 0 ? PRICING[candidates[0]] : null;
 }
 
+/**
+ * Which vendor a model id belongs to, by prefix. `null` when the prefix is not recognised.
+ *
+ * Exists so a provider can notice it has been handed another vendor's model id. That is not
+ * hypothetical: the enqueue path used to default `model` to `DEFAULT_GEMINI_MODEL`, so
+ * selecting OpenAI or Anthropic handed the adapter "gemini-2.5-flash". Neither vendor's
+ * invalid-model error is classified as retryable — correctly, since retrying a wrong request
+ * elsewhere only burns quota — so the fallback chain was never tried and the analysis failed
+ * outright, with nothing in the log naming the cause.
+ *
+ * Deliberately fails OPEN: an unrecognised prefix returns null and the caller must treat that
+ * as "no objection". A vendor shipping an id in a new format should not have it rejected
+ * here, so the only ids this can veto are ones that positively match a DIFFERENT vendor.
+ */
+const VENDOR_PREFIXES: ReadonlyArray<readonly [string, AiProviderName]> = [
+    ['gemini-', 'gemini'],
+    ['gpt-', 'openai'],
+    ['o1-', 'openai'],
+    ['o3-', 'openai'],
+    ['o4-', 'openai'],
+    ['claude-', 'anthropic'],
+];
+
+export function modelVendor(model: string): AiProviderName | null {
+    const hit = VENDOR_PREFIXES.find(([prefix]) => model.startsWith(prefix));
+    return hit ? hit[1] : null;
+}
+
 export function estimateCostUsd(model: string, inputTokens: number, outputTokens: number): number | null {
     const price = priceFor(model);
     if (!price) return null;
