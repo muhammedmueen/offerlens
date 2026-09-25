@@ -15,6 +15,19 @@ export const MAX_PAGE_SIZE = 50;
 
 export const ANALYSIS_TIMEOUT_MS = 60_000; // 60s
 
+/**
+ * How long an offer may sit unfinished before the reaper declares it dead (task 21a).
+ *
+ * Deliberately NOT `ANALYSIS_TIMEOUT_MS` itself, which is what the plan suggested reusing.
+ * That is the budget for one analysis call. A single upload can legitimately spend longer
+ * than it end to end: queue wait, then OCR, then an analysis that walks the whole model
+ * fallback chain after a 503. Reaping at 60s would cancel work that was still going to
+ * succeed, which is a worse failure than the one being fixed.
+ *
+ * Expressed as a multiple so the two stay related — if the per-call budget moves, this does.
+ */
+export const STUCK_OFFER_TIMEOUT_MS = 5 * ANALYSIS_TIMEOUT_MS; // 5 min
+
 export const ACCESS_TOKEN_EXPIRY = '15m';
 export const REFRESH_TOKEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7d in ms
 export const REFRESH_TOKEN_EXPIRY = '7d';

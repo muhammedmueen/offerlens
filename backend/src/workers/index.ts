@@ -15,6 +15,15 @@ async function setupRepeatableJobs() {
             every: 60 * 60 * 1000, // Every hour
         }
     });
+
+    // Task 21a. Every minute against a 5-minute staleness threshold, so a user waits at
+    // most ~6 minutes for an error instead of forever. Cheap: one indexed UPDATE that
+    // touches nothing on a healthy system.
+    await maintenanceQueue.add('reap-stuck', {}, {
+        repeat: {
+            every: 60 * 1000,
+        }
+    });
 }
 
 setupRepeatableJobs().catch(console.error);
