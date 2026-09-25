@@ -382,8 +382,12 @@ export const GEMINI_RESPONSE_SCHEMA: Schema = {
         metadata: {
             type: SchemaType.OBJECT,
             properties: {
-                analysisVersion: str('Always "1.0".'),
-                modelUsed: str('Your model identifier.'),
+                // analysisVersion and modelUsed are deliberately absent, for the same reason
+                // takeHome is: both are facts about OUR request, not about the letter, and the
+                // server overwrites whatever arrives here. Asking for them spent output tokens
+                // on values that were discarded — and `analysisVersion: 'Always "1.0"'` kept
+                // reporting 1.0 through a complete prompt rewrite, because a model cannot know
+                // which revision of a prompt it was sent. Set in base.ai.ts.
                 processingNote: str('Anything that limited the analysis, e.g. unreadable text.'),
             },
         } as Schema,

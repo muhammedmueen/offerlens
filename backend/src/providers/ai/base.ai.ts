@@ -12,6 +12,7 @@ import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 import { addCall, emptyUsage, formatUsage, modelVendor, type AiProviderName, type TokenUsage } from './usage.js';
 import { describeMarketData } from './market-data.js';
+import { PROMPT_VERSION } from './prompt-version.js';
 
 /**
  * Everything three providers would otherwise duplicate.
@@ -227,6 +228,13 @@ export abstract class BaseAiProvider implements AiProvider {
             // Stamp the model that actually served the request. This was previously the
             // literal string 'unknown', because the AI was asked to report it itself.
             analysis.metadata.modelUsed = modelUsed;
+
+            // Same class of mistake, same fix (task 17). The model used to be asked for
+            // `analysisVersion` and told to answer "1.0", so every analysis since the Phase 1
+            // rewrite has been mislabelled as the contract that preceded it. It is a fact
+            // about our request, so we are the only ones who can state it.
+            analysis.metadata.analysisVersion = PROMPT_VERSION;
+
             analysis.metadata.usage = usage;
             this.log(`usage: ${formatUsage(usage)}`);
 

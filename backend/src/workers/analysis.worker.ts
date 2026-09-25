@@ -153,6 +153,14 @@ export const analysisWorker = new Worker(
             + `with ${describeSelection(selection)}, model: ${model || 'default'}`,
         );
 
+        // Analysis wall-clock, measured here rather than derived from offer.updatedAt.
+        // `processingTimeMs` used to be `Date.now() - offer.updatedAt`, marked "Approx" — but
+        // offers.updatedAt is defaultNow() with no $onUpdate and nothing sets it, so it is
+        // frozen at insert. That expression measured time since the upload was accepted,
+        // including queue wait and OCR, and every stored value has been wrong rather than
+        // approximate.
+        const startedAt = Date.now();
+
         try {
             // Fetch offer for user context
             const offer = await db.query.offers.findFirst({
@@ -356,7 +364,7 @@ export const analysisWorker = new Worker(
                     aiMetadata: result.metadata,
                     lowConfidence: false, // Calculate from AI metadata if possible
                     redFlagsDiscarded: discardedCount,
-                    processingTimeMs: Date.now() - new Date(offer.updatedAt).getTime(), // Approx
+                    processingTimeMs: Date.now() - startedAt,
                 });
 
                 await tx.update(offers).set({ status: 'COMPLETED' }).where(eq(offers.id, offerId));

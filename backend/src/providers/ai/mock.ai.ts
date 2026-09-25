@@ -39,7 +39,10 @@ export class MockAiProvider implements AiProvider {
             benefits: [],
             // No takeHome: it is computed by the worker, not returned by a provider.
             metadata: {
-                analysisVersion: '1.0',
+                // Not a PROMPT_VERSION: no prompt was sent and no model answered, so
+                // reporting a real contract revision would make fixture data indistinguishable
+                // from analysis in the database.
+                analysisVersion: 'mock',
                 modelUsed: model || 'mock-v1',
                 processingNote: 'This is a mock analysis for testing.',
             },
