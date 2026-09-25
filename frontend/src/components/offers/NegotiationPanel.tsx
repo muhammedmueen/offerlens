@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Copy, Download, Loader2 } from "lucide-react";
+import { Copy, Download, Info, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const TONES = ["professional", "assertive", "friendly"] as const;
@@ -59,6 +59,18 @@ const NegotiationPanel: React.FC<{ offerId: string }> = ({ offerId }) => {
 
       {script && (
         <div className="space-y-4 rounded-lg border border-border bg-muted/30 p-4">
+          {/* Why this is a template rather than a tailored script. The backend has always sent
+              a `note` on the fallback paths and it was never rendered, so a user got an email
+              full of [BRACKETS] with no explanation of what had gone wrong. */}
+          {script.note && (
+            <div
+              role="status"
+              className="flex items-start gap-2 rounded-md border border-yellow-500/30 bg-yellow-50 p-3 text-xs"
+            >
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-yellow-600" aria-hidden />
+              <p className="text-foreground">{script.note}</p>
+            </div>
+          )}
           {script.subject && <p className="text-sm font-semibold">Subject: {script.subject}</p>}
           <pre className="whitespace-pre-wrap text-sm">{script.body || script.email || JSON.stringify(script, null, 2)}</pre>
           <div className="flex gap-2">
