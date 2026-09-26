@@ -391,8 +391,31 @@ regression worth reporting. Specifically:
   detail. The template fills in the company, role and offer figure and brackets only what you
   have to decide: your target figure, your name, and who you are writing to.
 
-Then **Compare** with two completed offers, and check the dashboard shows a score
-distribution.
+### 8.5a Compare (rebuilt in Phase 3 round 3)
+
+Pick two completed offers on **Compare** and hit Compare Selected. Until round 3 this
+killed the page — the service returned a shape the table did not read, so you got
+"This page failed to load." Now expect an 11-row table:
+
+1. **Overall** — titled *"Overall (comparable basis)"* whenever a component is excluded,
+   with a note naming which. Plain *"Overall score"* only when all five were scored for
+   every offer.
+2. **Five rubric rows** — red flags, salary vs market, benefits, growth, transparency, each
+   `n / 100`. A row showing "No data" for any offer is excluded from the overall and says so.
+3. **Five fact rows** — total CTC, base salary (annual), take-home, red flags found,
+   benefits listed.
+
+A tick marks the best value in each row, and **no tick means a tie or missing data**, not a
+draw you should read past. Below the table: an explanation if the comparable score differs
+from an offer's own page, then the verdict with what the winner **gives up** — that list is
+your negotiation material.
+
+The thing to sanity-check: a letter with a higher CTC should still be able to lose. Upload
+one generous offer with a long non-compete and no-notice probation against a smaller, clean
+one, and the clean one should win on score while the table still shows it losing on money.
+If the higher-paying offer wins on every row, the rule engine is not firing.
+
+Then check the dashboard shows a score distribution.
 
 ### 8.6 Salary Explorer
 

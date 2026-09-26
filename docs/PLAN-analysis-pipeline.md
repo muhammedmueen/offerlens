@@ -1658,7 +1658,8 @@ column and not across.
 ### Phase 3: Full Pipeline Refactor (2-3 days)
 
 Worked in rounds rather than in task order, because reading the code against the list changed
-three items' status and turned up a fourth that was not on it. **Rounds 1 and 2 are done.**
+three items' status and turned up a fourth that was not on it. **Rounds 1, 2 and 3 are done** —
+6 of 13 items shipped, 1 already satisfied, 4 deferred with reasons, 2 blocked on GCP billing.
 
 | # | Task | Impact | Status |
 |---|------|--------|---|
@@ -1667,7 +1668,7 @@ three items' status and turned up a fourth that was not on it. **Rounds 1 and 2 
 | 16 | Stage 3: Contextual AI via system instruction (no raw text re-send) | Grounded + secure | ✅ **Already satisfied by Phase 1.** See below |
 | 17 | Add prompt versioning to `aiMetadata` | Rollback + A/B testing | ✅ **Done** (round 1). See below |
 | 18 | Progressive results: store stage outputs, poll returns partial data | UX during longer processing | ⏸ Deferred — contract change + frontend, for a ~20s wait |
-| 19 | Update comparison to use rubric sub-scores | Dimension-by-dimension | Round 3 — cheap now, and it fixes a live ranking bug. See below |
+| 19 | Update comparison to use rubric sub-scores | Dimension-by-dimension | ✅ **Done** (round 3) — the page was broken outright. See below |
 | 20 | Enhance career path with real context + salary progression | Realistic trajectories | ⏸ Deferred |
 | 21 | Add negotiation template library | Non-AI fallback | ✅ **Done** (round 2) — plus a measured regression from task 9. See below |
 | 21a | Stale job reaper — `PROCESSING` > 5 min → `FAILED` (use the existing `ANALYSIS_TIMEOUT_MS`) | Stuck offers currently never recover | ✅ **Done** (round 1). See below |
@@ -1830,7 +1831,7 @@ was `Date.now() - offer.updatedAt`, annotated *"Approx"*. It was not approximate
 including queue wait and OCR. Now measured from the top of the job handler — observable in the
 numbers, ~21-22s before, 19.1s for the same shape of analysis after.
 
-##### Round 3 preview: comparison is ranking two different scales
+##### Round 3 preview (now resolved — see the round 3 outcome below)
 
 `scoreBreakdown` is stored as of migration `0002`, so task 19's sub-scores are already in the
 database. While reading `comparison.service.ts` for sizing, two defects turned up:
@@ -1940,6 +1941,82 @@ Verified live: a CTC-only letter (`baseSalary: null`, `totalCTC: 1500000`) retur
 `generateNegotiationScript` patched to throw: 200 with `type=template` rather than a 500, company,
 role and `15,00,000` all substituted, three numbered points for three requested focus areas, no
 `[COMPANY NAME]` left, `[YOUR TARGET FIGURE]` retained, and the note explaining why.
+
+#### Round 3 outcome — `backend/src/modules/comparison/comparison.matrix.ts`
+
+One commit, 420 backend tests (from 393).
+
+> [!IMPORTANT]
+> **The comparison page was broken, not merely imprecise.** It read `data.rows` and rendered
+> `data.recommendation` straight into a paragraph; the service returned neither. The table
+> rendered with zero rows, every column header fell back to "Offer", and passing an object to a
+> React child throws — so clicking **Compare Selected** has been killing the page inside its
+> error boundary. Same class of contract drift as the four drawer bugs in `b798415`; comparison
+> was missed because it is a page rather than a drawer.
+>
+> The frontend's shape was the better design and is exactly what this task asked for, so the
+> service now produces it.
+
+##### Why a sort on `score` was wrong
+
+The rubric redistributes the weight of any component it cannot score, so two stored scores are
+not necessarily measured on the same basis. An offer with verified salary submissions is scored
+across five components; one without is scored across four, with salary's 30% spread over the
+rest. Ranking those compares different things and presents the result as a like-for-like verdict.
+Task 15 made it likelier still, since a failed benefits checklist takes benefits and growth with
+it.
+
+Ranking now runs on a **common basis** — only the components every offer has a score for,
+renormalised to 100. The same principle the eval harness already uses for `--runs N`, where a
+multi-pass average counts only the cases that completed in every pass.
+
+**This reverses real verdicts, and a test pins it.** Offer A scores 62 and B scores 70 as stored,
+because A was benchmarked and sits badly in the market while B's equivalent dimension was never
+measured at all. On the four factors they share, A leads 80 to 70 — the opposite recommendation.
+
+Each offer's own stored score is still reported, since that is what its results page shows, and
+`basis.note` explains a divergence only when one exists. The two agree whenever coverage matches,
+which is the common case.
+
+##### Design decisions
+
+- **Every rubric component gets a row**, including ones only some offers have. "No data" in a cell
+  is information, and hiding the row would make the overall row's note unexplainable.
+- **A tie awards no winner.** The previous `indexOf(max)` silently crowned the first column.
+- **A row missing a value for any offer awards no winner either.** Highlighting a column is a claim.
+- **The recommendation is derived from the rows**, not recomputed, so it cannot contradict the
+  table the user is reading.
+- **It lists only what the winner gives up.** The table ticks every win already; repeating them
+  produced eight bullets of sales pitch. The losing rows are the ones worth taking into a
+  negotiation.
+
+##### Three bugs in my own first pass
+
+- Two rows were both called **"Red flags"** — the rubric component and the raw count. `ComparePage`
+  keys rows by metric, so that was a duplicate React key as well as two differently-meaning rows
+  sharing a label. Renamed to "Red flags found", with a test asserting metric names are unique.
+- `metric.toLowerCase()` rendered **"Total CTC" as "total ctc"**. CTC is an initialism.
+- **Base salary was compared as a raw amount.** `baseSalary` carries a `period` and the model
+  reports whichever the letter used — two runs over the *same* letter reported `1,20,000`
+  (monthly) and `14,40,000` (annual), so the column could have shown a 12× difference between
+  identical pay. Now annualised through the existing `annualBasicFrom`. Found by eyeballing a real
+  matrix rather than by a test, which is worth noting: the unit tests all passed.
+
+##### The test that should have caught the drift
+
+`test-m2.mjs` asserted `data.entries` — a key the service has never returned — so it printed
+"? entries" and passed on the status code alone. That blindness is precisely why the response and
+the page were free to diverge until the page crashed. It now asserts the shape the page consumes:
+`rows` present, `id`/`company` keys, unique metrics, one value per offer per row, recommendation
+fields as strings, and a basis.
+
+##### What it looks like on real letters
+
+Verified live on two contrasting offers. **Brightwell pays ₹32,00,000 against Alder's ₹28,00,000
+and has the higher take-home, yet scores 7 against 89** — an 18-month non-compete, no-notice
+probation, discretionary variable pay and a single benefit. The table shows both truths side by
+side and the trade-off list names the money Alder gives up. A naive "higher CTC wins" comparison
+would have recommended the worse offer, which is the entire point of the product.
 
 ##### 🔴 Blocker: Cloud Vision billing is disabled
 
