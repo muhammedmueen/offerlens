@@ -7,20 +7,9 @@ import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 import { assertOfferAccess } from '@/shared/access/offer-access.js';
 import { AnalysisResult } from '@/modules/analysis/analysis.types.js';
-
-interface ComparisonEntry {
-    offerId: string;
-    companyName: string | null;
-    role: string | null;
-    score: number;
-    scoreLabel: string;
-    baseSalary: number | null;
-    totalCTC: number | null;
-    currency: string;
-    redFlagCount: number;
-    benefitCount: number;
-    offerPercentile: number;
-}
+import { annualBasicFrom, type TakeHomeResult } from '@/modules/takehome/takehome.calculator.js';
+import type { ScoreComponent } from '@/modules/analysis/score.rubric.js';
+import { buildComparison, type ComparisonEntry } from './comparison.matrix.js';
 
 export class ComparisonService {
     constructor(private fastify: FastifyInstance) { }
@@ -46,64 +35,45 @@ export class ComparisonService {
             .from(analyses)
             .where(inArray(analyses.offerId, offerIds));
 
-        // Build comparison matrix
         const entries: ComparisonEntry[] = offerIds.map(id => {
             const analysis = analysisRecords.find(a => a.offerId === id);
             if (!analysis) throw new AppError(ERROR_CODES.NOT_FOUND, `Analysis for offer ${id} not found`, 404);
 
             const extracted = analysis.extractedData as AnalysisResult['extractedData'];
-            const salary = analysis.salaryComparison as AnalysisResult['salaryComparison'];
-            const redFlags = analysis.redFlags as AnalysisResult['redFlags'];
-            const benefits = analysis.benefits as AnalysisResult['benefits'];
+            const redFlags = (analysis.redFlags ?? []) as AnalysisResult['redFlags'];
+            const benefits = (analysis.benefits ?? []) as AnalysisResult['benefits'];
+            const takeHome = analysis.takeHome as TakeHomeResult | null;
+
+            // Per-component sub-scores, stored at analysis time by task 10. Null for rows
+            // written before that migration, which the matrix handles by falling back to
+            // stored totals with a caveat rather than inventing dimensions.
+            const breakdown = analysis.scoreBreakdown as
+                { components: ScoreComponent[]; note: string | null } | null;
 
             return {
-                offerId: id,
-                companyName: extracted.companyName,
-                role: extracted.role,
+                id,
+                company: extracted?.companyName ?? null,
+                role: extracted?.role ?? null,
                 score: analysis.score,
                 scoreLabel: analysis.scoreLabel,
-                baseSalary: extracted.compensation?.baseSalary?.amount || null,
-                totalCTC: extracted.compensation?.totalCTC || null,
-                currency: extracted.compensation?.currency || 'INR',
-                redFlagCount: redFlags?.length || 0,
-                benefitCount: benefits?.length || 0,
-                offerPercentile: salary?.offerPercentile || 0,
+                currency: extracted?.compensation?.currency || 'INR',
+                totalCTC: extracted?.compensation?.totalCTC ?? null,
+                // Annualised, not the raw amount. `baseSalary` carries a `period`, and the model
+                // reports whichever the letter used — so one letter saying "₹1,20,000 per month"
+                // and another saying "₹14,40,000 per annum" describe the same pay. Comparing the
+                // raw amounts put those in the same column as a 12x difference. Observed on two
+                // runs over the same letter, which reported it both ways.
+                baseSalary: annualBasicFrom(extracted?.compensation?.baseSalary),
+                redFlagCount: Array.isArray(redFlags) ? redFlags.length : 0,
+                highSeverityCount: Array.isArray(redFlags)
+                    ? redFlags.filter((f) => f?.severity === 'high').length
+                    : 0,
+                benefitCount: Array.isArray(benefits) ? benefits.length : 0,
+                netMonthlyHigh: takeHome?.netMonthly?.high ?? null,
+                components: breakdown?.components ?? null,
             };
         });
 
-        // Generate recommendation
-        const recommendation = this.generateRecommendation(entries);
-
-        return {
-            offers: entries,
-            recommendation,
-            comparedAt: new Date().toISOString(),
-        };
-    }
-
-    private generateRecommendation(entries: ComparisonEntry[]) {
-        // Simple deterministic recommendation based on score + percentile
-        const sorted = [...entries].sort((a, b) => b.score - a.score);
-        const best = sorted[0];
-        const others = sorted.slice(1);
-
-        const advantages: string[] = [];
-        if (best.score > (others[0]?.score || 0) + 10) {
-            advantages.push(`Significantly higher overall score (${best.score} vs ${others.map(o => o.score).join(', ')})`);
-        }
-        if (best.redFlagCount < Math.min(...others.map(o => o.redFlagCount))) {
-            advantages.push('Fewer red flags');
-        }
-        if (best.offerPercentile > Math.max(...others.map(o => o.offerPercentile))) {
-            advantages.push('Better market positioning');
-        }
-
-        return {
-            recommendedOfferId: best.offerId,
-            companyName: best.companyName,
-            reason: `Highest overall score of ${best.score}/100`,
-            advantages,
-            caveat: 'This recommendation is based on quantitative analysis. Consider non-quantifiable factors like company culture, growth opportunities, and personal preferences.',
-        };
+        return buildComparison(entries);
     }
 }

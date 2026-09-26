@@ -164,7 +164,45 @@ if (second.status !== 201) {
     } else {
         r.ok('second analysis COMPLETED');
         const cmp = await guest.req('POST', '/offers/compare', { offerIds: [guestOfferId, secondId] }, token);
-        if (cmp.status === 200) r.ok(`comparison returned ${cmp.body.data?.entries?.length ?? '?'} entries`);
+
+        // This used to read `data.entries`, a key the service has never returned, so it
+        // printed "? entries" and passed on the status code alone. That blindness is why the
+        // response and ComparePage were free to drift apart until the page crashed on every
+        // comparison: nothing asserted the shape the page actually consumes.
+        if (cmp.status === 200) {
+            const d = cmp.body.data;
+            r.ok(`comparison returned ${d?.offers?.length ?? 0} offers and ${d?.rows?.length ?? 0} rows`);
+
+            if (Array.isArray(d?.rows) && d.rows.length > 0) r.ok('rows[] is present (ComparePage renders this)');
+            else r.no('rows[] missing — the comparison table renders empty without it');
+
+            if (d?.offers?.every((o) => typeof o.id === 'string' && 'company' in o)) {
+                r.ok('offers[] uses id/company, the keys the page reads');
+            } else {
+                r.no(`offers[] shape wrong: ${JSON.stringify(d?.offers?.[0]).slice(0, 160)}`);
+            }
+
+            const metrics = (d?.rows ?? []).map((row) => row.metric);
+            if (new Set(metrics).size === metrics.length) r.ok('row metrics are unique (they are React keys)');
+            else r.no(`duplicate row metric: ${metrics.join(', ')}`);
+
+            if (d?.rows?.every((row) => Array.isArray(row.values) && row.values.length === d.offers.length)) {
+                r.ok('every row has one value per offer');
+            } else {
+                r.no('a row has the wrong number of values for the offer count');
+            }
+
+            // The bug that killed the page: recommendation was an object rendered straight into
+            // a paragraph. It stays an object, so the assertion is that the page reads fields.
+            if (typeof d?.recommendation?.reason === 'string' && typeof d?.recommendation?.caveat === 'string') {
+                r.ok('recommendation exposes reason and caveat as strings');
+            } else {
+                r.no(`recommendation shape wrong: ${JSON.stringify(d?.recommendation).slice(0, 160)}`);
+            }
+
+            if (d?.basis && Array.isArray(d.basis.components)) r.ok(`compared on ${d.basis.components.length} shared component(s)`);
+            else r.no('basis missing — no way to tell what the comparison was computed on');
+        }
         else r.no(`comparison (${cmp.status}) ${JSON.stringify(cmp.body).slice(0, 200)}`);
     }
 }

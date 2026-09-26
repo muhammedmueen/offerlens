@@ -10,6 +10,30 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2 } from "lucide-react";
 
+/**
+ * Shapes returned by POST /offers/compare.
+ *
+ * Typed because this page and the API had drifted apart entirely: the page read `data.rows`
+ * and rendered `data.recommendation` directly into a paragraph, while the service returned
+ * neither `rows` nor a string. The table came out empty and rendering an object as a React
+ * child threw, so the page died inside its error boundary on every comparison.
+ */
+interface CompareOffer {
+  id: string;
+  company: string | null;
+  role: string | null;
+  score: number;
+  scoreLabel: string;
+  comparableScore: number | null;
+}
+
+interface CompareRow {
+  metric: string;
+  values: string[];
+  winnerId: string | null;
+  note?: string;
+}
+
 const ComparePage = () => {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
@@ -77,34 +101,83 @@ const ComparePage = () => {
           Compare Selected
         </Button>
 
+        {compareMutation.isError && <ErrorState />}
+
         {compareMutation.data && (
           <div className="rounded-xl border border-border bg-card overflow-x-auto">
             <table className="w-full text-sm">
+              <caption className="sr-only">
+                Offers compared dimension by dimension. Winning values are marked.
+              </caption>
               <thead>
                 <tr className="border-b border-border text-xs text-muted-foreground">
-                  <th className="px-4 py-3 text-left">Metric</th>
-                  {(compareMutation.data.offers || []).map((o: any) => (
-                    <th key={o.id} className="px-4 py-3 text-left">{o.company || "Offer"}</th>
+                  <th scope="col" className="px-4 py-3 text-left">Metric</th>
+                  {(compareMutation.data.offers || []).map((o: CompareOffer) => (
+                    <th scope="col" key={o.id} className="px-4 py-3 text-left">
+                      <span className="block text-foreground">{o.company || "Offer"}</span>
+                      {o.role && <span className="block font-normal">{o.role}</span>}
+                    </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {(compareMutation.data.rows || []).map((row: any) => (
-                  <tr key={row.metric} className="border-b border-border">
-                    <td className="px-4 py-3 font-medium">{row.metric}</td>
-                    {row.values.map((v: any, i: number) => (
-                      <td key={i} className={`px-4 py-3 ${row.winnerId && compareMutation.data.offers[i]?.id === row.winnerId ? "text-green-400 font-semibold" : ""}`}>
-                        {v}
-                      </td>
-                    ))}
+                {(compareMutation.data.rows || []).map((row: CompareRow) => (
+                  <tr key={row.metric} className="border-b border-border align-top">
+                    <th scope="row" className="px-4 py-3 text-left font-medium">
+                      {row.metric}
+                      {/* Why a row could not be compared. Without it, an un-highlighted row
+                          looks like a tie rather than missing data. */}
+                      {row.note && (
+                        <span className="mt-1 block text-xs font-normal text-muted-foreground">
+                          {row.note}
+                        </span>
+                      )}
+                    </th>
+                    {row.values.map((v: string, i: number) => {
+                      const isWinner = !!row.winnerId && compareMutation.data.offers[i]?.id === row.winnerId;
+                      return (
+                        <td key={i} className={`px-4 py-3 ${isWinner ? "font-semibold text-green-700" : ""}`}>
+                          {v}
+                          {/* Not colour alone — the marker survives greyscale and colour
+                              blindness, and screen readers announce it. */}
+                          {isWinner && <span className="ml-1" aria-label="best value">✓</span>}
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
               </tbody>
             </table>
+
+            {compareMutation.data.basis?.note && (
+              <p className="border-t border-border px-4 py-3 text-xs text-muted-foreground">
+                {compareMutation.data.basis.note}
+              </p>
+            )}
+
             {compareMutation.data.recommendation && (
-              <div className="border-t border-border p-4 text-sm text-muted-foreground">
-                <p className="font-semibold text-foreground mb-1">AI Recommendation</p>
-                <p>{compareMutation.data.recommendation}</p>
+              <div className="border-t border-border p-4 text-sm">
+                <p className="mb-1 font-semibold text-foreground">
+                  {compareMutation.data.recommendation.company
+                    ? `On the numbers: ${compareMutation.data.recommendation.company}`
+                    : "On the numbers: too close to call"}
+                </p>
+                <p className="text-muted-foreground">{compareMutation.data.recommendation.reason}</p>
+
+                {/* What the recommended offer loses on. The table already ticks every win, so
+                    repeating those here was eight bullet points of sales pitch; this is the
+                    half a candidate can act on. */}
+                {compareMutation.data.recommendation.tradeoffs?.length > 0 && (
+                  <ul className="mt-3 space-y-1">
+                    {compareMutation.data.recommendation.tradeoffs.map((t: string, i: number) => (
+                      <li key={i} className="text-muted-foreground">• {t}</li>
+                    ))}
+                  </ul>
+                )}
+
+                <p className="mt-3 text-xs italic text-muted-foreground">
+                  {compareMutation.data.recommendation.caveat}
+                </p>
               </div>
             )}
           </div>
