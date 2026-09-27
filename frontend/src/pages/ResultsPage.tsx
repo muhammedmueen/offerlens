@@ -104,10 +104,22 @@ const ResultsPage = () => {
           </div>
         )}
 
-        {a.ocrConfidence && a.ocrConfidence < 0.7 && (
-          <div className="flex items-center gap-2 rounded-xl border border-yellow-500/30 bg-yellow-50 p-4 text-sm skeu-emboss">
-            <AlertTriangle className="h-5 w-5 text-yellow-600 shrink-0" />
-            <p className="text-foreground">We had trouble reading parts of your offer. Some data may be inaccurate.</p>
+        {/* Reads the backend's verdict rather than re-deriving one. This was
+            `ocrConfidence < 0.7`, a second threshold for the same idea that disagreed with the
+            backend's OCR_MIN_CONFIDENCE of 0.6 — so a 0.65 scan was flagged here and treated as
+            fine by the server. One owner now; the percentage is still shown because it is the
+            detail a user can act on. */}
+        {a.lowConfidence && (
+          <div className="flex items-start gap-2 rounded-xl border border-yellow-500/30 bg-yellow-50 p-4 text-sm skeu-emboss">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-yellow-600" aria-hidden />
+            <p className="text-foreground">
+              We had trouble reading parts of your offer
+              {typeof a.ocrConfidence === "number"
+                ? ` (${Math.round(a.ocrConfidence * 100)}% text-recognition confidence)`
+                : ""}
+              . It was analysed anyway, but check the values against your letter — especially the
+              numbers.
+            </p>
           </div>
         )}
 

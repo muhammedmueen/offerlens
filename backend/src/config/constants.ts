@@ -32,7 +32,31 @@ export const ACCESS_TOKEN_EXPIRY = '15m';
 export const REFRESH_TOKEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7d in ms
 export const REFRESH_TOKEN_EXPIRY = '7d';
 
+/**
+ * Below this, text recognition is treated as unreliable — but the analysis still runs.
+ *
+ * It used to mean "reject the upload": the OCR worker set the offer to FAILED with
+ * `Low OCR confidence: 0.55`. That is the wrong trade for a photographed offer letter. A
+ * slightly blurry scan still yields a mostly-correct letter, and the confidence machinery from
+ * task 11 already downgrades every field read from a page and shows the user a caveat, so the
+ * honest outcome is an analysis carrying a warning rather than a dead end with no result and no
+ * way to proceed except taking a better photo.
+ *
+ * A null confidence is NOT low confidence. See `deriveConfidence`.
+ */
 export const OCR_MIN_CONFIDENCE = 0.6; // 60%
+
+/**
+ * Below this many characters, there is nothing to analyse.
+ *
+ * Previously unchecked, and only caught by accident: empty OCR output came with confidence 0,
+ * which tripped the confidence gate. Removing that gate needs this in its place, and it is the
+ * more honest failure anyway — "we could not read any text" rather than "confidence 0".
+ *
+ * Deliberately low. It exists to catch a blank page or a photograph of a wall, not to judge how
+ * terse a letter is; the shortest corpus letter is over 700 characters.
+ */
+export const MIN_EXTRACTED_TEXT_CHARS = 80;
 
 // Upper bound on text sent to POST /offers/extract. Gemini cost scales with input length,
 // and the provider truncates to 10k anyway — better to reject loudly than analyse a

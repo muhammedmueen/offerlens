@@ -15,6 +15,7 @@ import { calculateTakeHome, annualBasicFrom } from '@/modules/takehome/takehome.
 import { checkBenefits, bareBenefitsFlag } from '@/modules/benefits/benefits.checklist.js';
 import { calculateScore } from '@/modules/analysis/score.rubric.js';
 import { optionalStage } from '@/shared/stage.js';
+import { OCR_MIN_CONFIDENCE } from '@/config/constants.js';
 
 const salaryService = new SalaryService();
 
@@ -384,7 +385,17 @@ export const analysisWorker = new Worker(
                     // Stored so the score can be explained later, not just displayed.
                     scoreBreakdown: { components: scoring.components, note: scoring.note },
                     aiMetadata: result.metadata,
-                    lowConfidence: false, // Calculate from AI metadata if possible
+                    // Task 21d. Was a hardcoded `false` with a comment wondering where it should
+                    // come from — stored on every row, returned to the client, and read by
+                    // nobody. It comes from the offer: if the letter was recognised off a page
+                    // badly, everything derived from it is less certain.
+                    //
+                    // Owning the threshold here rather than in the UI: ResultsPage had its own
+                    // `ocrConfidence < 0.7` test, a second magic number for the same idea that
+                    // disagreed with OCR_MIN_CONFIDENCE. Null means "not recognised, or the
+                    // provider reported nothing", which is not low confidence.
+                    lowConfidence: typeof offer.ocrConfidence === 'number'
+                        && offer.ocrConfidence < OCR_MIN_CONFIDENCE,
                     redFlagsDiscarded: discardedCount,
                     processingTimeMs: Date.now() - startedAt,
                 });
