@@ -1658,8 +1658,8 @@ column and not across.
 ### Phase 3: Full Pipeline Refactor (2-3 days)
 
 Worked in rounds rather than in task order, because reading the code against the list changed
-three items' status and turned up a fourth that was not on it. **Rounds 1, 2 and 3 are done** —
-6 of 13 items shipped, 1 already satisfied, 4 deferred with reasons, 2 blocked on GCP billing.
+three items' status and turned up a fourth that was not on it. **Rounds 1-4 are done** — 7 of 13
+items shipped, 1 already satisfied by Phase 1, 4 deferred with reasons, 1 blocked on GCP billing.
 
 | # | Task | Impact | Status |
 |---|------|--------|---|
@@ -1673,8 +1673,8 @@ three items' status and turned up a fourth that was not on it. **Rounds 1, 2 and
 | 21 | Add negotiation template library | Non-AI fallback | ✅ **Done** (round 2) — plus a measured regression from task 9. See below |
 | 21a | Stale job reaper — `PROCESSING` > 5 min → `FAILED` (use the existing `ANALYSIS_TIMEOUT_MS`) | Stuck offers currently never recover | ✅ **Done** (round 1). See below |
 | 21b | Redis-down fallback to synchronous processing | Roadmap requirement, not implemented | ⏸ Deferred |
-| 21c | Scanned-PDF OCR via `asyncBatchAnnotateFiles` + GCS, or a different provider | Scanned PDFs currently fail outright | 🔴 **Blocked** — Cloud Vision billing is disabled. See below |
-| 21d | Make the OCR confidence signal real: drop the `\|\| 0.85` default, surface `lowConfidence` instead of hard-failing | Confidence gate is currently inert end-to-end | 🔴 **Blocked** — same reason |
+| 21c | Scanned-PDF OCR via `asyncBatchAnnotateFiles` + GCS, or a different provider | Scanned PDFs currently fail outright | 🔴 **Blocked** — Cloud Vision billing is disabled, and the API reads only from GCS. See below |
+| 21d | Make the OCR confidence signal real: drop the `\|\| 0.85` default, surface `lowConfidence` instead of hard-failing | Confidence gate is currently inert end-to-end | ✅ **Done** (round 4). Was wrongly marked blocked — only the live-scan proof needed billing. See below |
 | 21e | Consolidate `OfferService`'s three duplicate extraction methods into one with consistent provider gating | Removes divergent `NODE_ENV` behaviour | ✅ **Done** (round 1) — it was dead code. See below |
 
 #### Round 1 outcome
@@ -2017,6 +2017,79 @@ and has the higher take-home, yet scores 7 against 89** — an 18-month non-comp
 probation, discretionary variable pay and a single benefit. The table shows both truths side by
 side and the trade-off list names the money Alder gives up. A naive "higher CTC wins" comparison
 would have recommended the worse offer, which is the entire point of the product.
+
+#### Round 4 outcome — task 21d
+
+One commit, 431 backend tests (from 420).
+
+> [!NOTE]
+> This task was listed as blocked in round 1, and that was **wrong**. Only the end-to-end proof
+> against a real scan needed Cloud Vision billing; all three defects were plain code, fixable and
+> unit-testable without it. Recorded because mislabelling work as blocked is how it stops getting
+> done.
+
+Three lies that cancelled each other out into a gate that could not fire.
+
+##### 1. `pages[0].confidence || 0.85`
+
+Vision reporting nothing produced `0.85`, so a provider that measured nothing looked 85% sure. It
+also read only the first page, and treated Vision's `0` — which means *not computed* — as falsy
+and took the default. The value was therefore always present, always about 0.85, and always above
+any threshold.
+
+`deriveConfidence` averages page confidence across **all** pages, falls back to averaging
+**word**-level confidence when the page level is absent — which `TEXT_DETECTION` frequently is,
+and which is exactly what the default was papering over — and returns `null` when neither exists.
+`OcrResult.confidence` is now `number | null`, and null means *unknown*, which the pipeline must
+read as neither pass nor fail.
+
+> [!WARNING]
+> **Not verified against a live response.** Cloud Vision returns `BILLING_DISABLED`, so which
+> levels Vision actually populates comes from the API reference rather than from an observed
+> response. The fallback order is deliberately chosen so that being wrong about a level costs
+> accuracy, never correctness: no branch can produce a fabricated number.
+
+##### 2. Low confidence failed the upload
+
+`confidence < OCR_MIN_CONFIDENCE` set the offer to `FAILED` with `Low OCR confidence: 0.55`. That
+is the wrong trade for a photographed letter. A slightly blurry scan still yields a
+mostly-correct document, and task 11's machinery already downgrades every field read off a page
+and shows a caveat — so an analysis carrying a warning beats a dead end offering no result and no
+recourse but a better photo. It warns and proceeds now.
+
+That gate was also, by accident, the **only** check for empty output: OCR returning nothing
+arrives with confidence 0. An empty `.txt` had no such luck and went through to be analysed as an
+empty letter. `MIN_EXTRACTED_TEXT_CHARS` now fails explicitly, with a reason a user can act on
+that does not mention "confidence".
+
+##### 3. `lowConfidence` was a hardcoded `false`
+
+Stored on every analysis row, returned to the client, read by nobody, under a comment wondering
+where the value should come from. Derived from the offer's recognition confidence now.
+
+`ResultsPage` had its own `ocrConfidence < 0.7` test — a second threshold for the same idea that
+disagreed with the backend's 0.6, so a 0.65 scan was flagged in the UI and treated as fine by the
+server. One owner now; the page still shows the percentage, because that is the actionable detail.
+
+##### Also: `ocrConfidence = 1.0` for text nobody recognised
+
+The OCR worker wrote `1.0` on the pasted-text and `.txt` paths. It writes `null` now. That lie
+already had a recorded symptom: a first pass of `assessConfidence` read "non-null" as "this was
+scanned" and downgraded every field on a typed letter. The `< 1` guard stays so the `1.0` rows
+already in the database keep behaving.
+
+##### Verified live
+
+- A 3-character upload **FAILS** with *"We could not read any text from that file…"*, and the
+  reason no longer mentions confidence.
+- With `GoogleVisionOcrProvider` patched to return a letter at **0.42** — the only way to reach
+  this path with billing disabled — the offer **COMPLETED** rather than failed, `ocr_confidence`
+  stored as `0.42`, `lowConfidence` true, the caveat read *"read from a scan or photo (42%
+  text-recognition confidence)"*, and every field read off the page came back medium or low.
+  Take-home stayed **high**, correctly: it is our arithmetic over inputs that are already tagged.
+  An earlier version of the check asserted "no field is high" and that assertion was the thing
+  that was wrong.
+- A pasted letter stores `ocr_confidence` **NULL** (was `1.0`) with `lowConfidence` false.
 
 ##### 🔴 Blocker: Cloud Vision billing is disabled
 
