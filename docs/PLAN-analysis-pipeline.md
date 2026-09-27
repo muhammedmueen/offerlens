@@ -1658,8 +1658,9 @@ column and not across.
 ### Phase 3: Full Pipeline Refactor (2-3 days)
 
 Worked in rounds rather than in task order, because reading the code against the list changed
-three items' status and turned up a fourth that was not on it. **Rounds 1-4 are done** — 7 of 13
-items shipped, 1 already satisfied by Phase 1, 4 deferred with reasons, 1 blocked on GCP billing.
+three items' status and turned up a fourth that was not on it. **Rounds 1-5 are done** — 7 items
+shipped plus half of 21c, 1 already satisfied by Phase 1, 4 deferred with reasons, and only true
+scanned-PDF OCR still blocked on GCP billing.
 
 | # | Task | Impact | Status |
 |---|------|--------|---|
@@ -1673,7 +1674,7 @@ items shipped, 1 already satisfied by Phase 1, 4 deferred with reasons, 1 blocke
 | 21 | Add negotiation template library | Non-AI fallback | ✅ **Done** (round 2) — plus a measured regression from task 9. See below |
 | 21a | Stale job reaper — `PROCESSING` > 5 min → `FAILED` (use the existing `ANALYSIS_TIMEOUT_MS`) | Stuck offers currently never recover | ✅ **Done** (round 1). See below |
 | 21b | Redis-down fallback to synchronous processing | Roadmap requirement, not implemented | ⏸ Deferred |
-| 21c | Scanned-PDF OCR via `asyncBatchAnnotateFiles` + GCS, or a different provider | Scanned PDFs currently fail outright | 🔴 **Blocked** — Cloud Vision billing is disabled, and the API reads only from GCS. See below |
+| 21c | Scanned-PDF OCR via `asyncBatchAnnotateFiles` + GCS, or a different provider | Scanned PDFs currently fail outright | 🟡 **Part A done** (round 5) — no PDF worked at all, text-layer PDFs now do. Part B (true scans) blocked on billing. See below |
 | 21d | Make the OCR confidence signal real: drop the `\|\| 0.85` default, surface `lowConfidence` instead of hard-failing | Confidence gate is currently inert end-to-end | ✅ **Done** (round 4). Was wrongly marked blocked — only the live-scan proof needed billing. See below |
 | 21e | Consolidate `OfferService`'s three duplicate extraction methods into one with consistent provider gating | Removes divergent `NODE_ENV` behaviour | ✅ **Done** (round 1) — it was dead code. See below |
 
@@ -2090,6 +2091,101 @@ already in the database keep behaving.
   An earlier version of the check asserted "no field is high" and that assertion was the thing
   that was wrong.
 - A pasted letter stores `ocr_confidence` **NULL** (was `1.0`) with `lowConfidence` false.
+
+#### Round 5 outcome — task 21c part A, `backend/src/providers/pdf/pdf-text.ts`
+
+One commit, 443 backend tests (from 431).
+
+> [!IMPORTANT]
+> **The task title understated the problem: no PDF worked, not just scanned ones.** `ocr.worker`
+> routed anything that was not `.txt` to `GoogleVisionOcrProvider`, whose `textDetection` is an
+> *image* endpoint — so a PDF failed on format grounds regardless of credentials. Verified by
+> generating a 1,707-byte text-layer PDF, uploading it, and watching the offer go `FAILED`.
+>
+> That left pasted text and `.txt` as the only working upload paths, and PDF is how offer letters
+> actually arrive.
+
+##### Part A: read the text layer, don't recognise it
+
+Most offer letters are software-generated and carry an embedded text layer. Reading it beats OCR
+on every axis for those files: no network call, no vendor, no per-page cost, and the text is
+**exact** rather than recognised — so `ocrConfidence` stays null and task 11 does not downgrade
+every field the way it must for a scan.
+
+The worker now routes: pasted text → `.txt` → PDF text layer → OCR for images. `extractPdfText`
+returns a discriminated result, each arm with a distinct user-facing outcome:
+
+| Result | Behaviour |
+|---|---|
+| `text` | use it, confidence `null` |
+| `no-text-layer` | a scan — fail with the real diagnosis |
+| `encrypted` | fail saying the PDF is password-protected |
+| `not-pdf` | an image, fall through to OCR |
+| `unreadable` | fail saying the file may be damaged |
+
+Password protection earns its own branch because it is not hypothetical: Indian HR routinely locks
+offer letters with a PAN or date of birth. Folded into "we could not read that file", it would
+send a user off to re-scan a perfectly legible document.
+
+**A scanned PDF fails fast rather than calling Vision.** `textDetection` cannot accept a PDF, so
+that request could not succeed even with billing enabled; spending it would buy a less useful
+error.
+
+##### Correction to this plan's own Part B suggestion
+
+The task line proposes `asyncBatchAnnotateFiles` + GCS. That is over-engineered for a two-page
+letter. Vision has two file endpoints:
+
+| Endpoint | Input | Pages | Bucket? |
+|---|---|---|---|
+| `files:annotate` (sync) | inline content | ≤ 5 | No |
+| `files:asyncBatchAnnotate` | GCS URI only | ≤ 2000 | Yes, in *and* out |
+
+Per [Google's small-batch docs](https://docs.cloud.google.com/vision/docs/file-small-batch) the
+synchronous route takes one file and a small page count; the
+[offline route](https://docs.cloud.google.com/vision/docs/file-batch) is the one that reaches 2000
+pages and writes results into a bucket. **Part B should use the synchronous endpoint** — no bucket,
+no IAM grant, no lifecycle policy, no operation polling, and no copy of a user's offer letter
+sitting in object storage needing a retention rule (which would land squarely in Phase 4 task 27).
+
+##### Library choice, which took three attempts
+
+`unpdf` was the right pick on paper — modern, maintained, purpose-built. Its bundled pdfjs threw
+`DataCloneError: Cannot transfer object of unsupported type` from `LoopbackPort.postMessage` on
+Node 24, as an **unhandled rejection that killed the process** rather than an error a caller could
+catch, on every call shape tried. `pdf-parse@2` exports a `PDFParse` class rather than the function
+its docs imply.
+
+Both wrap pdfjs, so `pdfjs-dist`'s own legacy build removes a layer instead of adding one and lets
+the worker options be set explicitly. Pinned at `6.3.289`, imported lazily inside the function so
+only actual PDFs pay for loading several megabytes.
+
+Two hardening notes: `isEvalSupported: false` is absent because **pdfjs 6 removed the option**
+along with its use of `eval`, so that is the library's default now rather than ours to request.
+Page reads cap at 30 and stop early once `MAX_EXTRACT_TEXT_CHARS` is reached — a public upload
+endpoint should not let a 5,000-page file decide how long a worker runs.
+
+##### One bug in my own first pass
+
+The "is there a text layer" test was a per-page average of 40 characters. That was a second
+threshold for an idea `MIN_EXTRACTED_TEXT_CHARS` already owns — the exact duplication task 21d had
+*just* finished removing — and it erred in the direction that hurts, rejecting a two-page letter
+with sparse pages as "looks like a scan". One absolute floor now, the same constant, deliberately
+permissive: being too lenient costs one thin analysis, being too strict costs the upload.
+
+##### Verified live
+
+The text-layer letter that previously failed now **COMPLETES**: 670 characters stored, company
+*Thornbury Systems*, `totalCTC` 2400000, `ocrConfidence` null, `lowConfidence` false, and **seven
+fields rated Verified** rather than downgraded.
+
+The detail that mattered most: **the non-compete clause wrapped across a line break was still
+detected.** `unwrapLines` exists precisely because PDF extraction breaks at the visual line, and
+this confirms it works against real pdfjs output — the specific risk in changing how text arrives.
+
+The encrypted and no-text-layer branches each failed with their own message. 12 unit tests run
+against real PDF bytes generated by pdfkit rather than a mocked pdfjs, since the library choice was
+itself decided by what survived a real document.
 
 ##### 🔴 Blocker: Cloud Vision billing is disabled
 
