@@ -703,96 +703,73 @@ Option B is simplest and works with existing polling architecture.
 
 ## What Happens Next
 
-> Restructured 2026-09-25. The phases below are organised by **theme**, which was right while the
-> work ran top to bottom. Now that most of each theme is done and only scattered leftovers remain,
-> theme order actively misleads — "Phase 3 remaining" reads like it precedes Phase 5, and it does
-> not. **This section owns priority. The phase sections own the record of what was decided and why.**
->
-> Tasks are deliberately NOT renumbered: the existing numbers are referenced across the commit
-> history and every outcome section here, and renumbering would break all of it for cosmetic gain.
-> Tasks 36-39 are new numbers for work that had been sitting unscheduled in `roadmap.md`.
+**Phase order is priority order.** Phases 4 through 7 were reordered and renumbered on 2026-09-25
+so that reading top to bottom is the same as working top to bottom. There is one index now, rather
+than a theme list plus a separate priority list.
 
-### Tier 1 — Ready now. No decisions, no dependencies
+| Phase | Scope | Gate |
+|---|---|---|
+| **4 — Launch Blockers** | Usage ledger, plan limits, three untrue privacy promises, one smoke spec | 4.1 needs nothing. 4.2 needs one number: the free daily limit |
+| **5 — Salary Data** | Seed benchmarks, then fuzzy matching, outlier rejection, contribution prompt | All of it behind 5.1: which dataset, and does its licence allow commercial use |
+| **6 — Revenue & Compliance** | Payments, retention policy, correction loop, scanned-PDF OCR | Pricing; and 6.4 needs Cloud Vision billing |
+| **7 — Operations** | Admin auth hardening, superadmin, dashboards | One of the Phase 7 triggers firing |
 
-| # | Task | Size | Why it is here |
-|---|------|------|----------------|
-| 28 | Append-only usage ledger | ~2 hrs | **The only item in this plan that cannot be retrofitted.** Cost history is cascade-deleted hourly, so every hour this is not built loses data permanently |
-| 36 | Delete stored files after text extraction | ~2 hrs | `roadmap.md` promises this and nothing does it. `expiresAt` is null for registered users, so **their uploads persist indefinitely** — a data-minimisation gap and a storage bill |
-| 38 | Anonymise salary submissions after validation | ~1 hr | `salary_submissions.userId` is a live FK, while the stated policy says submissions are unlinked from the account |
-| 39 | One Playwright smoke spec: upload → results → drawers → compare | ~3 hrs | Four contract bugs this session, every one invisible to 443 unit tests. Cheapest **now**, while the app is in a known-good state — written after a regression, a spec encodes the bug |
+**Start with 4.1.** It is the only remaining task that is both urgent and unblocked: cost history is
+cascade-deleted hourly, and it is the one item in this plan that cannot be retrofitted.
 
-> [!IMPORTANT]
-> 36 and 38 are user-facing promises that are currently untrue. With no users that is harmless;
-> the moment there are users it is not, and the fix is either an implementation or a wording
-> change. The wording change is nearly free. Worth a look from someone qualified on what the
-> policy should say before it ships publicly — this plan is not the place to settle that.
+After that, the critical path runs through **two decisions rather than through code** — the free
+daily limit, and the salary dataset.
 
-### Tier 2 — Ready, waiting on one small decision
+### Renumbering note
 
-| # | Task | Blocked on |
-|---|------|-----------|
-| 29 | `users.plan` + `PLANS` as code | **What is the free daily limit?** 3/day like guests, or higher |
-| 30 | Enforce the cap at the queue boundary | 28 + 29 |
-| 31 | Honest 429 with quota and reset time | 30 |
-| 37 | `GET /account/export` | Nothing technically — sized bigger than Tier 1, hence here |
+Completed work keeps its original flat numbers. Remaining work moved to `phase.task` form.
 
-Closes the hole where **signing up removes the only limit in the product**. Roughly a day once the
-number is settled.
+The two formats are deliberately different so the distinction is visible at a glance: **`task 17` is
+history, `task 4.2` is planned.** Flat numbers will never be reused.
 
-### Tier 3 — Waiting on research, not engineering
+This happened now because it was the cheapest it will ever be. No remaining task had an
+implementation commit pointing at it yet, and every completed round would have added more
+forward references to numbers that were going to move.
 
-| # | Task | Blocked on |
-|---|------|-----------|
-| 23 | Seed the salary DB from public datasets | **Which dataset, and does its licence permit commercial use?** |
-| 22 | Fuzzy role matching | 23 — nothing to match against an empty table |
-| 24 | Poisoning protection, 3σ + recency | 23 — nothing to reject |
-| 25 | Post-analysis contribution prompt | 23, loosely — worth little until benchmarks exist |
-| 20 | Career path salary progression | 23 |
-
-**One decision unblocks a third of what is left.** Its absence shows on every analysis: salary's
-30% redistributes every time, and the comparison table reads "No data" for that row.
-
-### Tier 4 — Blocked on infrastructure
-
-| # | Task | Blocked on |
-|---|------|-----------|
-| 21c-B | Scanned-PDF OCR via `files:annotate` | Cloud Vision billing on the GCP project. No bucket needed |
-
-### Tier 5 — Needs users or traffic before it means anything
-
-| # | Task | Waiting for |
-|---|------|------------|
-| 27 | PII redaction + retention policy | Needs 28 first, since billing records currently live in the row being deleted |
-| 26 | Correction loop → extraction rules | Correction volume that does not exist |
-| 32 | Payment integration | Settled pricing |
-| 34 | Admin auth hardening, audit log | Prerequisite of 33, so it waits with it |
-| 33 | Superadmin panel | One of the Phase 6 triggers firing |
-| 35 | Usage dashboards | 28 collecting for long enough to be worth charting |
-
-### Tier 6 — Not worth doing unless something changes
-
-| # | Task | Why not |
-|---|------|---------|
-| 14 | Worker 4-stage refactor | No behaviour change, and the `Promise.all()` it proposes buys nothing — those stages are synchronous CPU work |
-| 18 | Progressive results | A contract change plus frontend work to smooth a ~15 second wait |
-| 21b | Redis-down synchronous fallback | A 20-second HTTP request is worse service than a clear error |
-
-### The critical path runs through decisions, not code
-
-Only **task 28 is both urgent and unblocked**. Everything else in Tier 1 is small. After that,
-progress depends on two answers: the free daily limit, and the salary dataset.
+| Old | New | Task |
+|---|---|---|
+| 28 | **4.1** | Append-only usage ledger |
+| 29 | **4.2** | `users.plan` + `PLANS` as code |
+| 30 | **4.3** | Enforce the cap at the queue boundary |
+| 31 | **4.4** | Quota and reset time in the 429 |
+| 36 | **4.5** | Delete stored files after text extraction |
+| 38 | **4.6** | Anonymise salary submissions |
+| 37 | **4.7** | `GET /account/export` |
+| 39 | **4.8** | Playwright smoke spec |
+| 23 | **5.1** | Seed the salary DB |
+| 22 | **5.2** | Fuzzy role matching |
+| 24 | **5.3** | Poisoning protection |
+| 25 | **5.4** | Contribution prompt |
+| 20 | **5.5** | Career path salary progression |
+| 32 | **6.1** | Payment integration |
+| 27 | **6.2** | PII redaction + retention |
+| 26 | **6.3** | Correction loop |
+| 21c-B | **6.4** | Scanned-PDF OCR |
+| 34 | **7.1** | Admin auth hardening |
+| 33 | **7.2** | Superadmin panel |
+| 35 | **7.3** | Usage dashboards |
+| 14, 18, 21b | *(none)* | Dropped — see **Not Planned** at the end of the phases |
 
 > [!NOTE]
-> This plan has grown from 23 tasks to 39. At some point "finish the plan" stops being the right
-> goal and "launch and learn which of these mattered" starts being it. Tiers 1 and 2 are a
-> defensible definition of launch-ready; Tier 3 is the first thing real users would ask for.
-> Tiers 5 and 6 should be re-read sceptically rather than worked through.
+> Commit messages written before 2026-09-25 use the old numbers — "Phase 5 task 28", "Phase 4 task
+> 23", "task 27". Translate with the table above. Numbers 1 through 21e in commit messages are
+> completed work and mean exactly what they say.
+
+> [!NOTE]
+> This plan grew from 23 tasks to 39 before being reorganised into 20 remaining plus 3 dropped. At
+> some point "finish the plan" stops being the right goal and "launch, then learn which of these
+> mattered" starts being it. **Phase 4 is a defensible definition of launch-ready.** Phase 5 is the
+> first thing real users would ask for. Phases 6 and 7 should be re-read sceptically rather than
+> worked through.
 
 ---
 
 ## Implementation Phases
-
-> Historical record, by theme. For what to do next, see **What Happens Next** above.
 
 | Phase | Scope | State |
 |---|---|---|
@@ -800,18 +777,18 @@ progress depends on two answers: the free daily limit, and the salary dataset.
 | **0** | Evaluation framework | ✅ Done |
 | **1** | Quick wins — structured extraction, prompt safety, real salary data | ✅ Done, 8 tasks |
 | **2** | Rule engine, tax calculator, rubric, confidence, cache | ✅ Done, 6 tasks |
-| **3** | Pipeline refactor, reliability, comparison, OCR | 🟢 Rounds 1-5 done. 4 items deferred, scanned-PDF OCR blocked on GCP billing, task 39 outstanding |
-| **4** | Data flywheel — salary seeding, corrections, compliance | ⬜ Not started. Task 23 blocked on a dataset licence decision; 36-38 are Tier 1 |
-| **5** | **Monetisation — freemium metering** | ⬜ Not started. Task 28 is P0: cost history is being deleted hourly |
-| **6** | Admin & operations — superadmin | ⏸ Deliberately deferred. Data model lands in Phase 5, interface waits for a trigger |
+| **3** | Pipeline refactor, reliability, comparison, OCR | ✅ **Closed.** Rounds 1-5 shipped 7 tasks plus half of 21c; 3 items dropped and the rest promoted into Phases 4-6 |
+| **4** | **Launch blockers** — usage ledger, plan limits, privacy promises, smoke spec | ⬜ Next. 4.1 is P0 and needs no decision |
+| **5** | Salary data — seeding, matching, integrity | ⬜ All behind 5.1, a dataset licence decision |
+| **6** | Revenue & compliance — payments, retention, corrections, scanned PDFs | ⬜ Not urgent while there are no users |
+| **7** | Operations — admin auth, superadmin, dashboards | ⏸ Deliberately deferred until a trigger fires |
 
-Phases -1 through 3 were about making the analysis correct and the pipeline survivable. Phases 4
-through 6 are about making it a business: real benchmark data, a way to charge for it, and
-eventually a way to operate it without SQL.
+Phases -1 through 3 made the analysis correct and the pipeline survivable. **Phases 4 through 7 are
+in priority order** — renumbered on 2026-09-25 so that reading down the list is the same as working
+down it. See the renumbering note above for the old-to-new mapping.
 
-**Theme, not order.** Phase 3's leftovers are lower priority than Phase 5's task 28, and most of
-Phase 4 is blocked behind a single decision. Read **What Happens Next** for sequence; read these
-sections for why each thing was built the way it was.
+Phase 3 is **closed**, not partially open. Its unfinished items either moved into a later phase or
+were dropped, so "Phase 3 remaining" is no longer a category that needs tracking.
 
 ### Phase -1: Correctness & Security — Blocks Launch
 
@@ -1056,7 +1033,7 @@ This matters more here than anywhere else in the product: the output is an email
 > [!NOTE]
 > Those 9 rows were all inserted by `test-m3.mjs`, and they are identical values — so `marketRange` comes back flat (p25 = p50 = p75 = p90). Correct behaviour for degenerate data, but it means the salary chart renders a flat line. For real traffic the table is empty, so the honest "estimated" path runs.
 >
-> The remaining unlock is **Phase 4 task 23** (seed a public dataset), gated on **open decision 12** — which source, and whether its licence permits commercial use. Deliberately *not* the fix: lowering the sample floor. Percentiles from three submissions are noise presented as authority, which is the failure mode this plan exists to remove. `MIN_SAMPLE_SIZE` is now a single named constant so raising it to 10 is a one-line change.
+> The remaining unlock is **task 5.1** (seed a public dataset), gated on **open decision 12** — which source, and whether its licence permits commercial use. Deliberately *not* the fix: lowering the sample floor. Percentiles from three submissions are noise presented as authority, which is the failure mode this plan exists to remove. `MIN_SAMPLE_SIZE` is now a single named constant so raising it to 10 is a one-line change.
 
 #### Phase 1 (option A) result — measured 2026-09-15
 
@@ -1779,32 +1756,41 @@ Note that this correction makes Run A and Run B non-comparable to each other: Ru
 it. Within each run the three-way comparison is valid, which is why the table is read down a
 column and not across.
 
-### Phase 3: Full Pipeline Refactor (2-3 days)
+### Phase 3: Full Pipeline Refactor — ✅ Closed
 
 Worked in rounds rather than in task order, because reading the code against the list changed
-three items' status and turned up a fourth that was not on it. **Rounds 1-5 are done** — 7 items
-shipped plus half of 21c, 1 already satisfied by Phase 1, 4 deferred with reasons, and only true
-scanned-PDF OCR still blocked on GCP billing.
+three items' status and turned up a fourth that was not on it. **Rounds 1-5 shipped 7 items plus
+half of 21c**, and 1 turned out to have been satisfied by Phase 1 already.
+
+**Closed on 2026-09-25 rather than left partially open.** The six items that were not done went
+one of two ways, so that "Phase 3 remaining" stopped being a category:
+
+| Was | Became | Why |
+|---|---|---|
+| 20 | **5.5** | Its salary half needs benchmarks, so it belongs behind 5.1 |
+| 21c-B | **6.4** | Still blocked on Cloud Vision billing |
+| 39 | **4.8** | Promoted: a launch blocker, not a nice-to-have |
+| 14, 18, 21b | *dropped* | See **Not Planned** at the end of the phases |
 
 | # | Task | Impact | Status |
 |---|------|--------|---|
-| 14 | Refactor worker into 4-stage pipeline with `Promise.all()` Stage 2 | Separation of concerns | ⏸ Deferred — the `Promise.all()` buys nothing. See below |
+| 14 | Refactor worker into 4-stage pipeline with `Promise.all()` Stage 2 | Separation of concerns | ❌ **Dropped** — the `Promise.all()` buys nothing. See **Not Planned** |
 | 15 | Add partial failure fallbacks per stage | Reliability | ✅ **Done** (round 2). See below |
 | 16 | Stage 3: Contextual AI via system instruction (no raw text re-send) | Grounded + secure | ✅ **Already satisfied by Phase 1.** See below |
 | 17 | Add prompt versioning to `aiMetadata` | Rollback + A/B testing | ✅ **Done** (round 1). See below |
-| 18 | Progressive results: store stage outputs, poll returns partial data | UX during longer processing | ⏸ Deferred — contract change + frontend, for a ~20s wait |
+| 18 | Progressive results: store stage outputs, poll returns partial data | UX during longer processing | ❌ **Dropped** — contract change + frontend, for a ~20s wait. See **Not Planned** |
 | 19 | Update comparison to use rubric sub-scores | Dimension-by-dimension | ✅ **Done** (round 3) — the page was broken outright. See below |
-| 20 | Enhance career path with real context + salary progression | Realistic trajectories | ⏸ Deferred |
+| 20 | Enhance career path with real context + salary progression | Realistic trajectories | ➡ **Now 5.5.** The context half shipped as task 7; the salary half needs benchmarks |
 | 21 | Add negotiation template library | Non-AI fallback | ✅ **Done** (round 2) — plus a measured regression from task 9. See below |
 | 21a | Stale job reaper — `PROCESSING` > 5 min → `FAILED` (use the existing `ANALYSIS_TIMEOUT_MS`) | Stuck offers currently never recover | ✅ **Done** (round 1). See below |
-| 21b | Redis-down fallback to synchronous processing | Roadmap requirement, not implemented | ⏸ Deferred |
-| 21c | Scanned-PDF OCR via `asyncBatchAnnotateFiles` + GCS, or a different provider | Scanned PDFs currently fail outright | 🟡 **Part A done** (round 5) — no PDF worked at all, text-layer PDFs now do. Part B (true scans) blocked on billing. See below |
+| 21b | Redis-down fallback to synchronous processing | Roadmap requirement, not implemented | ❌ **Dropped** — a 20s request is worse than a clear error. See **Not Planned** |
+| 21c | Scanned-PDF OCR via `asyncBatchAnnotateFiles` + GCS, or a different provider | Scanned PDFs currently fail outright | 🟡 **Part A done** (round 5) — no PDF worked at all, text-layer PDFs now do. **Part B is now 6.4**, blocked on billing. See below |
 | 21d | Make the OCR confidence signal real: drop the `\|\| 0.85` default, surface `lowConfidence` instead of hard-failing | Confidence gate is currently inert end-to-end | ✅ **Done** (round 4). Was wrongly marked blocked — only the live-scan proof needed billing. See below |
 | 21e | Consolidate `OfferService`'s three duplicate extraction methods into one with consistent provider gating | Removes divergent `NODE_ENV` behaviour | ✅ **Done** (round 1) — it was dead code. See below |
-| 39 | **One Playwright smoke spec**: upload → results → all four drawers → compare | Catches the class of bug this phase was made of | ⬜ Not started — Tier 1. See below |
+| 39 | **One Playwright smoke spec**: upload → results → all four drawers → compare | Catches the class of bug this phase was made of | ➡ **Now 4.8** — promoted to a launch blocker. See below |
 
 > [!IMPORTANT]
-> **Task 39 is added because of what this phase turned out to be.** Four of the bugs found across
+> **This task was added because of what this phase turned out to be.** Four of the bugs found across
 > rounds 1-5 were contract mismatches between layers, and **all four were invisible to the unit
 > suite** — which passed 443 tests throughout:
 >
@@ -2288,7 +2274,7 @@ synchronous route takes one file and a small page count; the
 [offline route](https://docs.cloud.google.com/vision/docs/file-batch) is the one that reaches 2000
 pages and writes results into a bucket. **Part B should use the synchronous endpoint** — no bucket,
 no IAM grant, no lifecycle policy, no operation polling, and no copy of a user's offer letter
-sitting in object storage needing a retention rule (which would land squarely in Phase 4 task 27).
+sitting in object storage needing a retention rule (which would land squarely in task 6.2).
 
 ##### Library choice, which took three attempts
 
@@ -2337,58 +2323,24 @@ succeeded**, so scanned PDFs and photographed letters fail regardless of what th
 Tasks 21c and 21d cannot be tested until billing is enabled on the GCP project — and 21c would
 additionally need a GCS bucket, since `asyncBatchAnnotateFiles` cannot read a local path.
 
-### Phase 4: Data Flywheel (Ongoing)
+### Phase 4: Launch Blockers
 
-| # | Task | Impact |
-|---|------|--------|
-| 22 | Add fuzzy role matching (synonym map) | Better salary matches |
-| 23 | Seed salary DB with public datasets | Bootstrap benchmarks |
-| 24 | Salary data poisoning protection (3σ outlier rejection, recency weighting) | Data integrity |
-| 25 | Post-analysis salary contribution prompt | Grow crowdsourced data |
-| 26 | User correction loop → improve extraction rules | Self-improving system |
-| 27 | PII redaction + 90-day raw text retention policy | Compliance |
-| 36 | **Delete stored files after text extraction** | Closes a stated-but-false policy; registered uploads persist indefinitely today |
-| 37 | **`GET /account/export`** | Closes a stated-but-false policy; no such route exists |
-| 38 | **Anonymise salary submissions after validation** | Closes a stated-but-false policy; `userId` is a live FK |
-
-> [!CAUTION]
-> **36, 37 and 38 were already documented in `roadmap.md` and had never been scheduled here.** They
-> are user-facing promises that the code does not keep:
->
-> | Promise | Reality |
-> |---|---|
-> | Uploaded files are deleted from storage after OCR | Nothing deletes them. `expiresAt` is null for registered users, so their uploads persist indefinitely |
-> | Users can request a full data export | No route exists |
-> | Salary submissions are unlinked from the account | `salary_submissions.userId` is a live foreign key |
->
-> Each can be closed by implementing it **or** by correcting the wording, and the wording change is
-> nearly free. What the policy *should* say is a question for someone qualified, not for this
-> document. Harmless while there are no users; not harmless afterwards.
->
-> Task 36 has a second, unrelated benefit: nothing currently reclaims upload storage for registered
-> accounts.
-
-> [!NOTE]
-> **Task 23 is blocked on a product decision**, not on engineering: which public salary dataset,
-> and whether its licence permits commercial use. Everything salary-related waits on it, and the
-> consequence is visible on every analysis — the rubric redistributes salary's 30% because there
-> are no verified submissions, and the comparison table shows "No data" for that row.
-
----
-
-### Phase 5: Monetisation — Freemium Metering
-
-> Added 2026-09-25, after the Phase 3 rounds. Not in the original plan, which scoped only AI
-> accuracy and the launch-blocking defects — but this is the one remaining thing that blocks
-> charging for the product, and one part of it is losing data every hour it is not built.
+> Everything that must be true before real users arrive. Assembled on 2026-09-25 out of the old
+> Phase 4 and Phase 5 — see the renumbering note near the top.
 
 | # | Task | Impact | Priority |
 |---|------|--------|----------|
-| 28 | **Append-only usage ledger** — one row per AI call: user, timestamp, provider, model, tokens, cost, purpose | Cost history survives offer deletion | 🔴 **P0 — data is being lost now** |
-| 29 | `users.plan` column, plus `PLANS` limits and feature gates as code | Something to enforce against | 🔴 P0 |
-| 30 | Enforce the per-user daily cap at the queue boundary, not the route | A retry cannot buy a free analysis | 🔴 P0 |
-| 31 | Honest 429 with remaining quota and reset time, surfaced in the UI | The user knows why and when | 🟠 P1 |
-| 32 | Payment integration | Revenue | 🟡 Deferred until pricing is settled |
+| 4.1 | **Append-only usage ledger** — one row per AI call: user, timestamp, provider, model, tokens, cost, purpose | Cost history survives offer deletion | 🔴 **P0 — data is being lost now** |
+| 4.2 | `users.plan` column, plus `PLANS` limits and feature gates as code | Something to enforce against | 🔴 P0 |
+| 4.3 | Enforce the per-user daily cap at the queue boundary, not the route | A retry cannot buy a free analysis | 🔴 P0 |
+| 4.4 | Honest 429 with remaining quota and reset time, surfaced in the UI | The user knows why and when | 🟠 P1 |
+| 4.5 | Delete stored files after text extraction | Closes a stated-but-false policy; registered uploads persist indefinitely today | 🟠 P1 |
+| 4.6 | Anonymise salary submissions after validation | Closes a stated-but-false policy; `userId` is a live FK | 🟠 P1 |
+| 4.7 | `GET /account/export` | Closes a stated-but-false policy; no route exists | 🟠 P1 |
+| 4.8 | One Playwright smoke spec: upload → results → all four drawers → compare | Catches the class of bug Phase 3 was made of | 🟠 P1 |
+
+**Only 4.1 is both urgent and unblocked.** 4.2 needs one number from the owner — the free daily
+limit. 4.5 through 4.8 need nothing and are individually small.
 
 #### Why this is urgent: signing up removes the only limit
 
@@ -2423,10 +2375,37 @@ Delete an offer and the cost record goes with it. Delete a user and all of it go
 worker deletes expired guest offers **every hour**. Usage history is therefore attached to an
 artifact designed to be deleted, and is being deleted on a schedule.
 
-**This is the only item here that cannot be retrofitted.** Every other admin or billing concern is
-a view over data that will still exist; usage history has to be written before the thing it
-describes happens. A separate append-only table also satisfies task 27, which needs billing records
-to outlive the deletion of the letter they came from — today those are the same row.
+**This is the only item in the whole plan that cannot be retrofitted.** Every other admin or billing
+concern is a view over data that will still exist; usage history has to be written before the thing
+it describes happens. A separate append-only table also satisfies task 6.2, which needs billing
+records to outlive the deletion of the letter they came from — today those are the same row.
+
+#### 4.5 to 4.7: three promises the code does not keep
+
+> [!CAUTION]
+> These were documented in `roadmap.md` and had never been scheduled as tasks. They are user-facing
+> statements that are currently untrue:
+>
+> | Promise | Reality |
+> |---|---|
+> | Uploaded files are deleted from storage after OCR | Nothing deletes them. `expiresAt` is null for registered users, so **their uploads persist indefinitely** |
+> | Users can request a full data export | No route exists |
+> | Salary submissions are unlinked from the account | `salary_submissions.userId` is a live foreign key |
+>
+> Each can be closed by implementing it **or** by correcting the wording, and the wording change is
+> nearly free. What the policy *should* say is a question for someone qualified, not for this
+> document. Harmless while there are no users; not harmless afterwards — which is why these sit in
+> the launch-blocking phase rather than in a compliance phase later.
+>
+> 4.5 has a second, unrelated benefit: nothing currently reclaims upload storage for registered
+> accounts.
+
+#### 4.8: why a smoke spec is a launch blocker
+
+Four of Phase 3's bugs were contract mismatches between layers, and **all four were invisible to a
+unit suite that passed 443 tests throughout.** The full argument is in the Phase 3 table. The reason
+it belongs *here* rather than in a testing backlog: Phase 4 puts a quota check on the critical path
+of every upload, and shipping that with no end-to-end test is how a cap ends up blocking everybody.
 
 #### Decisions taken up front
 
@@ -2446,27 +2425,68 @@ to outlive the deletion of the letter they came from — today those are the sam
 
 ---
 
-### Phase 6: Admin & Operations — Deliberately Deferred
+### Phase 5: Salary Data
+
+> The old "Data Flywheel", minus the compliance items that moved into Phase 4 and the correction
+> loop that moved to Phase 6. What is left is one gate and four things behind it.
 
 | # | Task | Impact |
 |---|------|--------|
-| 33 | Superadmin: manage plans, pricing, feature gates, per-user usage, users | Operating the business without SQL |
-| 34 | Admin auth hardening: role column, admin session policy, 2FA, audit log of who viewed what | Required *before* 33, not after |
-| 35 | Usage and cost dashboards over the Phase 5 ledger | Visibility at scale |
+| 5.1 | **Seed the salary DB from public datasets** | Bootstrap benchmarks — **the gate for everything below** |
+| 5.2 | Fuzzy role matching (synonym map) | Better matches against real submissions |
+| 5.3 | Poisoning protection — 3σ outlier rejection, recency weighting | Data integrity |
+| 5.4 | Post-analysis contribution prompt | Grows the crowdsourced set |
+| 5.5 | Career path salary progression | The half of the old task 20 that needs benchmarks |
 
-**Discussed and deferred 2026-09-25.** The data model lands in Phase 5; the interface waits.
+> [!NOTE]
+> **5.1 is blocked on a product decision, not on engineering:** which public salary dataset, and
+> whether its licence permits commercial use.
+>
+> Everything else here waits behind it — 5.2 has nothing to match and 5.3 has nothing to reject
+> while the table is empty. The consequence is visible on **every** analysis: the rubric
+> redistributes salary's 30% because there are no verified submissions, and the comparison table
+> reads "No data" for that row.
+>
+> This single decision unblocks roughly a third of the remaining plan.
+
+---
+
+### Phase 6: Revenue & Compliance
+
+| # | Task | Impact | Blocked on |
+|---|------|--------|-----------|
+| 6.1 | Payment integration | Revenue | Settled pricing. A different size of job from the rest of this phase |
+| 6.2 | PII redaction + retention policy | Compliance at scale | Needs 4.1 first — billing records currently live in the row being deleted |
+| 6.3 | User correction loop → improve extraction rules | Self-improving extraction | Correction volume that does not exist yet |
+| 6.4 | Scanned-PDF OCR via `files:annotate` | Photographed letters work | Cloud Vision billing. No bucket needed — see the Phase 3 round 5 outcome |
+
+Phase 4 stops the bleeding; this phase turns metering into money and makes the data handling
+defensible at volume. None of it is urgent while there are no users, and **6.4 is the only item here
+a user would notice**.
+
+---
+
+### Phase 7: Operations — Deliberately Deferred
+
+| # | Task | Impact |
+|---|------|--------|
+| 7.1 | Admin auth hardening: role column, admin session policy, 2FA, audit log of who viewed what | Required **before** 7.2, not after |
+| 7.2 | Superadmin: manage plans, pricing, feature gates, per-user usage, users | Operating the business without SQL |
+| 7.3 | Usage and cost dashboards over the 4.1 ledger | Visibility at scale |
+
+**Discussed and deferred 2026-09-25.** The data model lands in Phase 4; the interface waits.
 
 #### Why not now
 
 - **There are no users.** Every screen manages a population that does not exist, so every design
   decision is a guess that costs money to undo.
 - **There is one operator, and `psql` is already in Docker.** "Who is near their limit" and "what
-  did we spend last week" are single queries against the Phase 5 ledger. A UI wrapping them is pure
+  did we spend last week" are single queries against the Phase 4 ledger. A UI wrapping them is pure
   cost until somebody who cannot write SQL needs access.
 - **It would be the highest-risk code in the app.** There is no `role` column, no `isAdmin`, no
   admin concept anywhere today — so a superadmin is entirely new attack surface, and what it
   unlocks is *every user's offer letter*: names, employers, salaries. Doing it properly means role
-  checks, admin session hardening, 2FA and an audit trail (task 34). Doing it improperly means one
+  checks, admin session hardening, 2FA and an audit trail (task 7.1). Doing it improperly means one
   leaked credential exposes everyone. Building it before there is a need takes the risk without the
   benefit.
 - **Admin CRUD ossifies decisions not yet made.** A pricing editor forces a commitment to the
@@ -2475,7 +2495,7 @@ to outlive the deletion of the letter they came from — today those are the sam
 
 #### What replaces it in the meantime
 
-Plans as code (task 29), plan assignment by `UPDATE`, and a handful of documented queries in
+Plans as code (task 4.2), plan assignment by `UPDATE`, and a handful of documented queries in
 `LOCAL_DEVELOPMENT.md` for the questions actually asked. That is the "usages" screen at roughly 1%
 of the cost.
 
@@ -2490,6 +2510,24 @@ of the cost.
 > The real risk in deferring is that "temporary SQL" is still being typed by hand at 500 users. The
 > mitigation is committing to the triggers above, not building early. By the time one fires, the
 > screens will be obvious, because the queries will have been run by hand for months.
+
+---
+
+### Not Planned
+
+Three Phase 3 items were considered and dropped. **They deliberately have no task numbers** — a
+numbered task reads as an intention to do it, and a backlog of things nobody intends to do is how a
+plan stops being trusted. Recorded here so the decision stays findable instead of being
+rediscovered as an omission.
+
+| Was | Task | Why not |
+|---|------|---------|
+| 14 | Refactor the worker into a 4-stage pipeline | No behaviour change, and the `Promise.all()` it proposes buys nothing: rule flags, the benefits checklist, the tax calculator and the rubric are all synchronous CPU work, and the one I/O step depends on the model's output. Task 15 already delivered the failure isolation that was the real value here |
+| 18 | Progressive results — store stage outputs, poll returns partial data | A status-endpoint contract change plus frontend work, to smooth a wait that measures about 15 seconds |
+| 21b | Redis-down fallback to synchronous processing | Would mean a 20-second HTTP request, and Redis being down means the queue is down entirely. A clear error is better service than a request that hangs and may die at a proxy. This is on the roadmap as a requirement, so it is a deliberate departure from it |
+
+Reopen any of these if the assumption behind the rejection changes: analyses getting materially
+slower would revive 18, and a genuine need to test the worker's stages in isolation would revive 14.
 
 ---
 
@@ -2651,4 +2689,4 @@ All P0/P1 findings in this document are therefore **pre-production defects with 
 
 | # | Question | Blocks |
 |---|----------|--------|
-| 12 | **Public salary dataset choice** — which source, and is its licence compatible with commercial use? | Phase 4 task 23 |
+| 12 | **Public salary dataset choice** — which source, and is its licence compatible with commercial use? | Task 5.1 — gates all of Phase 5 |
