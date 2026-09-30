@@ -689,6 +689,21 @@ Option B is simplest and works with existing polling architecture.
 
 ## Implementation Phases
 
+| Phase | Scope | State |
+|---|---|---|
+| **-1** | Correctness & security — blocked launch | ✅ Done, 23 tasks across three groups |
+| **0** | Evaluation framework | ✅ Done |
+| **1** | Quick wins — structured extraction, prompt safety, real salary data | ✅ Done, 8 tasks |
+| **2** | Rule engine, tax calculator, rubric, confidence, cache | ✅ Done, 6 tasks |
+| **3** | Pipeline refactor, reliability, comparison, OCR | 🟢 Rounds 1-5 done. 4 items deferred, scanned-PDF OCR blocked on GCP billing |
+| **4** | Data flywheel — salary seeding, corrections, retention | ⬜ Not started. Task 23 blocked on a dataset licence decision |
+| **5** | **Monetisation — freemium metering** | ⬜ Not started. Task 28 is P0: cost history is being deleted hourly |
+| **6** | Admin & operations — superadmin | ⏸ Deliberately deferred. Data model lands in Phase 5, interface waits for a trigger |
+
+Phases -1 through 3 were about making the analysis correct and the pipeline survivable. Phases 4
+through 6 are about making it a business: real benchmark data, a way to charge for it, and
+eventually a way to operate it without SQL.
+
 ### Phase -1: Correctness & Security — Blocks Launch
 
 Split into three independently reviewable units. Each is commit-sized and safe to stop after. Originally scoped as "1-2 days" for 9 tasks; it is now 23 across three groups, so treat the estimate per-group rather than as a whole.
@@ -2205,6 +2220,129 @@ additionally need a GCS bucket, since `asyncBatchAnnotateFiles` cannot read a lo
 | 25 | Post-analysis salary contribution prompt | Grow crowdsourced data |
 | 26 | User correction loop → improve extraction rules | Self-improving system |
 | 27 | PII redaction + 90-day raw text retention policy | Compliance |
+
+> [!NOTE]
+> **Task 23 is blocked on a product decision**, not on engineering: which public salary dataset,
+> and whether its licence permits commercial use. Everything salary-related waits on it, and the
+> consequence is visible on every analysis — the rubric redistributes salary's 30% because there
+> are no verified submissions, and the comparison table shows "No data" for that row.
+
+---
+
+### Phase 5: Monetisation — Freemium Metering
+
+> Added 2026-09-25, after the Phase 3 rounds. Not in the original plan, which scoped only AI
+> accuracy and the launch-blocking defects — but this is the one remaining thing that blocks
+> charging for the product, and one part of it is losing data every hour it is not built.
+
+| # | Task | Impact | Priority |
+|---|------|--------|----------|
+| 28 | **Append-only usage ledger** — one row per AI call: user, timestamp, provider, model, tokens, cost, purpose | Cost history survives offer deletion | 🔴 **P0 — data is being lost now** |
+| 29 | `users.plan` column, plus `PLANS` limits and feature gates as code | Something to enforce against | 🔴 P0 |
+| 30 | Enforce the per-user daily cap at the queue boundary, not the route | A retry cannot buy a free analysis | 🔴 P0 |
+| 31 | Honest 429 with remaining quota and reset time, surfaced in the UI | The user knows why and when | 🟠 P1 |
+| 32 | Payment integration | Revenue | 🟡 Deferred until pricing is settled |
+
+#### Why this is urgent: signing up removes the only limit
+
+From `offer.service.ts`:
+
+```ts
+// Check limits (only for guests)
+if (!userId) {
+    await this.guestService.checkLimits(guest.id);
+}
+```
+
+Guests get 3 a day through `guests.analysisCount`. **A registered user has no limit at all** — no
+per-user counter exists anywhere, and `users` has no `plan` column to build one on. The only thing
+between one script and the whole Gemini quota is the global 100/min rate limit, which permits
+roughly 144,000 analyses a day.
+
+So the product as it stands is "sign up for unlimited free AI analysis". At ~$0.005 per analysis
+that is fine for ten users and not fine for a thousand, or for one motivated abuser.
+
+#### Why the ledger is the part that cannot wait
+
+`aiMetadata.usage` already records tokens and estimated cost per analysis — task's worth of work
+already done. But it lives in a jsonb column on `analyses`, and the foreign keys cascade:
+
+```
+analyses.offerId → offers   onDelete: cascade
+offers.userId    → users    onDelete: cascade
+```
+
+Delete an offer and the cost record goes with it. Delete a user and all of it goes. The cleanup
+worker deletes expired guest offers **every hour**. Usage history is therefore attached to an
+artifact designed to be deleted, and is being deleted on a schedule.
+
+**This is the only item here that cannot be retrofitted.** Every other admin or billing concern is
+a view over data that will still exist; usage history has to be written before the thing it
+describes happens. A separate append-only table also satisfies task 27, which needs billing records
+to outlive the deletion of the letter they came from — today those are the same row.
+
+#### Decisions taken up front
+
+- **Plan definitions live in code, not a table.** Diffable, reviewable, type-checked, testable, and
+  a price change becomes a reviewed commit rather than a form submission at 2am. A plans *table*
+  with no admin UI is strictly worse than a constant: it would be edited with SQL anyway, minus the
+  type safety and the test coverage.
+- **Per-user plan assignment is data.** One column, one `UPDATE` when someone upgrades or gets
+  comped.
+- **Meter AI calls, not uploads.** An upload that fails OCR costs nothing; an analysis that retries
+  across the model fallback chain costs three calls. `TokenUsage.calls` already counts them.
+- **Enforce at the queue boundary.** Checking at the route means a retry after a transient failure
+  gets a free analysis, and it is the worker that actually spends money.
+- **Record plan TERMS on the subscription, not a pointer to a mutable plan.** Otherwise changing
+  pricing silently rewrites what existing users agreed to and grandfathering becomes impossible.
+  Free to get right on day one, expensive later.
+
+---
+
+### Phase 6: Admin & Operations — Deliberately Deferred
+
+| # | Task | Impact |
+|---|------|--------|
+| 33 | Superadmin: manage plans, pricing, feature gates, per-user usage, users | Operating the business without SQL |
+| 34 | Admin auth hardening: role column, admin session policy, 2FA, audit log of who viewed what | Required *before* 33, not after |
+| 35 | Usage and cost dashboards over the Phase 5 ledger | Visibility at scale |
+
+**Discussed and deferred 2026-09-25.** The data model lands in Phase 5; the interface waits.
+
+#### Why not now
+
+- **There are no users.** Every screen manages a population that does not exist, so every design
+  decision is a guess that costs money to undo.
+- **There is one operator, and `psql` is already in Docker.** "Who is near their limit" and "what
+  did we spend last week" are single queries against the Phase 5 ledger. A UI wrapping them is pure
+  cost until somebody who cannot write SQL needs access.
+- **It would be the highest-risk code in the app.** There is no `role` column, no `isAdmin`, no
+  admin concept anywhere today — so a superadmin is entirely new attack surface, and what it
+  unlocks is *every user's offer letter*: names, employers, salaries. Doing it properly means role
+  checks, admin session hardening, 2FA and an audit trail (task 34). Doing it improperly means one
+  leaked credential exposes everyone. Building it before there is a need takes the risk without the
+  benefit.
+- **Admin CRUD ossifies decisions not yet made.** A pricing editor forces a commitment to the
+  *shape* of the pricing model before one has been tested. If usage credits turn out to beat a
+  daily cap, the editor is wrong and will be kept because it exists.
+
+#### What replaces it in the meantime
+
+Plans as code (task 29), plan assignment by `UPDATE`, and a handful of documented queries in
+`LOCAL_DEVELOPMENT.md` for the questions actually asked. That is the "usages" screen at roughly 1%
+of the cost.
+
+#### Triggers — build it when any one of these is true
+
+- Somebody other than the owner needs access: a support person, a co-founder
+- Enough paying users that hand-written SQL is a daily chore — call it 50 to 100
+- An operation SQL makes genuinely dangerous: refunds, bulk plan migrations, anything transactional
+  where a typo costs money
+
+> [!WARNING]
+> The real risk in deferring is that "temporary SQL" is still being typed by hand at 500 users. The
+> mitigation is committing to the triggers above, not building early. By the time one fires, the
+> screens will be obvious, because the queries will have been run by hand for months.
 
 ---
 
