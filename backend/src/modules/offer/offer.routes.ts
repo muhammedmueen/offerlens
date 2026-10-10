@@ -9,7 +9,10 @@ import { routeLimit } from '@/middleware/rate-limiter.js';
 import { MAX_EXTRACT_TEXT_CHARS } from '@/config/constants.js';
 import { readUploadedFile } from './multipart.js';
 import { usageContextForRequest } from '@/modules/usage/usage-ledger.js';
-import { tierForRequest } from '@/modules/quota/quota.service.js';
+import { release, reserve, subjectFor, tierForRequest } from '@/modules/quota/quota.service.js';
+import { canSelectModel } from '@/config/plans.js';
+import { config } from '@/config/index.js';
+import { db } from '@/db/index.js';
 
 export async function offerRoutes(fastify: FastifyInstance) {
     const guestService = new GuestService();
@@ -65,8 +68,14 @@ export async function offerRoutes(fastify: FastifyInstance) {
             throw new AppError(ERROR_CODES.VALIDATION_ERROR, 'File or text is required', 400);
         }
 
-        // The caller's plan: sets the daily analysis limit reserved in create().
+        // The caller's plan: sets the daily analysis limit reserved in create(), and whether
+        // a client-chosen model is honoured.
         const tier = await tierForRequest(req);
+        const modelAllowed = canSelectModel(tier, config.NODE_ENV);
+        if (fields.model && !modelAllowed) {
+            // No value logged: it is caller input, and only the fact matters.
+            req.log.info({ plan: tier.id }, 'Ignoring client-selected model: plan does not allow model selection');
+        }
 
         const input = {
             // `?? undefined` because CreateOfferInput.file is optional, not nullable. The old
@@ -82,7 +91,10 @@ export async function offerRoutes(fastify: FastifyInstance) {
             // model id into every job would hand "gemini-2.5-flash" to whichever provider
             // ran — a 404 from the vendor, for a reason nothing in the log would explain.
             // Each provider resolves its own default.
-            model: fields.model || undefined,
+            //
+            // Honoured only for a plan that allows model selection, or outside production
+            // (task 4.2). Otherwise a free caller could pick the most expensive model.
+            model: modelAllowed ? (fields.model || undefined) : undefined,
             aiSelection: req.aiSelection,
         };
 
@@ -129,8 +141,24 @@ export async function offerRoutes(fastify: FastifyInstance) {
                 );
             }
 
+            // Daily autofill cap (task 4.3), charged to the user, else the guest row — which
+            // usageContextForRequest creates on a first visit, so the subject is always real.
             const usage = await usageContextForRequest(req);
-            const result = await offerService.extractMetadataFromText(body.text, req.aiSelection, usage);
+            const subject = subjectFor(req.userId, usage.guestId, await tierForRequest(req));
+            if (!subject) {
+                throw new AppError(ERROR_CODES.SERVICE_UNAVAILABLE, 'Could not identify this browser. Please try again.', 503);
+            }
+            const reservation = await reserve(db, subject, 'autofill');
+
+            let result;
+            try {
+                result = await offerService.extractMetadataFromText(body.text, req.aiSelection, usage);
+            } catch (error) {
+                // Only a throw is refunded. The provider answers `{}` on its own failures,
+                // which still counts.
+                await release(db, reservation);
+                throw error;
+            }
 
             return reply.send({
                 success: true,
@@ -143,6 +171,10 @@ export async function offerRoutes(fastify: FastifyInstance) {
     //
     // Calls Cloud Vision, which is billed per page. Same reasoning as /extract: needed
     // pre-signup, so it gets a tighter limit instead of an auth requirement (C2).
+    //
+    // Deliberately NOT on the daily autofill cap (owner decision, task 4.3): only its
+    // per-hour route limit applies. A script can call this without ever calling /extract, so
+    // sharing the cap is the likely next step — see docs/LOCAL_DEVELOPMENT.md.
     fastify.post('/extract-file', {
         ...routeLimit('offerExtractFile'),
         handler: async (req, reply) => {

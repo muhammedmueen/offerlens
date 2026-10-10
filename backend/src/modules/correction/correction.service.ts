@@ -6,6 +6,8 @@ import { eq } from 'drizzle-orm';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 import { assertOfferAccess } from '@/shared/access/offer-access.js';
+import { cacheDelete } from '@/shared/cache.js';
+import { careerPathCacheKey } from '@/modules/career/career.service.js';
 
 interface CorrectionInput {
     field: string;
@@ -46,6 +48,12 @@ export class CorrectionService {
             });
 
             changedCount++;
+        }
+
+        // The career path was generated from the old values: drop it so the next open
+        // regenerates (and is charged) against the corrected data.
+        if (changedCount > 0) {
+            await cacheDelete(careerPathCacheKey(offerId));
         }
 
         return {

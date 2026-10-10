@@ -72,8 +72,15 @@ export const QUEUE_RETRY_BACKOFF_MS = 1_000; // 1s base, exponential
 export const GUEST_COOKIE_NAME = 'ol_guest';
 export const GUEST_COOKIE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
+/**
+ * How long a generated career path is cached per offer (task 4.3). Long, because the inputs
+ * only change when the user corrects the extracted data, and that invalidates the entry.
+ */
+export const CAREER_PATH_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
+
+// Daily analysis and feature quotas are NOT here: they live in config/plans.ts and are
+// enforced by quota_counters. These are per-window request rate limits only.
 export const RATE_LIMITS = {
-    guestUpload: { max: 3, window: '1 day' },
     // Both call paid third-party APIs (Gemini and Cloud Vision) and are reachable without
     // an account, so they are the cheapest way to run up someone else's bill. Tight (C2).
     offerExtractText: { max: 20, window: '1 hour' },

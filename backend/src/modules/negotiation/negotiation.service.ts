@@ -9,6 +9,8 @@ import { assertOfferAccess } from '@/shared/access/offer-access.js';
 import { AnalysisResult } from '@/modules/analysis/analysis.types.js';
 import { createAiProvider, type AiProviderSelection } from '@/providers/ai/ai.factory.js';
 import { buildNegotiationTemplate, hasNegotiableDetail } from './negotiation.template.js';
+import type { Tier } from '@/config/plans.js';
+import { release, reserve } from '@/modules/quota/quota.service.js';
 
 export class NegotiationService {
     constructor(private fastify: FastifyInstance) { }
@@ -16,6 +18,7 @@ export class NegotiationService {
     async generateScript(
         offerId: string,
         userId: string,
+        tier: Tier,
         options?: { tone?: string; focusAreas?: string[] },
         selection: AiProviderSelection = {},
     ) {
@@ -64,6 +67,12 @@ export class NegotiationService {
             };
         }
 
+        // The daily negotiation cap (task 4.3) covers the AI path only; the template above is
+        // free. Outside the try so a 429 reaches the caller instead of becoming a template.
+        // The provider's own soft fallback (a stub body, no throw) is not detected and is
+        // charged; only a thrown error is refunded.
+        const reservation = await reserve(db, { type: 'user', id: userId, tier }, 'negotiation');
+
         try {
             const script = await createAiProvider(selection, {
                 userId: offer.userId,
@@ -85,6 +94,11 @@ export class NegotiationService {
                 suggestions,
             };
         } catch (error) {
+            // No AI script was produced, so the unit goes back.
+            await release(db, reservation).catch((err) => {
+                this.fastify.log.error({ err, offerId }, 'Negotiation quota release failed');
+            });
+
             // Task 21's actual point. The template existed but only ever fired for thin
             // extraction, so a provider outage or an exhausted quota returned a 500 and the
             // drawer showed an error — even though everything needed to write a usable email by

@@ -150,6 +150,36 @@ describe('frontend↔backend route contract', () => {
     });
 });
 
+describe('feature gates (task 4.2)', () => {
+    it('each gated route carries requireFeature with the right gate', async () => {
+        const app = Fastify({ logger: false });
+        app.setValidatorCompiler(validatorCompiler);
+        app.setSerializerCompiler(serializerCompiler);
+
+        const gates = new Map<string, string[]>();
+        app.addHook('onRoute', (route) => {
+            const handlers = [route.preHandler ?? []].flat() as Array<{ featureGate?: string }>;
+            const methods = Array.isArray(route.method) ? route.method : [route.method];
+            for (const m of methods) {
+                gates.set(`${m} ${normalise(route.url)}`, handlers.map((h) => h.featureGate).filter((g): g is string => !!g));
+            }
+        });
+        await app.register(async (api) => {
+            await api.register(negotiationRoutes);
+            await api.register(benefitsRoutes);
+            await api.register(comparisonRoutes);
+            await api.register(careerRoutes);
+        }, { prefix: '/api/v1' });
+        await app.ready();
+        await app.close();
+
+        expect(gates.get('POST /api/v1/offers/:param/negotiate')).toEqual(['negotiationEmail']);
+        expect(gates.get('POST /api/v1/offers/compare')).toEqual(['comparison']);
+        expect(gates.get('GET /api/v1/offers/:param/career-path')).toEqual(['careerPath']);
+        expect(gates.get('POST /api/v1/offers/:param/benefits')).toEqual(['benefitsCalculator']);
+    });
+});
+
 describe('analysis response shape', () => {
     /**
      * Keys ResultsPage reads. A path-only contract check passes happily while the page

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { PLANS } from '@/config/plans.js';
 
 /**
  * Every AI/Vision call site threads the caller's identity into the ledger. These tests drive
@@ -22,6 +23,13 @@ vi.mock('@/db/index.js', () => ({
             analyses: { findFirst: (...a: unknown[]) => analysesFindFirst(...a) },
         },
     },
+}));
+
+// The career path cache would otherwise try a real Redis. Always a miss here.
+vi.mock('@/shared/cache.js', () => ({
+    cacheGetJson: async () => null,
+    cacheSetJson: async () => true,
+    cacheDelete: async () => {},
 }));
 
 vi.mock('@/queue/queues.js', () => ({
@@ -53,7 +61,7 @@ beforeEach(() => {
 describe('career call site', () => {
     it('records a career row with the offer context', async () => {
         const { CareerService } = await import('@/modules/career/career.service.js');
-        await new CareerService(fakeFastify).generatePath('o1', 'u1');
+        await new CareerService(fakeFastify).generatePath('o1', 'u1', PLANS.unlimited);
         expect(insertValues).toHaveBeenCalledTimes(1);
         expect(insertValues.mock.calls[0][0]).toMatchObject({
             purpose: 'career', userId: 'u1', guestId: 'g1', offerId: 'o1',
@@ -64,7 +72,7 @@ describe('career call site', () => {
 describe('negotiation call site', () => {
     it('records a negotiation row with the offer context', async () => {
         const { NegotiationService } = await import('@/modules/negotiation/negotiation.service.js');
-        await new NegotiationService(fakeFastify).generateScript('o1', 'u1');
+        await new NegotiationService(fakeFastify).generateScript('o1', 'u1', PLANS.unlimited);
         expect(insertValues).toHaveBeenCalledTimes(1);
         expect(insertValues.mock.calls[0][0]).toMatchObject({
             purpose: 'negotiation', userId: 'u1', guestId: 'g1', offerId: 'o1',
