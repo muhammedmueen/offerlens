@@ -15,6 +15,9 @@ Job seekers receive offer letters as opaque PDFs with complex compensation struc
 
 ## Implementation Status (verified 2026-09-09)
 
+> [!WARNING]
+> **Stale.** This section is a 2026-09-09 snapshot and most of the blockers below have since been fixed. For current status, see [PLAN-analysis-pipeline.md](./PLAN-analysis-pipeline.md): "What Happens Next" and "Implementation Phases" (Phases −1 to 3 done, Phase 4 tasks 4.1–4.4 done as of 2026-10-10).
+
 > This roadmap is the **product intent**. The sections below were written before implementation and describe target behaviour. Where the code diverges, a `> [!NOTE] Status:` callout has been added inline. Nothing else in this document has been rewritten — the specs still stand as the goal.
 
 **Where things actually are**: code exists for every M1-M3 module. Both packages typecheck clean. There is effectively no test suite (one placeholder frontend test; no backend tests; two manual `.mjs` integration scripts). Milestone 4 is untouched.

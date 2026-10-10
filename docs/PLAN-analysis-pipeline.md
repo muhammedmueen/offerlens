@@ -2537,6 +2537,26 @@ What was verified: backend `tsc --noEmit`, `eslint`, `vitest` (552 passed, 3 ski
 and `db:generate` reporting no drift; frontend `tsc -p tsconfig.app.json`, lint (0 errors),
 `vitest` (18/18), `build`.
 
+#### Open follow-ups from the 4.1–4.4 reviews (2026-10-10)
+
+Found during the Phase 4 readiness check and the two reviews. None blocked those merges; all are
+untracked work. Small ones can ride along with 4.5–4.8.
+
+| # | Item | Where | Fix |
+|---|------|-------|-----|
+| F1 | 🔴 **GCP service-account key was committed and pushed** (since `38654c4`). Untracked in `2196a13`, but it is still in git history | `backend/keys/service-account.json` | **Rotate the key in the GCP console.** Rewrite history if the repo is or becomes public |
+| F2 | Run the Postgres proof and a migrate from empty | `quota.pg.test.ts`, `drizzle/0000`–`0004` | Start Docker, `docker compose up -d`, `npm run db:migrate`, `QUOTA_PG_TEST=1 npx vitest run src/modules/quota` |
+| F3 | Analysis retry can leave a FAILED offer unrefunded if a later attempt stalls; the reaper only scans QUEUED/PROCESSING | `workers/analysis.worker.ts` | Set `status: 'PROCESSING'` at the start of the processor, as the OCR worker does |
+| F4 | Career slot release in the catch is unguarded, so a DB error masks the AI error | `modules/career/career.service.ts` | Wrap with `.catch(log)`, as negotiation does |
+| F5 | Account deletion fails for any user with a salary submission: FK is `ON DELETE no action`. It also leaves upload files on disk | `salary_submissions.user_id`, `UserService.deleteAccount` | Fold into 4.6 (`SET NULL` plus clearing `fingerprint`) and 4.5 (file deletion) |
+| F6 | `ALLOW_AI_REQUEST_OVERRIDE=false` parses as `true` (`z.coerce.boolean()`), so only `NODE_ENV=production` closes the override | `config/env.schema.ts` | Parse the string explicitly (`'true'` only) |
+| F7 | Unmetered `fastify.ai` decorator: unused today, but a future caller would bypass the ledger | `plugins/providers.ts` | Remove the decorator |
+| F8 | Ledger row dropped if its user or guest is deleted mid-call (FK violation on insert) | `modules/usage/usage-ledger.ts` | Retry the insert with null owner on error `23503` |
+| F9 | Counter row lock held during the upload file write | `OfferService.create` | Fine on local disk; revisit before an S3 provider |
+| F10 | Guest exhausted copy hard-codes the singular ("today's free analysis") | `frontend/src/lib/quota.ts` | Branch on `details.limit` if the guest limit changes |
+| F11 | `/offers/extract-file` (Cloud Vision) is not on the autofill cap; only its hourly route limit applies | `offer.routes.ts` | Owner decision; the planner recommends sharing the cap |
+| F12 | `aiMetadata.usage.outputTokens` now includes Gemini thinking tokens, so it reads higher than older analyses | — | Note only |
+
 ---
 
 ### Phase 5: Salary Data
