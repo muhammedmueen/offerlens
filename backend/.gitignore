@@ -5,6 +5,8 @@ dist/
 uploads/
 *.log
 coverage/
-# Eval run output — regenerate with 
+# Eval run output ï¿½ regenerate with 
 pm run eval -- --save; baseline numbers live in eval/README.md
 eval/results/
+# Service-account credentials â€” never commit
+keys/
