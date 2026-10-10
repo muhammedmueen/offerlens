@@ -37,6 +37,10 @@ vi.mock('@/queue/queues.js', () => ({
     analysisQueue: { add: vi.fn() },
 }));
 
+// Each test cold-imports a service that pulls in all three AI SDKs (~1.7s warm). A cold
+// parallel run can overrun the 5s default, which showed up as a flake. Timeout only.
+vi.setConfig({ testTimeout: 20_000 });
+
 const extractedData = {
     role: 'Software Engineer',
     companyName: 'Acme',

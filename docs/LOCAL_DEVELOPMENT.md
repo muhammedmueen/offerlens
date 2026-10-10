@@ -122,6 +122,62 @@ npm run db:seed        # roles, cities, experience levels
 > Use `db:migrate`, **not** `db:push`. `drizzle.config.ts` sets `strict: true`, so `push`
 > waits on an interactive confirmation and appears to hang forever.
 
+### 4.1 Plans and quotas
+
+Plans live in code (`backend/src/config/plans.ts`). Each account has a `users.plan` column,
+`free` by default. There is no admin UI: you assign a plan with SQL.
+
+```sql
+-- Give an account no caps (owner / testers). Also allows choosing the AI model.
+UPDATE users SET plan = 'unlimited' WHERE email = 'you@example.com';
+
+-- Put it back
+UPDATE users SET plan = 'free' WHERE email = 'you@example.com';
+```
+
+Run either against the Docker database:
+
+```bash
+docker exec -it offerlens-postgres psql -U postgres -d offerlens -c "UPDATE users SET plan = 'unlimited' WHERE email = 'you@example.com';"
+```
+
+The change takes effect on the next request. Nothing caches the plan.
+
+| Caller | Analyses / day | Autofill (`POST /offers/extract`) | Career paths | Negotiation scripts |
+|---|---|---|---|---|
+| Guest (no account) | 1 | 30 | — (account only) | — (account only) |
+| `free` | 3 | 30 | 10 | 10 |
+| `unlimited` | no cap | no cap | no cap | no cap |
+
+- **The day is the IST calendar day.** Every limit resets at 00:00 IST (18:30 UTC). It is not a
+  rolling 24 hours.
+- **Only finished analyses count.** A slot is reserved when the upload is queued, and given back if
+  the analysis ends FAILED. An offer stuck in QUEUED/PROCESSING is reaped and refunded within about
+  6 minutes.
+- **Career paths are cached per offer**, so reopening the drawer is free. Correcting the extracted
+  data clears the cache, and the next open costs one.
+- **`POST /offers/extract-file` (Cloud Vision) is NOT on the daily autofill cap.** It only has its
+  hourly route limit (10/hour). A script can call it without ever calling `/extract`, so it should
+  probably share the autofill cap; that is an open owner decision.
+- `GET /api/v1/quota` shows the caller's limits, usage and reset time. It is read-only.
+
+To reset your own counters while testing:
+
+```sql
+DELETE FROM quota_counters WHERE subject_id = '<your users.id or guests.id>';
+```
+
+The concurrency proof (5 parallel reservations: exactly 1 succeeds for a guest, exactly 3 for a free
+account; a refund happens once) needs a real Postgres and runs against a throwaway database:
+
+```powershell
+docker exec offerlens-postgres psql -U postgres -c "CREATE DATABASE offerlens_quota_it"
+$env:DATABASE_URL='postgres://postgres:postgres@localhost:5432/offerlens_quota_it'; npm run db:migrate
+$env:QUOTA_PG_TEST='1'; npx vitest run src/modules/quota/quota.pg.test.ts
+docker exec offerlens-postgres psql -U postgres -c "DROP DATABASE offerlens_quota_it"
+Remove-Item Env:DATABASE_URL, Env:QUOTA_PG_TEST
+```
+
 ---
 
 ## 5. Configure and install the frontend
@@ -357,11 +413,19 @@ and take-home.
 2. Open it in a **different browser** (or a private window — a new tab shares cookies).
 3. **Expected:** not found. That URL is bound to the first browser's guest cookie.
 
-### 8.3 Guest quota
+### 8.3 Daily quota
 
-Upload four offers as a guest. The fourth should be refused with a prompt to create an
-account. Note the limit is now genuinely per-browser — before `-1A` everyone on the same
-network shared one allowance.
+1. As a guest, open the upload page. **Expected:** "1 of 1 analysis left today".
+2. Analyse one offer, then go back to the upload page. **Expected:** "You've used today's free
+   analysis. It resets at 12:00 am IST…", a "Create free account" link, and a disabled
+   Analyze button.
+3. Sign up and upload three different offers. **Expected:** the fourth is refused with "You've used
+   all 3 analyses today. They reset at 12:00 am IST." and no sign-up link.
+4. Optional: `UPDATE users SET plan = 'unlimited' …` (see §4.1) and upload again. **Expected:** no
+   notice, upload accepted.
+
+The guest limit is per browser (the signed guest cookie, ADR-001), and the counts live in
+`quota_counters` (§4.1).
 
 ### 8.4 Signup and claiming
 
@@ -476,7 +540,8 @@ Things you may notice that are understood and tracked:
 | Base salary is blank on a CTC-only letter | Correct as of task 9. `baseSalary` is nullable now, so a letter quoting one CTC figure reports no basic instead of copying CTC into it — `base := CTC` went from 15 of 51 case-passes to 0. The consequence is visible in take-home, which then excludes PF and says so |
 | Joining bonus stated in prose is sometimes dropped | Known: stated-components F1 ~78%. Reproduced on the real eval case in two consecutive runs |
 | OpenAI and Anthropic model ids are unverified | No key for either was available when the adapters were written. The ids in `src/config/constants.ts` are best-effort and flagged as such; override with `OPENAI_MODEL` / `ANTHROPIC_MODEL` if a call 404s |
-| **A registered user can run unlimited analyses** | Known, and it is why Phase 4 exists. `OfferService.create` runs `checkLimits` only when there is no `userId`, so signing up removes the only cap there is — guests get 3/day, accounts get no limit at all, and `users` has no `plan` column to build one on. Fine for local testing; not something to launch with |
+| **A job that finishes after the reaper failed it is free** | Known, rare. If one upload takes more than 5 minutes end to end, the reaper marks it FAILED and refunds the slot; if the worker then completes it anyway, that analysis cost nothing. Marked `ponytail:` in `analysis.worker.ts` |
+| **The AI negotiation stub is charged** | Known. When the provider falls back to a stub body without throwing, the negotiation unit is still used. Only a thrown error refunds it |
 | Per-user cost history disappears when an offer is deleted | Known. Tokens and cost are recorded in `analyses.aiMetadata.usage`, but `analyses` cascades from `offers` and `offers` cascades from `users`, and the cleanup worker deletes expired guest offers hourly. Task 4.1 moves it to an append-only ledger — it is the one thing here that cannot be backfilled later |
 | No admin interface | Deliberate, see Phase 7. Use `psql` against the Docker container; the panel gets built when someone other than you needs access, or when hand-written SQL becomes a daily chore |
 | No content moderation on forum or feature requests | Not built |

@@ -20,6 +20,11 @@ vi.mock('@/db/index.js', () => ({
 
 const load = () => import('./ai.factory.js');
 
+// The first test's `load()` cold-imports all three AI SDKs inside the test body (~1.6s warm).
+// On a cold parallel run it overran the 5s default: the abandoned test's last two metered calls
+// then landed in the NEXT test ("expected 1 call, got 3"). Timeout only; no assertion changed.
+vi.setConfig({ testTimeout: 20_000 });
+
 beforeEach(() => {
     insertValues.mockClear();
     mockConfig.AI_PROVIDER = 'gemini';

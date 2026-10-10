@@ -709,16 +709,16 @@ than a theme list plus a separate priority list.
 
 | Phase | Scope | Gate |
 |---|---|---|
-| **4 — Launch Blockers** | Usage ledger, plan limits, three untrue privacy promises, one smoke spec | 4.1 ✅ done. 4.2 needs one number: the free daily limit |
+| **4 — Launch Blockers** | Usage ledger, plan limits, three untrue privacy promises, one smoke spec | 4.1–4.4 ✅ done. 4.5–4.8 need nothing |
 | **5 — Salary Data** | Seed benchmarks, then fuzzy matching, outlier rejection, contribution prompt | All of it behind 5.1: which dataset, and does its licence allow commercial use |
 | **6 — Revenue & Compliance** | Payments, retention policy, correction loop, scanned-PDF OCR | Pricing; and 6.4 needs Cloud Vision billing |
 | **7 — Operations** | Admin auth hardening, superadmin, dashboards | One of the Phase 7 triggers firing |
 
-**4.1 is done** (see the Phase 4 outcome section). Cost history now lives in `usage_ledger` and
-survives offer, guest and user deletion.
+**4.1 through 4.4 are done** (see the Phase 4 outcome sections). Cost history lives in
+`usage_ledger`; every daily limit is enforced atomically through `quota_counters`.
 
-After that, the critical path runs through **two decisions rather than through code** — the free
-daily limit, and the salary dataset.
+After that, the critical path runs through **a decision rather than through code**: the salary
+dataset.
 
 ### Renumbering note
 
@@ -778,7 +778,7 @@ forward references to numbers that were going to move.
 | **1** | Quick wins — structured extraction, prompt safety, real salary data | ✅ Done, 8 tasks |
 | **2** | Rule engine, tax calculator, rubric, confidence, cache | ✅ Done, 6 tasks |
 | **3** | Pipeline refactor, reliability, comparison, OCR | ✅ **Closed.** Rounds 1-5 shipped 7 tasks plus half of 21c; 3 items dropped and the rest promoted into Phases 4-6 |
-| **4** | **Launch blockers** — usage ledger, plan limits, privacy promises, smoke spec | 🟡 In progress. 4.1 ✅ done; 4.2 needs the free daily limit |
+| **4** | **Launch blockers** — usage ledger, plan limits, privacy promises, smoke spec | 🟡 In progress. 4.1–4.4 ✅ done; 4.5–4.8 remain |
 | **5** | Salary data — seeding, matching, integrity | ⬜ All behind 5.1, a dataset licence decision |
 | **6** | Revenue & compliance — payments, retention, corrections, scanned PDFs | ⬜ Not urgent while there are no users |
 | **7** | Operations — admin auth, superadmin, dashboards | ⏸ Deliberately deferred until a trigger fires |
@@ -2331,18 +2331,19 @@ additionally need a GCS bucket, since `asyncBatchAnnotateFiles` cannot read a lo
 | # | Task | Impact | Priority |
 |---|------|--------|----------|
 | 4.1 | ✅ **Append-only usage ledger** — one row per AI call: user, timestamp, provider, model, tokens, cost, purpose | Cost history survives offer deletion | ✅ Done — see the 4.1 outcome below |
-| 4.2 | `users.plan` column, plus `PLANS` limits and feature gates as code | Something to enforce against | 🔴 P0 |
-| 4.3 | Enforce the per-user daily cap at the queue boundary, not the route | A retry cannot buy a free analysis | 🔴 P0 |
-| 4.4 | Honest 429 with remaining quota and reset time, surfaced in the UI | The user knows why and when | 🟠 P1 |
+| 4.2 | ✅ `users.plan` column, plus `PLANS` limits and feature gates as code | Something to enforce against | ✅ Done — see the 4.2–4.4 outcome below |
+| 4.3 | ✅ Enforce the per-user daily cap at the queue boundary, not the route | A retry cannot buy a free analysis | ✅ Done |
+| 4.4 | ✅ Honest 429 with remaining quota and reset time, surfaced in the UI | The user knows why and when | ✅ Done |
 | 4.5 | Delete stored files after text extraction | Closes a stated-but-false policy; registered uploads persist indefinitely today | 🟠 P1 |
 | 4.6 | Anonymise salary submissions after validation | Closes a stated-but-false policy; `userId` is a live FK | 🟠 P1 |
 | 4.7 | `GET /account/export` | Closes a stated-but-false policy; no route exists | 🟠 P1 |
 | 4.8 | One Playwright smoke spec: upload → results → all four drawers → compare | Catches the class of bug Phase 3 was made of | 🟠 P1 |
 
-**Only 4.1 is both urgent and unblocked.** 4.2 needs one number from the owner — the free daily
-limit. 4.5 through 4.8 need nothing and are individually small.
+**4.1 through 4.4 are done.** 4.5 through 4.8 need nothing and are individually small.
 
 #### Why this is urgent: signing up removes the only limit
+
+> Fixed by tasks 4.2–4.4 (outcome below). Kept as the reasoning; the code quoted here is gone.
 
 From `offer.service.ts`:
 
@@ -2459,7 +2460,61 @@ rather than pricing each call on its own model. Unknown models now yield `null` 
   three indexes, and a re-run reports no drift. The CI migrations job covers the live apply.
 - No live end-to-end run against Gemini or Vision; ledger writes are covered by unit tests only.
 - First-visit guests record `guestId: null` on `/offers/extract*` until their `guests` row exists
-  (it is created on first upload). Marked `ponytail:` in `usage-ledger.ts`.
+  (it is created on first upload). Marked `ponytail:` in `usage-ledger.ts`. **Fixed in the 4.2–4.4
+  work below**: the first metered call now creates the row.
+
+#### Tasks 4.2–4.4 outcome — plans, atomic daily quotas, honest 429s
+
+Backend 552 tests passing + 3 skipped (from 484; the skipped three are the Postgres proof). Frontend
+18 (from 1). One migration, `0004_many_arclight.sql`; a second `db:generate` reports no changes.
+
+Owner decisions, as implemented:
+
+- **Limits.** Guest 1 analysis/day, `free` 3/day. Per-feature caps for `free`: career path 10,
+  negotiation script 10, autofill (`POST /offers/extract`) 30; guests get autofill 30. `unlimited`
+  has no caps and may pick the AI model. Plans live in `backend/src/config/plans.ts`; a plan is
+  assigned by `UPDATE users SET plan = …` (see `LOCAL_DEVELOPMENT.md` §4.1). No pass plans.
+- **The day is the IST calendar day**, reset 00:00 IST. One pure function, `istDayWindow`, computes
+  the day key and reset time; the guest rolling 24h window (`guests.analysis_count`,
+  `daily_reset_at`) is gone.
+- **One mechanism for every limit:** `quota_counters`, and a reservation that is a single atomic
+  upsert (`ON CONFLICT DO UPDATE … WHERE count < limit RETURNING`). The analysis reservation runs in
+  the same transaction as the offer insert, so a 429 rolls everything back; an enqueue failure fails
+  the offer and refunds it. Registered users are always charged as themselves, never their
+  browser's guest row (the old `incrementAnalysisCount` bumped it for everyone).
+- **One completed analysis = one unit.** The refund is claimed by one conditional UPDATE on
+  `offers.quota_refunded`, so it happens at most once, and goes back to the day it was charged.
+  Refund points: terminal `failOffer` in the OCR worker, the final BullMQ attempt in both workers,
+  the reaper, and the dedup path that replaces a FAILED offer.
+- **Feature gates** (`negotiationEmail`, `comparison`, `careerPath`, `benefitsCalculator`) are all
+  open on every plan. One guard, `requireFeature`, is wired to the four routes.
+- **Career paths are cached per offer** in Redis (30 days). A cache hit does not use the cap;
+  a correction clears the entry.
+- **Model selection**: the picker renders and `model` is sent only in a dev build; the backend
+  ignores it unless the plan allows it or `NODE_ENV !== 'production'`.
+- **429s**: daily quotas answer `UPLOAD_LIMIT_EXCEEDED` (analysis) or `QUOTA_EXCEEDED` (features)
+  with `{ feature, limit, used, remaining, resetAt, plan }` and `Retry-After`. The rate-limit
+  plugin keeps `RATE_LIMIT_EXCEEDED`. `GET /quota` is one read-only route for users and guests; the
+  UI takes every number from it or from the 429.
+
+Decided in the plan, flagged for the owner:
+
+- `POST /offers/extract-file` (Cloud Vision) is not on the daily autofill cap, only its hourly
+  route limit. A script can call it without `/extract`, so sharing the cap is the likely next step.
+- The provider's own soft negotiation fallback (a stub body, no throw) is charged.
+- A job that completes after the reaper failed it (a pipeline over 5 min) is free. `ponytail:` in
+  `analysis.worker.ts`.
+
+##### Not verified
+
+- **The Postgres concurrency proof was NOT run: Docker was unavailable** (the
+  `dockerDesktopLinuxEngine` pipe was absent at both checks). `quota.pg.test.ts` is written: five
+  concurrent reservations must give exactly 1 success for a guest and exactly 3 for a free user,
+  and two concurrent refunds plus `failOfferAndRefund` must decrement once. It is skipped unless
+  `QUOTA_PG_TEST` is set. The SQL shape is asserted by unit tests (`.toSQL()`), not by a live run.
+- **`npm run db:migrate` was not run** against a live database, for the same reason.
+- `test-security.mjs`, `test-m2.mjs`, `test-m3.mjs` need the full stack and were not run. Each guest
+  in them uploads at most one offer, so they should still pass under the new caps.
 
 ---
 

@@ -55,8 +55,10 @@ All responses follow a consistent envelope:
 | `GUEST_RESTRICTED` | 403 | Guest tried to access registered-only feature |
 | `NOT_FOUND` | 404 | Resource doesn't exist or has expired |
 | `ALREADY_VOTED` | 409 | Duplicate vote on feature request |
-| `RATE_LIMIT_EXCEEDED` | 429 | Too many requests |
-| `UPLOAD_LIMIT_EXCEEDED` | 429 | Guest exceeded 3 analyses/day |
+| `FEATURE_NOT_IN_PLAN` | 403 | The caller's plan has this feature switched off. `details: { feature, plan }`. No plan switches anything off today |
+| `RATE_LIMIT_EXCEEDED` | 429 | Too many requests in a short window (per-route or global rate limit). Has `Retry-After` |
+| `UPLOAD_LIMIT_EXCEEDED` | 429 | Daily analysis quota used up (guest 1/day, `free` 3/day, IST calendar day). Quota `details` and `Retry-After`, see below |
+| `QUOTA_EXCEEDED` | 429 | A per-feature daily cap is used up: career paths, negotiation scripts or autofill. Same `details` and `Retry-After` |
 | `INTERNAL_ERROR` | 500 | Unexpected server error (never leaks details) |
 | `SERVICE_UNAVAILABLE` | 503 | External API down (Vision, Gemini) |
 
@@ -85,13 +87,46 @@ Returns server status. No rate limiting.
 
 ---
 
+### Quota
+
+#### `GET /api/v1/quota`
+
+Today's limits and usage for the caller: the signed-in user, else the guest cookie. Global rate
+limit only. Read-only: a first-visit guest gets `used: 0` everywhere and no guest record is created.
+`limit` and `remaining` are `null` when unlimited. `accountAnalysesPerDay` is what a `free` account
+gets, for the guest sign-up prompt.
+
+**Response** `200`:
+```json
+{
+  "success": true,
+  "data": {
+    "plan": "guest",
+    "day": "2026-10-10",
+    "resetAt": "2026-10-10T18:30:00.000Z",
+    "quotas": {
+      "analysis": { "limit": 1, "used": 0, "remaining": 1 },
+      "autofill": { "limit": 30, "used": 2, "remaining": 28 },
+      "career": { "limit": 0, "used": 0, "remaining": 0 },
+      "negotiation": { "limit": 0, "used": 0, "remaining": 0 }
+    },
+    "accountAnalysesPerDay": 3
+  }
+}
+```
+
+Every quota resets at 00:00 IST (`resetAt`). A 429 from any quota carries `Retry-After` in seconds
+until then.
+
+---
+
 ### Offers
 
 #### `POST /api/v1/offers`
 
 Upload an offer letter for analysis. Accepts multipart/form-data.
 
-**Rate limit**: Guest: 3/day | Global: 100/min per IP
+**Daily quota**: guest 1, `free` 3, `unlimited` none (IST calendar day, see `GET /quota`) | **Rate limit**: Global 100/min
 
 **Request** (`multipart/form-data`):
 
@@ -125,7 +160,30 @@ Upload an offer letter for analysis. Accepts multipart/form-data.
 |---|---|---|
 | Wrong file type | 400 | `{ code: "INVALID_FILE_TYPE", message: "Please upload a PDF or image (JPG, PNG, WebP)" }` |
 | File too large | 400 | `{ code: "FILE_TOO_LARGE", message: "File must be under 10MB" }` |
-| Guest daily limit | 429 | `{ code: "UPLOAD_LIMIT_EXCEEDED", message: "Guest limit reached (3/day). Create a free account for unlimited analyses" }` |
+| Daily analysis quota used | 429 | `UPLOAD_LIMIT_EXCEEDED`, example below |
+
+Quota 429 (`Retry-After: 3600` = seconds until 00:00 IST):
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "UPLOAD_LIMIT_EXCEEDED",
+    "message": "Daily analysis limit reached (1 per day). Resets at 00:00 IST.",
+    "details": {
+      "feature": "analysis",
+      "limit": 1,
+      "used": 1,
+      "remaining": 0,
+      "resetAt": "2026-10-10T18:30:00.000Z",
+      "plan": "guest"
+    }
+  }
+}
+```
+
+The slot is reserved when the upload is queued and refunded if the analysis ends FAILED. A
+duplicate of an offer that did not fail is returned without charging.
 
 ---
 
@@ -524,7 +582,7 @@ Vote on a feature request. One vote per fingerprint.
 
 | Endpoint Group | Limit | Key | Window |
 |---|---|---|---|
-| `POST /offers` (guest upload) | 3 | fingerprint + IP | 24 hours |
+| `POST /offers` (daily quota, not a rate limit) | guest 1, `free` 3, `unlimited` none | user, else guest cookie | IST calendar day |
 | `GET /offers/:id` (polling) | 60 | IP | 1 minute |
 | `GET /offers/:id/analysis` | 30 | IP | 1 minute |
 | `DELETE /offers/:id` | 10 | IP | 1 minute |
