@@ -18,6 +18,7 @@ import { correctionRoutes } from '@/modules/correction/correction.routes.js';
 import { salaryRoutes } from '@/modules/salary/salary.routes.js';
 import { careerRoutes } from '@/modules/career/career.routes.js';
 import { forumRoutes } from '@/modules/forum/forum.routes.js';
+import { quotaRoutes } from '@/modules/quota/quota.routes.js';
 import { authenticate } from '@/middleware/authenticate.js';
 import providersPlugin from '@/plugins/providers.js';
 
@@ -63,6 +64,7 @@ export function buildApp() {
         await api.register(salaryRoutes);
         await api.register(careerRoutes);
         await api.register(forumRoutes, { prefix: '/forum' });
+        await api.register(quotaRoutes);
     }, { prefix: '/api/v1' });
 
     return app;

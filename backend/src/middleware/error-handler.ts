@@ -1,5 +1,5 @@
 import { FastifyError, FastifyReply, FastifyRequest } from 'fastify';
-import { AppError } from '@/shared/errors/app-error.js';
+import { AppError, QuotaExceededError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 import { ZodError } from 'zod';
 
@@ -18,6 +18,11 @@ export const errorHandler = (
             request.log.error({ err: error, requestId }, 'AppError (5xx)');
         } else {
             request.log.warn({ err: error, requestId }, 'AppError (4xx)');
+        }
+
+        // A daily quota resets at 00:00 IST; tell the client exactly when (task 4.4).
+        if (error instanceof QuotaExceededError) {
+            reply.header('Retry-After', String(error.retryAfterSeconds));
         }
 
         return reply.status(error.statusCode).send({
@@ -60,8 +65,14 @@ export const errorHandler = (
         });
     }
 
-    // 4. Handle Rate Limit Errors
+    // 4. Handle Rate Limit Errors (the @fastify/rate-limit plugin). Keeps its own code,
+    // RATE_LIMIT_EXCEEDED, so a client can tell "slow down" from a daily quota (handled as an
+    // AppError above). Retry-After comes from the plugin, or from our errorResponseBuilder.
     if (error.statusCode === 429) {
+        const retryAfter = (error as { retryAfterSeconds?: unknown }).retryAfterSeconds;
+        if (!reply.hasHeader('retry-after') && typeof retryAfter === 'number') {
+            reply.header('Retry-After', String(retryAfter));
+        }
         return reply.status(429).send({
             success: false,
             error: {

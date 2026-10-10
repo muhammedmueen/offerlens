@@ -3,6 +3,19 @@ import rateLimit from '@fastify/rate-limit';
 import { RATE_LIMITS } from '@/config/constants.js';
 
 /**
+ * The error the plugin throws on a 429. `retryAfterSeconds` lets the error handler set a
+ * Retry-After header if the plugin's own did not survive. Exported for the error-handler test.
+ */
+export function rateLimitErrorResponse(_req: unknown, context: { after: string; ttl: number }) {
+    return {
+        statusCode: 429,
+        code: 'RATE_LIMIT_EXCEEDED',
+        message: `Rate limit exceeded. Try again in ${context.after}.`,
+        retryAfterSeconds: Math.max(1, Math.ceil(context.ttl / 1000)),
+    };
+}
+
+/**
  * Global limiter. Registered once; per-route limits are layered on top via `routeLimit`.
  */
 export const registerRateLimiter = async (fastify: FastifyInstance) => {
@@ -16,11 +29,7 @@ export const registerRateLimiter = async (fastify: FastifyInstance) => {
             // rather than per-IP. Falls back to IP if the cookie hook has not run.
             return (req as any).guestId || req.ip;
         },
-        errorResponseBuilder: (_req, context) => ({
-            statusCode: 429,
-            code: 'RATE_LIMIT_EXCEEDED',
-            message: `Rate limit exceeded. Try again in ${context.after}.`,
-        }),
+        errorResponseBuilder: rateLimitErrorResponse,
     });
 };
 

@@ -16,6 +16,7 @@ import { correctionRoutes } from '@/modules/correction/correction.routes.js';
 import { salaryRoutes } from '@/modules/salary/salary.routes.js';
 import { careerRoutes } from '@/modules/career/career.routes.js';
 import { forumRoutes } from '@/modules/forum/forum.routes.js';
+import { quotaRoutes } from '@/modules/quota/quota.routes.js';
 import type { AnalysisResponse } from '@/modules/analysis/analysis.types.js';
 
 /**
@@ -85,6 +86,8 @@ const FRONTEND_ENDPOINTS: Array<[method: string, path: string]> = [
     ['POST', '/feature-requests/:id/vote'],
 
     ['GET', '/health'],
+
+    ['GET', '/quota'],
 ];
 
 /** Fastify param names differ per route (:id vs :postId). Compare structurally. */
@@ -117,6 +120,7 @@ async function collectRoutes(): Promise<Set<string>> {
         await api.register(salaryRoutes);
         await api.register(careerRoutes);
         await api.register(forumRoutes, { prefix: '/forum' });
+        await api.register(quotaRoutes);
     }, { prefix: '/api/v1' });
 
     await app.ready();
