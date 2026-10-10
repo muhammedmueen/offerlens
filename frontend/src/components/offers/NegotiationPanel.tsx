@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Copy, Download, Info, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { getQuotaError, quotaExhaustedText } from "@/lib/quota";
 
 const TONES = ["professional", "assertive", "friendly"] as const;
 const FOCUS_AREAS = ["salary", "joining_bonus", "benefits", "equity", "pto"] as const;
@@ -22,6 +23,8 @@ const NegotiationPanel: React.FC<{ offerId: string }> = ({ offerId }) => {
     mutationFn: () => api.post(ENDPOINTS.OFFER_NEGOTIATE(offerId), { tone, focusAreas }).then((r) => r.data.data),
     onSuccess: (data) => setScript(data),
   });
+
+  const quotaError = getQuotaError(mutation.error);
 
   const toggleArea = (area: string) => {
     setFocusAreas((prev) => prev.includes(area) ? prev.filter((a) => a !== area) : [...prev, area]);
@@ -56,6 +59,13 @@ const NegotiationPanel: React.FC<{ offerId: string }> = ({ offerId }) => {
       <Button onClick={() => mutation.mutate()} disabled={mutation.isPending || focusAreas.length === 0} className="w-full brand-gradient text-primary-foreground hover:opacity-90 cursor-pointer rounded-xl skeu-btn">
         {mutation.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Generating…</> : "Generate Script"}
       </Button>
+
+      {/* Previously a failed request rendered nothing at all. */}
+      {mutation.error && (
+        <p role="alert" className="text-sm text-destructive">
+          {quotaError ? quotaExhaustedText(quotaError) : "We couldn't generate a script right now. Please try again."}
+        </p>
+      )}
 
       {script && (
         <div className="space-y-4 rounded-lg border border-border bg-muted/30 p-4">

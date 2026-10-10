@@ -49,9 +49,13 @@ export const ENDPOINTS = {
 
   // Health
   HEALTH: "/health",
+
+  // Daily quota for the caller (user or guest)
+  QUOTA: "/quota",
 } as const;
 
-export const GUEST_RATE_LIMIT = 3;
+// GUEST_RATE_LIMIT removed: daily limits come from GET /quota, so the UI never drifts from
+// the backend's plans (task 4.4).
 export const GUEST_TTL_HOURS = 24;
 export const POLLING_INTERVAL_MS = 3000;
 export const ITEMS_PER_PAGE = 20;

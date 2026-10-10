@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,10 +14,22 @@ import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
 import { extractTextFromFile } from "@/lib/pdf-extractor";
 import { rememberGuestOffer } from "@/lib/guest-offers";
+import { useQuota } from "@/hooks/use-quota";
+import QuotaNotice from "@/components/common/QuotaNotice";
+import {
+  QUOTA_NOTICE_ID,
+  RATE_LIMITED_TEXT,
+  getQuotaError,
+  isRateLimited,
+  isUploadBlocked,
+  quotaExhaustedText,
+} from "@/lib/quota";
 
 const UploadPage = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const quota = useQuota();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [file, setFile] = useState<File | null>(null);
@@ -63,7 +75,9 @@ const UploadPage = () => {
       formData.append("city", city);
       formData.append("experienceLevel", experienceLevel);
       if (currentCtc) formData.append("currentCtc", currentCtc);
-      formData.append("model", selectedModel);
+      // Development only, like the picker. The backend ignores it on plans without model
+      // selection anyway; production builds just stop sending it.
+      if (import.meta.env.DEV) formData.append("model", selectedModel);
 
       console.log('[Upload] Submitting offer with FormData');
       console.log('[Upload] FormData entries:');
@@ -78,12 +92,21 @@ const UploadPage = () => {
       // Persist locally so the analysis survives a tab close, and so signup can
       // present it for claiming (ADR-001).
       rememberGuestOffer(offerId);
+      queryClient.invalidateQueries({ queryKey: ["quota"] });
       navigate(`/offers/${offerId}/processing`);
     },
-    onError: (err: any) => {
-      const code = err?.response?.status;
-      if (code === 429) {
-        toast({ title: "Rate limited", description: "You've used all 3 free analyses today. Create an account for unlimited.", variant: "destructive" });
+    onError: (err: unknown) => {
+      // Numbers and reset time come from the 429 itself, never from a constant here.
+      const quotaError = getQuotaError(err);
+      if (quotaError) {
+        toast({
+          title: "Daily limit reached",
+          description: quotaExhaustedText(quotaError, quota.data?.accountAnalysesPerDay),
+          variant: "destructive",
+        });
+        queryClient.invalidateQueries({ queryKey: ["quota"] });
+      } else if (isRateLimited(err)) {
+        toast({ title: "Slow down", description: RATE_LIMITED_TEXT, variant: "destructive" });
       } else {
         toast({ title: "Upload failed", description: "Please check your connection and try again.", variant: "destructive" });
       }
@@ -202,6 +225,14 @@ const UploadPage = () => {
       console.log('[Upload] Final state - role:', role, 'city:', city, 'experienceLevel:', experienceLevel, 'currentCtc:', currentCtc);
       toast({ title: "Data extracted", description: "We've auto-filled some fields from your offer letter." });
     } catch (error: any) {
+      // Autofill's daily cap. The text is already extracted, so this is not a file error:
+      // the user fills the fields in by hand and can still analyse.
+      const quotaError = getQuotaError(error);
+      if (quotaError) {
+        toast({ title: "Autofill limit reached", description: quotaExhaustedText(quotaError) });
+        return;
+      }
+
       console.error('[Upload] ❌ Extraction failed with error:', error);
       console.error('[Upload] Error details:', {
         message: error.message,
@@ -256,13 +287,16 @@ const UploadPage = () => {
   };
 
   const hasContent = activeTab === "file" ? !!extractedText : pasteText.trim().length > 20;
-  const canSubmit = hasContent && role && city && experienceLevel && !submitMutation.isPending;
+  const blocked = isUploadBlocked(quota.data);
+  const canSubmit = hasContent && role && city && experienceLevel && !submitMutation.isPending && !blocked;
 
   return (
     <PageShell>
       <div className="container mx-auto max-w-2xl px-4 py-12">
         <h1 className="text-2xl font-bold mb-2 text-foreground">Upload Your Offer Letter</h1>
         <p className="text-muted-foreground mb-8">We'll analyze it and give you a score in under 30 seconds.</p>
+
+        <QuotaNotice quota={quota.data} />
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-8">
           <TabsList className="grid w-full grid-cols-2 rounded-xl skeu-emboss">
@@ -379,6 +413,7 @@ const UploadPage = () => {
               <Input type="number" value={currentCtc} onChange={(e) => setCurrentCtc(e.target.value)} placeholder="e.g. 1200000" className="rounded-lg" />
             </div>
 
+            {import.meta.env.DEV && (
             <div className="space-y-2">
               <Label>AI Model (Development Only)</Label>
               <Select value={selectedModel} onValueChange={setSelectedModel}>
@@ -398,10 +433,12 @@ const UploadPage = () => {
               </Select>
               <p className="text-xs text-muted-foreground">Model auto-switches on rate limit</p>
             </div>
+            )}
 
             <Button
               onClick={() => submitMutation.mutate()}
               disabled={!canSubmit}
+              aria-describedby={blocked ? QUOTA_NOTICE_ID : undefined}
               className="w-full h-12 text-base font-semibold brand-gradient text-primary-foreground hover:opacity-90 cursor-pointer transition-all hover:-translate-y-0.5 rounded-xl skeu-btn"
             >
               {submitMutation.isPending ? "Uploading…" : "Analyze My Offer"}

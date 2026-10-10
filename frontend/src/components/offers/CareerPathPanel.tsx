@@ -4,6 +4,7 @@ import { ENDPOINTS } from "@/constants/api";
 import LoadingState from "@/components/common/LoadingState";
 import ErrorState from "@/components/common/ErrorState";
 import CareerTimeline from "@/components/charts/CareerTimeline";
+import { getQuotaError, quotaExhaustedText } from "@/lib/quota";
 
 /**
  * Career path drawer.
@@ -17,10 +18,17 @@ const CareerPathPanel: React.FC<{ offerId: string }> = ({ offerId }) => {
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["career-path", offerId],
     queryFn: () => api.get(ENDPOINTS.OFFER_CAREER_PATH(offerId)).then((r) => r.data.data),
+    // A daily-limit 429 will not clear on retry; anything else gets the usual three.
+    retry: (count, err) => !getQuotaError(err) && count < 3,
   });
 
   if (isLoading) return <LoadingState rows={3} />;
-  if (error) return <ErrorState onRetry={() => refetch()} />;
+  if (error) {
+    const quotaError = getQuotaError(error);
+    // No retry button for a used-up daily limit: retrying cannot succeed before the reset.
+    if (quotaError) return <ErrorState message={quotaExhaustedText(quotaError)} />;
+    return <ErrorState onRetry={() => refetch()} />;
+  }
 
   // `milestones` kept as a fallback in case the endpoint is ever renamed.
   const milestones = Array.isArray(data?.milestones)
