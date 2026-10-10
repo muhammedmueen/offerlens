@@ -11,3 +11,4 @@ export * from './analytics.js';
 export * from './salary-submissions.js';
 export * from './forum.js';
 export * from './usage-ledger.js';
+export * from './quota-counters.js';

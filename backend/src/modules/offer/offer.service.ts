@@ -41,11 +41,6 @@ export class OfferService {
         // 1. Guest Check & Rate Limit
         const guest = await this.guestService.getOrCreateGuest({ fingerprint: guestId, ip });
 
-        // Check limits (only for guests)
-        if (!userId) {
-            await this.guestService.checkLimits(guest.id);
-        }
-
         // 2. Get text content and hash
         let textContent: string;
         let hash: string;
@@ -139,8 +134,6 @@ export class OfferService {
                 };
                 await tx.insert(offerFiles).values(newFile);
             }
-
-            await this.guestService.incrementAnalysisCount(guest.id);
         });
 
         // 5. Enqueue Job

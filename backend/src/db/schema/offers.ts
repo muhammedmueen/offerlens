@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, real, timestamp, boolean, jsonb, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, real, timestamp, boolean, jsonb, index, date } from 'drizzle-orm/pg-core';
 import { guests } from './guests.js';
 import { users } from './users.js';
 
@@ -20,6 +20,15 @@ export const offers = pgTable('offers', {
     failureReason: text('failure_reason'),
     isGuest: boolean('is_guest').notNull().default(true),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
+    // The analysis-quota reservation this offer holds (task 4.3). Stored rather than derived
+    // from userId because migrateGuestOffers later sets userId on guest offers, and the refund
+    // must go back to the counter that was charged. quotaDay NULL = nothing reserved
+    // (unlimited plan, or a row from before quotas). quotaRefunded makes the refund
+    // idempotent: it is claimed by one conditional UPDATE.
+    quotaSubjectType: text('quota_subject_type', { enum: ['user', 'guest'] }),
+    quotaSubjectId: uuid('quota_subject_id'),
+    quotaDay: date('quota_day', { mode: 'string' }),
+    quotaRefunded: boolean('quota_refunded').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => {

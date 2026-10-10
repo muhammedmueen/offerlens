@@ -9,6 +9,10 @@ export const ERROR_CODES = {
     ALREADY_VOTED: 'ALREADY_VOTED',
     RATE_LIMIT_EXCEEDED: 'RATE_LIMIT_EXCEEDED',
     UPLOAD_LIMIT_EXCEEDED: 'UPLOAD_LIMIT_EXCEEDED',
+    // A per-feature daily cap (career, negotiation, autofill). Analyses use the one above.
+    QUOTA_EXCEEDED: 'QUOTA_EXCEEDED',
+    // A plan's feature gate is closed (403). Distinct from GUEST_RESTRICTED.
+    FEATURE_NOT_IN_PLAN: 'FEATURE_NOT_IN_PLAN',
     INTERNAL_ERROR: 'INTERNAL_ERROR',
     SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
     EMAIL_IN_USE: 'EMAIL_IN_USE',
