@@ -30,8 +30,12 @@ Every feature in Phase 1 is **completely free** for all users:
 | Salary crowdsourcing | ✅ | Submit & view aggregate data |
 
 **Limits** (to prevent abuse, not to monetize):
-- **Guest**: 3 analyses/day, results expire in 24h
-- **Registered**: Unlimited analyses, history saved permanently
+- **Guest**: ~~3 analyses/day~~ **1 analysis/day**, results expire in 24h
+- **Registered**: ~~Unlimited analyses~~ **3 analyses/day**, history saved permanently
+
+> **Superseded (Phase 4, tasks 4.2–4.4):** the owner set guest 1/day and registered 3/day, reset at
+> 00:00 IST. Only completed analyses count. Limits live in `backend/src/config/plans.ts`; see
+> `PLAN-analysis-pipeline.md` (4.2–4.4 outcome).
 
 **No paywalls. No upgrade prompts. No locked features.** The entire Phase 1 experience is unrestricted for registered users.
 
@@ -77,7 +81,7 @@ These are **new Phase 2 features** that get built as premium — existing free f
 | **Career path insights (5-year)** | New feature — AI-generated trajectory with promotions, salary progression |
 | **Full benefits calculator (₹ values)** | Free shows overview → Pass quantifies each benefit in ₹ |
 | **Priority processing (< 10s)** | Free: standard queue → Pass: skip the queue |
-| **Unlimited analyses** | Free: 5/month → Pass: unlimited |
+| **Unlimited analyses** | Free: ~~5/month~~ 3/day (superseded by the Phase 4 decision) → Pass: unlimited |
 
 > **Key principle**: No existing free feature ever moves behind a paywall. Paid features are **additions** — polish, depth, and scale on top of what's already free.
 

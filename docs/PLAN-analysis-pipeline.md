@@ -2468,7 +2468,21 @@ rather than pricing each call on its own model. Unknown models now yield `null` 
 Backend 552 tests passing + 3 skipped (from 484; the skipped three are the Postgres proof). Frontend
 18 (from 1). One migration, `0004_many_arclight.sql`; a second `db:generate` reports no changes.
 
-Owner decisions, as implemented:
+Owner decisions, verbatim (answers to the four 4.2 questions):
+
+> 1. guests 1, registered 3. nobody keeps 10 offerletters in their buckets.
+> 2. go with suggestion
+> 3. go with suggestion
+> 4. go with config.
+
+Read as: (1) guest 1 analysis/day, registered 3/day; (2) the day is the IST calendar day, reset
+00:00 IST; (3) the unit is one completed analysis: reserve atomically at enqueue, refund on terminal
+failure; (4) feature gates live in config, all ON at launch. Defaults 5–7 were proposed and not
+objected to, so they shipped: (5) per-feature caps, career path and negotiation 10/day each,
+autofill 30/day; (6) model selection gated by plan (`allowModelSelection`); (7) two plans, `free`
+and `unlimited`, plus a separate `GUEST` object that is not a plan.
+
+As implemented:
 
 - **Limits.** Guest 1 analysis/day, `free` 3/day. Per-feature caps for `free`: career path 10,
   negotiation script 10, autofill (`POST /offers/extract`) 30; guests get autofill 30. `unlimited`
@@ -2515,6 +2529,13 @@ Decided in the plan, flagged for the owner:
 - **`npm run db:migrate` was not run** against a live database, for the same reason.
 - `test-security.mjs`, `test-m2.mjs`, `test-m3.mjs` need the full stack and were not run. Each guest
   in them uploads at most one offer, so they should still pass under the new caps.
+- **The UI was not exercised in a browser.** `QuotaNotice`, the upload-page states and the drawer
+  429 handling are covered by vitest (`UploadPage.test.tsx`, `quota.test.ts`) only; the manual
+  walkthrough in `LOCAL_DEVELOPMENT.md` §8.3 has not been run.
+
+What was verified: backend `tsc --noEmit`, `eslint`, `vitest` (552 passed, 3 skipped), `build`,
+and `db:generate` reporting no drift; frontend `tsc -p tsconfig.app.json`, lint (0 errors),
+`vitest` (18/18), `build`.
 
 ---
 
