@@ -709,13 +709,13 @@ than a theme list plus a separate priority list.
 
 | Phase | Scope | Gate |
 |---|---|---|
-| **4 — Launch Blockers** | Usage ledger, plan limits, three untrue privacy promises, one smoke spec | 4.1 needs nothing. 4.2 needs one number: the free daily limit |
+| **4 — Launch Blockers** | Usage ledger, plan limits, three untrue privacy promises, one smoke spec | 4.1 ✅ done. 4.2 needs one number: the free daily limit |
 | **5 — Salary Data** | Seed benchmarks, then fuzzy matching, outlier rejection, contribution prompt | All of it behind 5.1: which dataset, and does its licence allow commercial use |
 | **6 — Revenue & Compliance** | Payments, retention policy, correction loop, scanned-PDF OCR | Pricing; and 6.4 needs Cloud Vision billing |
 | **7 — Operations** | Admin auth hardening, superadmin, dashboards | One of the Phase 7 triggers firing |
 
-**Start with 4.1.** It is the only remaining task that is both urgent and unblocked: cost history is
-cascade-deleted hourly, and it is the one item in this plan that cannot be retrofitted.
+**4.1 is done** (see the Phase 4 outcome section). Cost history now lives in `usage_ledger` and
+survives offer, guest and user deletion.
 
 After that, the critical path runs through **two decisions rather than through code** — the free
 daily limit, and the salary dataset.
@@ -778,7 +778,7 @@ forward references to numbers that were going to move.
 | **1** | Quick wins — structured extraction, prompt safety, real salary data | ✅ Done, 8 tasks |
 | **2** | Rule engine, tax calculator, rubric, confidence, cache | ✅ Done, 6 tasks |
 | **3** | Pipeline refactor, reliability, comparison, OCR | ✅ **Closed.** Rounds 1-5 shipped 7 tasks plus half of 21c; 3 items dropped and the rest promoted into Phases 4-6 |
-| **4** | **Launch blockers** — usage ledger, plan limits, privacy promises, smoke spec | ⬜ Next. 4.1 is P0 and needs no decision |
+| **4** | **Launch blockers** — usage ledger, plan limits, privacy promises, smoke spec | 🟡 In progress. 4.1 ✅ done; 4.2 needs the free daily limit |
 | **5** | Salary data — seeding, matching, integrity | ⬜ All behind 5.1, a dataset licence decision |
 | **6** | Revenue & compliance — payments, retention, corrections, scanned PDFs | ⬜ Not urgent while there are no users |
 | **7** | Operations — admin auth, superadmin, dashboards | ⏸ Deliberately deferred until a trigger fires |
@@ -2330,7 +2330,7 @@ additionally need a GCS bucket, since `asyncBatchAnnotateFiles` cannot read a lo
 
 | # | Task | Impact | Priority |
 |---|------|--------|----------|
-| 4.1 | **Append-only usage ledger** — one row per AI call: user, timestamp, provider, model, tokens, cost, purpose | Cost history survives offer deletion | 🔴 **P0 — data is being lost now** |
+| 4.1 | ✅ **Append-only usage ledger** — one row per AI call: user, timestamp, provider, model, tokens, cost, purpose | Cost history survives offer deletion | ✅ Done — see the 4.1 outcome below |
 | 4.2 | `users.plan` column, plus `PLANS` limits and feature gates as code | Something to enforce against | 🔴 P0 |
 | 4.3 | Enforce the per-user daily cap at the queue boundary, not the route | A retry cannot buy a free analysis | 🔴 P0 |
 | 4.4 | Honest 429 with remaining quota and reset time, surfaced in the UI | The user knows why and when | 🟠 P1 |
@@ -2422,6 +2422,44 @@ of every upload, and shipping that with no end-to-end test is how a cap ends up 
 - **Record plan TERMS on the subscription, not a pointer to a mutable plan.** Otherwise changing
   pricing silently rewrites what existing users agreed to and grandfathering becomes impossible.
   Free to get right on day one, expensive later.
+
+#### Task 4.1 outcome — `usage_ledger`, metered at the provider layer
+
+Two commits, 484 backend tests (from 443; 41 new).
+
+A new `usage_ledger` table (migration `0003_bumpy_dragon_lord.sql`) gets **one row per provider
+call**: purpose (`analysis` / `metadata` / `career` / `negotiation` / `ocr`), provider, model,
+input/output/thinking tokens, units, `cost_usd`, success, `error_code`, `billed_to`
+(`platform` / `caller_key` / `mock`). It is append-only — there is no update or delete path in the
+code — and `offer_id` deliberately has **no foreign key**, so a row outlives the offer it describes.
+
+Metering sits at the provider layer, not the call sites. `BaseAiProvider.call()` is the single choke
+point and records success plus both failure modes (`provider_<status>` when `complete()` throws,
+`invalid_json` / `schema_mismatch` when the response is rejected), so a fallback chain that tries
+three models writes three rows, each priced on its own model. `recordSafely` guarantees a ledger
+write can never fail the request. The factory binds the recorder; omitting it means unmetered,
+which is what eval and boot use.
+
+One pricing bug fixed on the way: `addCall` priced the cumulative token count on the last model
+rather than pricing each call on its own model. Unknown models now yield `null` cost, never a guess.
+
+##### Two defaulted decisions — owner can change either
+
+- **Cloud Vision IS metered**, as purpose `ocr`: one row per call, units 1 on success, 0 with
+  `success=false` on throw. Cost is a **list-price estimate** (`VISION_TEXT_DETECTION_USD_PER_IMAGE`
+  = $0.0015) that ignores the free first 1,000 units/month and the >5M tier, so it slightly
+  over-states cost at low volume. Marked `ponytail:` in `usage.ts`.
+- **User and guest deletion use `ON DELETE SET NULL`.** Cost history survives; the identity link is
+  removed.
+
+##### Not verified
+
+- **Live `npm run db:migrate` was not run** — the Docker daemon was not running. Verified instead:
+  `db:generate` produced exactly one migration with both FKs `set null`, no FK on `offer_id` and
+  three indexes, and a re-run reports no drift. The CI migrations job covers the live apply.
+- No live end-to-end run against Gemini or Vision; ledger writes are covered by unit tests only.
+- First-visit guests record `guestId: null` on `/offers/extract*` until their `guests` row exists
+  (it is created on first upload). Marked `ponytail:` in `usage-ledger.ts`.
 
 ---
 
