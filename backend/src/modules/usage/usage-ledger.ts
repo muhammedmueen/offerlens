@@ -106,22 +106,22 @@ export async function meterOcr(
 /**
  * Resolve the caller context for the two unauthenticated autofill routes.
  *
- * `req.userId` passes through. The guest cookie token is resolved read-only to a `guests.id`
- * via `GuestService.findByToken`; a lookup failure is caught, logged and treated as no guest.
- *
- * ponytail: a first-visit guest has no `guests` row until their first upload (the row is
- * created in `OfferService.create`), so their `/offers/extract` and `/offers/extract-file`
- * calls record `guestId: null`. Upgrade path: create the guest row on first request, or store
- * the raw cookie token on the ledger row so it can be reconciled later.
+ * `req.userId` passes through, and for a signed-in caller the guest cookie is resolved
+ * read-only (`findByToken`). For a guest, first use of a metered route creates their `guests`
+ * row (`getOrCreateGuest`, one upsert), so a first-visit guest's ledger row and autofill cap
+ * are attributed to a real `guests.id` instead of null. A lookup failure is caught, logged and
+ * treated as no guest.
  */
 export async function usageContextForRequest(
-    req: { userId?: string; guestId?: string },
-    guestService: GuestService = new GuestService(),
+    req: { userId?: string; guestId?: string; ip: string },
+    guestService: Pick<GuestService, 'findByToken' | 'getOrCreateGuest'> = new GuestService(),
 ): Promise<UsageContext> {
     let guestId: string | null = null;
     if (req.guestId) {
         try {
-            const guest = await guestService.findByToken(req.guestId);
+            const guest = req.userId
+                ? await guestService.findByToken(req.guestId)
+                : await guestService.getOrCreateGuest({ fingerprint: req.guestId, ip: req.ip });
             guestId = guest?.id ?? null;
         } catch (err) {
             console.error('[UsageLedger] guest context lookup failed:', (err as Error)?.message);

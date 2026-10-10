@@ -128,33 +128,58 @@ describe('meterOcr', () => {
 });
 
 describe('usageContextForRequest', () => {
-    it('resolves a found guest to its id', async () => {
-        const { usageContextForRequest, } = await load();
-        guestsFindFirst.mockResolvedValue({ id: 'guest-row-1' });
-        const ctx = await usageContextForRequest({ userId: 'u1', guestId: 'token-abc' });
-        expect(ctx).toEqual({ userId: 'u1', guestId: 'guest-row-1', offerId: null });
+    /** Injected so the test can see which of the two lookups ran. */
+    function fakeGuests(overrides: Partial<{ findByToken: any; getOrCreateGuest: any }> = {}) {
+        return {
+            findByToken: vi.fn(async () => ({ id: 'guest-row-1' })),
+            getOrCreateGuest: vi.fn(async () => ({ id: 'guest-row-new' })),
+            ...overrides,
+        } as any;
+    }
+
+    it('a first-visit guest gets a guest row created and attributed', async () => {
+        const { usageContextForRequest } = await load();
+        const guests = fakeGuests();
+        const ctx = await usageContextForRequest({ guestId: 'token-abc', ip: '1.2.3.4' }, guests);
+        expect(ctx).toEqual({ userId: null, guestId: 'guest-row-new', offerId: null });
+        expect(guests.getOrCreateGuest).toHaveBeenCalledWith({ fingerprint: 'token-abc', ip: '1.2.3.4' });
+        expect(guests.findByToken).not.toHaveBeenCalled();
     });
 
-    it('gives guestId null when no guest row exists', async () => {
+    it('a registered user stays read-only (findByToken, never getOrCreateGuest)', async () => {
         const { usageContextForRequest } = await load();
-        guestsFindFirst.mockResolvedValue(undefined);
-        const ctx = await usageContextForRequest({ guestId: 'token-abc' });
+        const guests = fakeGuests();
+        const ctx = await usageContextForRequest({ userId: 'u1', guestId: 'token-abc', ip: '1.2.3.4' }, guests);
+        expect(ctx).toEqual({ userId: 'u1', guestId: 'guest-row-1', offerId: null });
+        expect(guests.getOrCreateGuest).not.toHaveBeenCalled();
+    });
+
+    it('a registered user with no guest row gets guestId null', async () => {
+        const { usageContextForRequest } = await load();
+        const ctx = await usageContextForRequest(
+            { userId: 'u1', guestId: 'token-abc', ip: '1.2.3.4' },
+            fakeGuests({ findByToken: vi.fn(async () => undefined) }),
+        );
         expect(ctx.guestId).toBeNull();
     });
 
     it('gives guestId null and logs when the lookup throws', async () => {
         const { usageContextForRequest } = await load();
         const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-        guestsFindFirst.mockRejectedValue(new Error('db down'));
-        const ctx = await usageContextForRequest({ guestId: 'token-abc' });
+        const ctx = await usageContextForRequest(
+            { guestId: 'token-abc', ip: '1.2.3.4' },
+            fakeGuests({ getOrCreateGuest: vi.fn(async () => { throw new Error('db down'); }) }),
+        );
         expect(ctx.guestId).toBeNull();
         expect(errSpy).toHaveBeenCalled();
     });
 
     it('passes userId through with no guest token', async () => {
         const { usageContextForRequest } = await load();
-        const ctx = await usageContextForRequest({ userId: 'u9' });
+        const guests = fakeGuests();
+        const ctx = await usageContextForRequest({ userId: 'u9', ip: '1.2.3.4' }, guests);
         expect(ctx).toEqual({ userId: 'u9', guestId: null, offerId: null });
-        expect(guestsFindFirst).not.toHaveBeenCalled();
+        expect(guests.findByToken).not.toHaveBeenCalled();
+        expect(guests.getOrCreateGuest).not.toHaveBeenCalled();
     });
 });
