@@ -6,6 +6,9 @@ import { offerFiles } from '@/db/schema/offer-files.js';
 import { lt, and, eq, inArray } from 'drizzle-orm';
 import { LocalStorageProvider } from '@/providers/storage/local.storage.js';
 import { UNFINISHED_STATUSES, stuckBefore, STUCK_FAILURE_REASON } from './reap.js';
+import { quotaCounters } from '@/db/schema/quota-counters.js';
+import { releaseOfferQuota } from '@/modules/quota/quota.service.js';
+import { istDayWindow } from '@/shared/ist-day.js';
 
 const storage = new LocalStorageProvider();
 
@@ -38,6 +41,17 @@ export const cleanupWorker = new Worker(
                     `[Reaper] Failed ${reaped.length} offer(s) unfinished since before `
                     + `${cutoff.toISOString()}: ${reaped.map((r) => r.id).join(', ')}`,
                 );
+            }
+
+            // A reaped offer is a terminal failure, so it gets its analysis back (task 4.3).
+            // This also covers BullMQ stalled-job failures, which never reach a processor
+            // catch. Idempotent per offer, so a refund already made elsewhere is a no-op.
+            for (const { id } of reaped) {
+                try {
+                    await db.transaction((tx) => releaseOfferQuota(tx, id));
+                } catch (err) {
+                    console.error(`[Reaper] Quota refund failed for offer ${id}:`, (err as Error)?.message);
+                }
             }
             return;
         }
@@ -79,6 +93,14 @@ export const cleanupWorker = new Worker(
             }
 
             console.log(`[Cleanup] Deleted ${expiredOffers.length} expired offers.`);
+
+            // Quota counters are only read for today (IST). Keep two days of slack for a
+            // refund that lands after midnight, and drop the rest.
+            const keepFrom = istDayWindow(new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000)).day;
+            const oldCounters = await db.delete(quotaCounters)
+                .where(lt(quotaCounters.day, keepFrom))
+                .returning({ day: quotaCounters.day });
+            console.log(`[Cleanup] Deleted ${oldCounters.length} quota counter row(s) older than ${keepFrom}.`);
         }
     },
     defaultWorkerOptions

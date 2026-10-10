@@ -16,6 +16,9 @@ import { redactSelection } from '@/providers/ai/request-override.js';
 import { meterOcr } from '@/modules/usage/usage-ledger.js';
 import type { UsageContext } from '@/providers/ai/usage.js';
 import { resolveDedupScope } from './offer.dedup.js';
+import { GUEST_TTL_HOURS } from '@/config/constants.js';
+import type { Tier } from '@/config/plans.js';
+import { failOfferAndRefund, releaseOfferQuota, reserve, type QuotaSubject } from '@/modules/quota/quota.service.js';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -37,35 +40,38 @@ export class OfferService {
         private guestService: GuestService
     ) { }
 
-    async create(input: CreateOfferInput, guestId: string, ip: string, userId?: string): Promise<OfferResponse> {
-        // 1. Guest Check & Rate Limit
+    /**
+     * Accept an upload and queue it.
+     *
+     * The daily analysis quota is reserved here, at the queue boundary (task 4.3): one atomic
+     * upsert in the SAME transaction as the offer insert, so a 429 rolls back everything and
+     * concurrent uploads can never overshoot the limit. The reservation is stored on the offer
+     * and refunded if the analysis ends FAILED (see releaseOfferQuota). A registered caller is
+     * charged as a `user` and never touches their browser's guest counter.
+     */
+    async create(input: CreateOfferInput, guestId: string, ip: string, userId: string | undefined, tier: Tier): Promise<OfferResponse> {
+        // 1. Guest row. Still upserted for registered callers: offers.guestId is set for everyone.
         const guest = await this.guestService.getOrCreateGuest({ fingerprint: guestId, ip });
+        const subject: QuotaSubject = userId
+            ? { type: 'user', id: userId, tier }
+            : { type: 'guest', id: guest.id, tier };
 
-        // 2. Get text content and hash
-        let textContent: string;
+        // 2. Read and hash the input. Nothing is written to storage until a slot is reserved.
         let hash: string;
-        let storedPath: string | null = null;
+        let fileBuffer: Buffer | null = null;
         let fileInfo: { filename: string; mimetype: string; size: number } | null = null;
 
         if (input.text) {
-            // Text provided directly
-            textContent = input.text;
-            hash = crypto.createHash('sha256').update(textContent).digest('hex');
+            hash = crypto.createHash('sha256').update(input.text).digest('hex');
         } else if (input.file) {
-            // File provided - extract text via OCR
-            const fileBuffer = await input.file.toBuffer();
+            // File provided - text is extracted by the OCR worker
+            fileBuffer = await input.file.toBuffer();
             hash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
-            
-            // Store file
-            storedPath = await this.fastify.storage.upload(fileBuffer, input.file.filename);
             fileInfo = {
                 filename: input.file.filename,
                 mimetype: input.file.mimetype,
                 size: fileBuffer.length,
             };
-            
-            // Extract text (will be done by worker, but we need placeholder)
-            textContent = ''; // Will be filled by OCR worker
         } else {
             throw new AppError(ERROR_CODES.VALIDATION_ERROR, 'File or text is required', 400);
         }
@@ -95,75 +101,110 @@ export class OfferService {
             };
         }
 
-        if (existingOffer && existingOffer.status === 'FAILED') {
-            console.log('[Offer Service] Found failed offer, deleting it to allow retry');
-            // Safe now: the query above guarantees this offer belongs to the caller.
-            await db.delete(offers).where(eq(offers.id, existingOffer.id));
+        // 4. Reserve, store and insert in ONE transaction.
+        const offerId = randomUUID();
+        // `as`, so TS does not narrow to null: it is assigned inside the transaction callback.
+        let storedPath = null as string | null;
+
+        try {
+            await db.transaction(async (tx) => {
+                // (a) A FAILED duplicate is replaced. Refund whatever it still holds first —
+                // a no-op if its terminal failure already refunded it — so a retry while a
+                // BullMQ retry is pending is net-correct. Same order as before: then delete.
+                if (existingOffer && existingOffer.status === 'FAILED') {
+                    console.log('[Offer Service] Found failed offer, deleting it to allow retry');
+                    await releaseOfferQuota(tx, existingOffer.id);
+                    // Safe: the query above guarantees this offer belongs to the caller.
+                    await tx.delete(offers).where(eq(offers.id, existingOffer.id));
+                }
+
+                // (b) The quota. Throws QuotaExceededError (429) and rolls back (a) with it.
+                const reservation = await reserve(tx, subject, 'analysis');
+
+                // (c) Only now is the file written.
+                if (fileBuffer && fileInfo) {
+                    storedPath = await this.fastify.storage.upload(fileBuffer, fileInfo.filename);
+                }
+
+                // (d) The offer carries its reservation so a refund goes to the right counter
+                // and day, even after migrateGuestOffers sets userId on a guest offer.
+                const newOffer: NewOffer = {
+                    id: offerId,
+                    guestId: guest.id,
+                    userId: userId,
+                    textHash: hash,
+                    status: 'QUEUED',
+                    isGuest: !userId,
+                    rawText: input.text || null, // Store text immediately if provided
+                    userContext: {
+                        role: input.role,
+                        experienceLevel: input.experienceLevel,
+                        city: input.city,
+                        currentCtc: input.currentCtc,
+                    },
+                    expiresAt: userId ? undefined : new Date(Date.now() + GUEST_TTL_HOURS * 60 * 60 * 1000),
+                    quotaSubjectType: reservation?.subjectType ?? null,
+                    quotaSubjectId: reservation?.subjectId ?? null,
+                    quotaDay: reservation?.day ?? null,
+                };
+                await tx.insert(offers).values(newOffer);
+
+                if (fileInfo && storedPath) {
+                    const newFile: NewOfferFile = {
+                        offerId: offerId,
+                        originalName: fileInfo.filename,
+                        storedPath: storedPath,
+                        mimeType: fileInfo.mimetype,
+                        fileSizeBytes: fileInfo.size,
+                    };
+                    await tx.insert(offerFiles).values(newFile);
+                }
+            });
+        } catch (error) {
+            // The rows rolled back; the file did not. Best effort, then the original error.
+            if (storedPath) {
+                const orphan = storedPath;
+                await this.fastify.storage.delete(orphan).catch((err) => {
+                    this.fastify.log.warn({ err, path: orphan }, 'Failed to delete file after a rolled-back upload');
+                });
+            }
+            throw error;
         }
 
-        // 4. Create Database Records (Transaction)
-        const offerId = randomUUID();
-
-        const newOffer: NewOffer = {
-            id: offerId,
-            guestId: guest.id,
-            userId: userId,
-            textHash: hash,
-            status: input.text ? 'QUEUED' : 'QUEUED', // Both go to queue
-            isGuest: !userId,
-            rawText: input.text || null, // Store text immediately if provided
-            userContext: {
-                role: input.role,
-                experienceLevel: input.experienceLevel,
-                city: input.city,
-                currentCtc: input.currentCtc,
-            },
-            expiresAt: userId ? undefined : new Date(Date.now() + 24 * 60 * 60 * 1000),
-        };
-
-        await db.transaction(async (tx) => {
-            await tx.insert(offers).values(newOffer);
-            
-            if (fileInfo && storedPath) {
-                const newFile: NewOfferFile = {
-                    offerId: offerId,
-                    originalName: fileInfo.filename,
-                    storedPath: storedPath,
-                    mimeType: fileInfo.mimetype,
-                    fileSizeBytes: fileInfo.size,
-                };
-                await tx.insert(offerFiles).values(newFile);
+        // 5. Enqueue Job. If Redis refuses it, nothing will ever process this offer: fail it
+        // and refund now rather than leave the reaper to do it in five minutes.
+        try {
+            if (input.text) {
+                // Skip OCR, go straight to analysis
+                console.log('[Offer Service] Adding job to OCR queue (process-text):', { offerId, textLength: input.text.length, model: input.model });
+                await ocrQueue.add('process-text', {
+                    offerId,
+                    text: input.text,
+                    // Left undefined when the caller named no model, so whichever provider runs
+                    // resolves its own per-task default. This used to default to
+                    // DEFAULT_GEMINI_MODEL here, which undid the same fix already made in
+                    // offer.routes.ts and put a Gemini id in every job regardless of provider.
+                    model: input.model,
+                    // Carried to the worker so a development provider override survives the
+                    // queue hop. The analysis worker redacts any key from the stored payload
+                    // once the job finishes — see analysis.worker.ts.
+                    aiSelection: input.aiSelection ?? {},
+                });
+            } else {
+                // Need OCR first
+                console.log('[Offer Service] Adding job to OCR queue (process-ocr):', { offerId, storedPath, model: input.model });
+                await ocrQueue.add('process-ocr', {
+                    offerId,
+                    storedPath,
+                    model: input.model,
+                    aiSelection: input.aiSelection ?? {},
+                });
             }
-        });
-
-        // 5. Enqueue Job
-        if (input.text) {
-            // Skip OCR, go straight to analysis
-            console.log('[Offer Service] Adding job to OCR queue (process-text):', { offerId, textLength: input.text.length, model: input.model });
-            await ocrQueue.add('process-text', {
-                offerId,
-                text: input.text,
-                // Left undefined when the caller named no model, so whichever provider runs
-                // resolves its own per-task default. This used to default to
-                // DEFAULT_GEMINI_MODEL here, which undid the same fix already made in
-                // offer.routes.ts and put a Gemini id in every job regardless of provider.
-                model: input.model,
-                // Carried to the worker so a development provider override survives the
-                // queue hop. The analysis worker redacts any key from the stored payload
-                // once the job finishes — see analysis.worker.ts.
-                aiSelection: input.aiSelection ?? {},
-            });
             console.log('[Offer Service] ✅ Job added to queue successfully');
-        } else {
-            // Need OCR first
-            console.log('[Offer Service] Adding job to OCR queue (process-ocr):', { offerId, storedPath, model: input.model });
-            await ocrQueue.add('process-ocr', {
-                offerId,
-                storedPath,
-                model: input.model,
-                aiSelection: input.aiSelection ?? {},
-            });
-            console.log('[Offer Service] ✅ Job added to queue successfully');
+        } catch (error) {
+            this.fastify.log.error({ err: error, offerId }, 'Enqueue failed; failing the offer and refunding its quota');
+            await failOfferAndRefund(offerId, 'We could not start this analysis. Please try again in a minute.');
+            throw new AppError(ERROR_CODES.SERVICE_UNAVAILABLE, 'Analysis queue is unavailable. Please try again shortly.', 503);
         }
 
         return {

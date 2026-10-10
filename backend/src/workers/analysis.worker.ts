@@ -16,6 +16,8 @@ import { checkBenefits, bareBenefitsFlag } from '@/modules/benefits/benefits.che
 import { calculateScore } from '@/modules/analysis/score.rubric.js';
 import { optionalStage } from '@/shared/stage.js';
 import { OCR_MIN_CONFIDENCE } from '@/config/constants.js';
+import { failOfferAndRefund } from '@/modules/quota/quota.service.js';
+import { isFinalAttempt } from './attempts.js';
 
 const salaryService = new SalaryService();
 
@@ -407,6 +409,9 @@ export const analysisWorker = new Worker(
                     processingTimeMs: Date.now() - startedAt,
                 });
 
+                // ponytail: if this lands AFTER the reaper failed and refunded the offer (a
+                // pipeline over 5 min), the analysis was free. Rare by construction. Upgrade
+                // path: make this write conditional on status <> 'FAILED'.
                 await tx.update(offers).set({ status: 'COMPLETED' }).where(eq(offers.id, offerId));
             });
 
@@ -443,10 +448,16 @@ export const analysisWorker = new Worker(
                 failureReason = 'AI_ERROR: The AI service encountered an internal error. Please try again.';
             }
 
-            await db.update(offers).set({
-                status: 'FAILED',
-                failureReason: failureReason
-            }).where(eq(offers.id, offerId));
+            // Only the last attempt is terminal and refunds the analysis quota (task 4.3).
+            // Earlier attempts keep today's per-attempt FAILED write; BullMQ will retry.
+            if (isFinalAttempt(job)) {
+                await failOfferAndRefund(offerId, failureReason);
+            } else {
+                await db.update(offers).set({
+                    status: 'FAILED',
+                    failureReason: failureReason
+                }).where(eq(offers.id, offerId));
+            }
             throw error;
         }
     },

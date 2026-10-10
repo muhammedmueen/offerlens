@@ -11,6 +11,8 @@ import { analysisQueue } from '@/queue/queues.js';
 import { OCR_MIN_CONFIDENCE, MIN_EXTRACTED_TEXT_CHARS } from '@/config/constants.js';
 import { extractPdfText } from '@/providers/pdf/pdf-text.js';
 import { meterOcr } from '@/modules/usage/usage-ledger.js';
+import { failOfferAndRefund } from '@/modules/quota/quota.service.js';
+import { isFinalAttempt } from './attempts.js';
 
 // Setup provider (should be injected or singleton, but new instance per worker process is fine)
 const ocrProvider: OcrProvider = config.GOOGLE_CLOUD_CREDENTIALS
@@ -24,9 +26,9 @@ const ocrProvider: OcrProvider = config.GOOGLE_CLOUD_CREDENTIALS
  * than diagnostics — and each one says what to try next, because the alternative is a dead end.
  */
 async function failOffer(offerId: string, reason: string): Promise<void> {
-    await db.update(offers)
-        .set({ status: 'FAILED', failureReason: reason })
-        .where(eq(offers.id, offerId));
+    // Every caller returns without throwing, so this failure is terminal: refund the
+    // analysis quota in the same transaction (task 4.3).
+    await failOfferAndRefund(offerId, reason);
 }
 
 export const ocrWorker = new Worker(
@@ -174,10 +176,16 @@ export const ocrWorker = new Worker(
                 console.error(`[OCR] Rate limit hit for offer ${offerId}`);
             }
             
-            await db.update(offers).set({
-                status: 'FAILED',
-                failureReason: failureReason
-            }).where(eq(offers.id, offerId));
+            // Only the last attempt is terminal and refunds. Earlier attempts keep today's
+            // per-attempt FAILED write; BullMQ will retry and may still succeed.
+            if (isFinalAttempt(job)) {
+                await failOfferAndRefund(offerId, failureReason);
+            } else {
+                await db.update(offers).set({
+                    status: 'FAILED',
+                    failureReason: failureReason
+                }).where(eq(offers.id, offerId));
+            }
             throw error;
         }
     },

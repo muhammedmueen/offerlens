@@ -9,6 +9,7 @@ import { routeLimit } from '@/middleware/rate-limiter.js';
 import { MAX_EXTRACT_TEXT_CHARS } from '@/config/constants.js';
 import { readUploadedFile } from './multipart.js';
 import { usageContextForRequest } from '@/modules/usage/usage-ledger.js';
+import { tierForRequest } from '@/modules/quota/quota.service.js';
 
 export async function offerRoutes(fastify: FastifyInstance) {
     const guestService = new GuestService();
@@ -64,6 +65,9 @@ export async function offerRoutes(fastify: FastifyInstance) {
             throw new AppError(ERROR_CODES.VALIDATION_ERROR, 'File or text is required', 400);
         }
 
+        // The caller's plan: sets the daily analysis limit reserved in create().
+        const tier = await tierForRequest(req);
+
         const input = {
             // `?? undefined` because CreateOfferInput.file is optional, not nullable. The old
             // `let file: any = null` hid the mismatch; typing the reader surfaced it.
@@ -92,7 +96,7 @@ export async function offerRoutes(fastify: FastifyInstance) {
             currentCtc: input.currentCtc
         });
 
-        const result = await offerService.create(input, req.guestId!, req.ip, req.userId);
+        const result = await offerService.create(input, req.guestId!, req.ip, req.userId, tier);
 
         return reply.status(201).send({
             success: true,
