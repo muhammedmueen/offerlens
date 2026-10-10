@@ -176,7 +176,14 @@ export const analysisWorker = new Worker(
             // Built per job rather than once at module load, so the provider a request asked
             // for survives the queue hop. With an empty selection this is the configured
             // default, which is what every normal upload gets.
-            const aiProvider = createAiProvider(selection);
+            // Metered with the offer's own provenance. BullMQ re-runs this processor on each
+            // of its (attempts: 3) tries and builds a fresh provider each time, so every
+            // attempt's calls — including failed ones — land in the ledger.
+            const aiProvider = createAiProvider(selection, {
+                userId: offer.userId,
+                guestId: offer.guestId,
+                offerId,
+            });
             const rawResult = await aiProvider.analyzeOffer(text, context, model || undefined);
 
             // Normalize AI result — models may return varying structures

@@ -62,6 +62,7 @@ export function deriveConfidence(pages: Page[] | null | undefined): number | nul
 }
 
 export class GoogleVisionOcrProvider implements OcrProvider {
+    readonly name = 'google-vision' as const;
     private client: vision.ImageAnnotatorClient;
 
     constructor() {

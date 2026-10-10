@@ -4,7 +4,9 @@ import { GeminiAiProvider } from './gemini.ai.js';
 import { OpenAiProvider } from './openai.ai.js';
 import { AnthropicAiProvider } from './anthropic.ai.js';
 import { MockAiProvider } from './mock.ai.js';
-import type { AiProviderName } from './usage.js';
+import { BaseAiProvider } from './base.ai.js';
+import type { AiProviderName, BilledTo, UsageContext } from './usage.js';
+import { createUsageRecorder } from '@/modules/usage/usage-ledger.js';
 
 /**
  * Build an AI provider per call, instead of once at boot.
@@ -48,7 +50,21 @@ export function hasServerKeyFor(provider: AiProviderName): boolean {
     }
 }
 
-export function createAiProvider(selection: AiProviderSelection = {}): AiProvider {
+/**
+ * Who pays for a call this provider makes.
+ *   - a MockAiProvider → `'mock'` (requested, or no key anywhere);
+ *   - a caller-supplied key → `'caller_key'` (the dev override / future BYOK);
+ *   - otherwise the server's own key → `'platform'`.
+ */
+export function billedToFor(
+    provider: BaseAiProvider | MockAiProvider,
+    selection: AiProviderSelection,
+): BilledTo {
+    if (provider instanceof MockAiProvider) return 'mock';
+    return selection.apiKey ? 'caller_key' : 'platform';
+}
+
+function build(selection: AiProviderSelection): BaseAiProvider | MockAiProvider {
     const requested = selection.provider ?? config.AI_PROVIDER;
 
     // A caller-supplied key means the caller chose the provider deliberately, so respect it
@@ -70,4 +86,21 @@ export function createAiProvider(selection: AiProviderSelection = {}): AiProvide
         case 'gemini':
         default: return new GeminiAiProvider(selection.apiKey, selection.model);
     }
+}
+
+/**
+ * Build an AI provider, metered when a `UsageContext` is given.
+ *
+ * When `usage` is supplied the instance gets a recorder bound to that caller's identity and
+ * the right `billedTo`, so every call it makes writes one ledger row. Omitting `usage` leaves
+ * the instance unmetered — on purpose, and only for the offline eval harness
+ * (`eval/run-eval.ts`) and the unused boot instance in `plugins/providers.ts`. Every
+ * production call site passes `usage`.
+ */
+export function createAiProvider(selection: AiProviderSelection = {}, usage?: UsageContext): AiProvider {
+    const provider = build(selection);
+    if (usage) {
+        provider.recorder = createUsageRecorder(usage, billedToFor(provider, selection));
+    }
+    return provider;
 }

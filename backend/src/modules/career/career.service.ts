@@ -34,7 +34,11 @@ export class CareerService {
         // generic regardless of the actual role — a teaching post got a tech trajectory.
         // Built per call so a development provider override is honoured. Falls through to
         // the configured default when the selection is empty, which is the normal case.
-        const ai = createAiProvider(selection);
+        const ai = createAiProvider(selection, {
+            userId: offer.userId,
+            guestId: offer.guestId,
+            offerId,
+        });
 
         const path = await ai.generateCareerPath({
             role: extracted.role,

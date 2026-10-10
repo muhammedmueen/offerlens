@@ -10,6 +10,7 @@ import { config } from '@/config/index.js';
 import { analysisQueue } from '@/queue/queues.js';
 import { OCR_MIN_CONFIDENCE, MIN_EXTRACTED_TEXT_CHARS } from '@/config/constants.js';
 import { extractPdfText } from '@/providers/pdf/pdf-text.js';
+import { meterOcr } from '@/modules/usage/usage-ledger.js';
 
 // Setup provider (should be injected or singleton, but new instance per worker process is fine)
 const ocrProvider: OcrProvider = config.GOOGLE_CLOUD_CREDENTIALS
@@ -95,8 +96,21 @@ export const ocrWorker = new Worker(
                     confidence = null;
                     console.log(`[OCR] Read the PDF text layer directly — ${pdf.pages} page(s), ${text.length} chars, no OCR needed`);
                 } else {
-                    // `not-pdf` — an image. This is the path OCR is actually for.
-                    const result = await ocrProvider.extractText(storedPath);
+                    // `not-pdf` — an image. This is the path OCR is actually for, and the
+                    // only one that makes a billable Vision call, so it is the only one metered.
+                    const owner = await db.query.offers.findFirst({
+                        where: eq(offers.id, offerId),
+                        columns: { userId: true, guestId: true },
+                    }).catch((err) => {
+                        console.error('[OCR] usage context lookup failed', (err as Error)?.message);
+                        return undefined;
+                    });
+
+                    const result = await meterOcr(ocrProvider, storedPath, {
+                        userId: owner?.userId ?? null,
+                        guestId: owner?.guestId ?? null,
+                        offerId,
+                    });
                     text = result.text;
                     confidence = result.confidence;
                 }

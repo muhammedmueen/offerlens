@@ -25,6 +25,12 @@ export interface TokenUsage {
     /** The model that actually served the request, not the one requested. */
     model: string;
     inputTokens: number;
+    /**
+     * Includes thinking/reasoning tokens where the vendor reports them separately. Gemini
+     * breaks `thoughtsTokenCount` out of the candidate count, so the caller folds it back in
+     * here; OpenAI and Anthropic already include reasoning in their output count. Keeping it
+     * folded here keeps this type's shape and its cost correct.
+     */
     outputTokens: number;
     totalTokens: number;
     /**
@@ -64,6 +70,13 @@ export const PRICING: Record<string, Price> = {
     'gemini-flash-latest': { inputPerMillion: 0.30, outputPerMillion: 2.50 },
     'gemini-2.5-flash-lite': { inputPerMillion: 0.10, outputPerMillion: 0.40 },
     'gemini-flash-lite-latest': { inputPerMillion: 0.10, outputPerMillion: 0.40 },
+    // The ≤200k-prompt tier, which covers every prompt this app sends. Above 200k Google
+    // charges roughly double; we never reach it. Corroborated by secondary calculators, so
+    // the table-wide VERIFY warning applies here especially.
+    'gemini-2.5-pro': { inputPerMillion: 1.25, outputPerMillion: 10.00 },
+    // A moving alias. It currently points at 2.5 Pro, so it is priced the same — but the
+    // target may since have moved to a newer Pro at a different rate. Re-check on drift.
+    'gemini-pro-latest': { inputPerMillion: 1.25, outputPerMillion: 10.00 },
 
     // ── OpenAI ──
     'gpt-4.1': { inputPerMillion: 2.00, outputPerMillion: 8.00 },
@@ -121,6 +134,16 @@ export function modelVendor(model: string): AiProviderName | null {
     return hit ? hit[1] : null;
 }
 
+/**
+ * USD per image for Cloud Vision `TEXT_DETECTION`.
+ *
+ * ponytail: list-price estimate. $1.50 per 1,000 units for units 1,001–5,000,000 per month
+ * (https://cloud.google.com/vision/pricing). It ignores the free first 1,000 units/month and
+ * the cheaper >5M tier, so it slightly over-states cost at low volume. Upgrade path: track
+ * the running monthly unit count and pick the tier, or read actual spend from billing export.
+ */
+export const VISION_TEXT_DETECTION_USD_PER_IMAGE = 0.0015;
+
 export function estimateCostUsd(model: string, inputTokens: number, outputTokens: number): number | null {
     const price = priceFor(model);
     if (!price) return null;
@@ -142,6 +165,14 @@ export function emptyUsage(provider: AiProviderName, model: string): TokenUsage 
  *
  * `model` takes the latest value rather than the first, so after a fallback the usage
  * names the model that actually answered.
+ *
+ * ── COST IS SUMMED PER CALL, AT THE CALL'S OWN MODEL ──────────────────────────
+ * The previous version recomputed cost from the CUMULATIVE token totals at the LATEST
+ * model's price. That mispriced every fallback chain: a flash call then a lite call billed
+ * both at the lite rate, so flash's tokens were under- or over-charged. Each call is now
+ * priced on the model that actually served it and summed. If either the running total or
+ * this call's cost is unknown (model absent from PRICING), the sum is `null` rather than a
+ * guess — an honest unknown, never an invented figure.
  */
 export function addCall(
     running: TokenUsage,
@@ -151,6 +182,18 @@ export function addCall(
     const inputTokens = running.inputTokens + (call.inputTokens || 0);
     const outputTokens = running.outputTokens + (call.outputTokens || 0);
 
+    const callCost = estimateCostUsd(model, call.inputTokens || 0, call.outputTokens || 0);
+    let costUsd: number | null;
+    if (running.calls === 0) {
+        // First call: there is no prior cost to add, so take this call's cost as-is.
+        costUsd = callCost;
+    } else if (running.costUsd === null || callCost === null) {
+        // Any unknown anywhere in the chain makes the total unknown.
+        costUsd = null;
+    } else {
+        costUsd = Number((running.costUsd + callCost).toFixed(6));
+    }
+
     return {
         provider: running.provider,
         model,
@@ -158,8 +201,75 @@ export function addCall(
         outputTokens,
         totalTokens: inputTokens + outputTokens,
         calls: running.calls + 1,
-        costUsd: estimateCostUsd(model, inputTokens, outputTokens),
+        costUsd,
     };
+}
+
+// ─── Ledger types ────────────────────────────────────────────────────────────
+//
+// Pure types and one guard, kept here so `usage.ts` is the single source of the purpose
+// list (base.ai.ts derives AiTask from it) and so the provider layer can record without
+// importing anything from the db or modules layer. The DB write itself lives in
+// `modules/usage/usage-ledger.ts`.
+
+/** Every billable thing we meter. `'ocr'` is Vision; the rest are AI text tasks. */
+export type UsagePurpose = 'analysis' | 'metadata' | 'career' | 'negotiation' | 'ocr';
+
+/**
+ * Who pays for a call.
+ *  - `'platform'`   — the server's own key.
+ *  - `'caller_key'` — a caller-supplied key (the dev X-AI-Key override / future BYOK).
+ *  - `'mock'`       — the mock provider; no real spend.
+ */
+export type BilledTo = 'platform' | 'caller_key' | 'mock';
+
+/** Caller identity attached to each row. All nullable: guests and unattributed calls exist. */
+export interface UsageContext {
+    userId?: string | null;
+    guestId?: string | null;
+    offerId?: string | null;
+}
+
+/** One metered call, as the provider layer reports it (before context/billedTo are attached). */
+export interface UsageEvent {
+    purpose: UsagePurpose;
+    provider: string;
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    thinkingTokens: number;
+    /** Per-image billing (Vision). `null` for token-billed AI calls. */
+    units: number | null;
+    costUsd: number | null;
+    success: boolean;
+    /** Short machine code, NO PII and NO offer text. `null` on success. */
+    errorCode: string | null;
+}
+
+export type UsageRecorder = (event: UsageEvent) => Promise<void>;
+
+/**
+ * Run a recorder without ever letting it break the caller.
+ *
+ * Writing a ledger row must never fail a user's request or a job, so every recorder call
+ * goes through here: it awaits the recorder inside try/catch and logs failures loudly
+ * (never silently swallowed, never with offer text). Awaited rather than fire-and-forget so
+ * rows land deterministically and tests can assert on them. A `null` recorder is a no-op,
+ * which is how unmetered call sites (the eval harness, the boot instance) opt out.
+ */
+export async function recordSafely(
+    recorder: UsageRecorder | null | undefined,
+    event: UsageEvent,
+): Promise<void> {
+    if (!recorder) return;
+    try {
+        await recorder(event);
+    } catch (err) {
+        console.error(
+            `[UsageLedger] failed to record ${event.purpose} ${event.provider}/${event.model}: `
+            + `${(err as Error)?.message ?? String(err)}`,
+        );
+    }
 }
 
 /** One-line form for logs. */

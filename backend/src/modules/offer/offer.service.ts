@@ -13,6 +13,8 @@ import { randomUUID } from 'node:crypto';
 import { sanitizeFilename } from '@/shared/sanitize.js';
 import { createAiProvider, type AiProviderSelection } from '@/providers/ai/ai.factory.js';
 import { redactSelection } from '@/providers/ai/request-override.js';
+import { meterOcr } from '@/modules/usage/usage-ledger.js';
+import type { UsageContext } from '@/providers/ai/usage.js';
 import { resolveDedupScope } from './offer.dedup.js';
 import os from 'node:os';
 import path from 'node:path';
@@ -213,8 +215,14 @@ export class OfferService {
      * describing a `NODE_ENV === 'production'` gating fix, so the fix was documented on the
      * dead path while the live one gated on credentials all along.
      */
-    async extractMetadataFromText(text: string, selection: AiProviderSelection = {}): Promise<any> {
-        const aiProvider = createAiProvider(selection);
+    async extractMetadataFromText(
+        text: string,
+        selection: AiProviderSelection = {},
+        usage: UsageContext = {},
+    ): Promise<any> {
+        // Default `{}` still meters, just without attribution. Routes pass the request's
+        // identity via `usageContextForRequest`.
+        const aiProvider = createAiProvider(selection, usage);
 
         this.fastify.log.info(
             { provider: aiProvider.constructor.name, selection: redactSelection(selection) },
@@ -225,7 +233,10 @@ export class OfferService {
     }
 
     /** Step 1 of autofill: uploaded file in, plain text out. */
-    async extractTextFromFile(file: { toBuffer: () => Promise<Buffer>, filename: string, mimetype: string }): Promise<string> {
+    async extractTextFromFile(
+        file: { toBuffer: () => Promise<Buffer>, filename: string, mimetype: string },
+        usage: UsageContext = {},
+    ): Promise<string> {
         this.fastify.log.info({ filename: file.filename, mimetype: file.mimetype }, 'Starting text extraction from file');
 
         // The instance the providers plugin already built, not a fresh one. This used to
@@ -252,7 +263,9 @@ export class OfferService {
                 text = await fs.readFile(tempPath, 'utf-8');
             } else {
                 this.fastify.log.info('Calling OCR provider');
-                const ocrResult = await ocrProvider.extractText(tempPath);
+                // meterOcr records one 'ocr' ledger row for the Vision call, then returns the
+                // same OcrResult. A ledger failure never breaks extraction.
+                const ocrResult = await meterOcr(ocrProvider, tempPath, usage);
                 text = ocrResult.text;
                 this.fastify.log.info({ textLength: text.length, confidence: ocrResult.confidence }, 'OCR complete');
             }

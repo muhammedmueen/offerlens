@@ -10,7 +10,10 @@ import {
 } from '@/shared/prompt-safety.js';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
-import { addCall, emptyUsage, formatUsage, modelVendor, type AiProviderName, type TokenUsage } from './usage.js';
+import {
+    addCall, emptyUsage, estimateCostUsd, formatUsage, modelVendor, recordSafely,
+    type AiProviderName, type TokenUsage, type UsagePurpose, type UsageRecorder,
+} from './usage.js';
 import { describeMarketData } from './market-data.js';
 import { PROMPT_VERSION } from './prompt-version.js';
 
@@ -38,7 +41,9 @@ import { PROMPT_VERSION } from './prompt-version.js';
  * live here, once.
  */
 
-export type AiTask = 'analysis' | 'metadata' | 'career' | 'negotiation';
+// Derived from UsagePurpose so there is one source of truth for the task list. OCR is not an
+// AI text task, so it is excluded here.
+export type AiTask = Exclude<UsagePurpose, 'ocr'>;
 
 export interface CompletionRequest {
     model: string;
@@ -60,6 +65,15 @@ export interface CompletionResult {
     text: string;
     inputTokens: number;
     outputTokens: number;
+    /**
+     * Thinking/reasoning tokens, when the vendor reports them separately from output.
+     *
+     * Only Gemini does (`thoughtsTokenCount`), and it is billed at the output rate. OpenAI
+     * and Anthropic already fold reasoning into their output count, so they leave this
+     * undefined (treated as 0). Callers add it to output for pricing and record it in its
+     * own ledger column.
+     */
+    thinkingTokens?: number;
 }
 
 /**
@@ -76,8 +90,51 @@ export function parseJsonLoose(text: string): unknown {
     return JSON.parse(cleaned);
 }
 
+/**
+ * A response that came back but was unusable. Carries the ledger error code and a short,
+ * PII-free reason. Module-private: the only thing that raises it is `validateAnalysis`, and
+ * `call` is the only thing that reads its `code`.
+ */
+class ResponseRejected extends Error {
+    constructor(readonly code: 'invalid_json' | 'schema_mismatch', readonly issue: string) {
+        super(issue);
+        this.name = 'ResponseRejected';
+    }
+}
+
+/**
+ * Parse and Zod-validate an analysis response. Throws `ResponseRejected` with the ledger code
+ * and the human-readable issue used to prompt a retry. Pulled out of the retry loop so the
+ * metering wrapper can classify a rejection by its `code`.
+ */
+function validateAnalysis(text: string): ValidatedAnalysis {
+    let parsed: unknown;
+    try {
+        parsed = parseJsonLoose(text);
+    } catch (err) {
+        throw new ResponseRejected('invalid_json', `Response was not valid JSON: ${(err as Error).message}`);
+    }
+
+    const validation = analysisResultSchema.safeParse(parsed);
+    if (validation.success) return validation.data;
+
+    const issue = validation.error.issues
+        .slice(0, 8)
+        .map((i) => `- ${i.path.join('.') || '(root)'}: ${i.message}`)
+        .join('\n');
+    throw new ResponseRejected('schema_mismatch', issue);
+}
+
 export abstract class BaseAiProvider implements AiProvider {
     abstract readonly name: AiProviderName;
+
+    /**
+     * Bound by the factory to one caller's context + billing tag, so every call this instance
+     * makes writes a ledger row. Null when the factory was given no `UsageContext` (the eval
+     * harness, the boot instance), in which case nothing is recorded. Safe per-instance
+     * because the factory builds a provider per request/job — no cross-talk between callers.
+     */
+    recorder: UsageRecorder | null = null;
 
     /** Ordered chain walked when a model reports itself busy. */
     protected abstract readonly fallbackModels: readonly string[];
@@ -149,6 +206,86 @@ export abstract class BaseAiProvider implements AiProvider {
 
     protected log(message: string): void {
         console.log(`[${this.name} AI] ${message}`);
+    }
+
+    // ─── Metering ─────────────────────────────────────────────────────
+    /**
+     * The single choke point for every vendor call. Runs `complete`, then the caller's
+     * `accept` (parse/validate), and writes exactly one ledger row for the attempt:
+     *   - `complete` threw → success=false, 0 tokens, errorCode `provider_<status>` /
+     *     `provider_error`, then rethrow.
+     *   - `accept` threw   → success=false, the real token counts, errorCode from the
+     *     ResponseRejected code (or `invalid_json` / `response_rejected`), then rethrow.
+     *   - otherwise         → success=true, the real token counts, and return `accept`'s value.
+     * Error messages are never put in `errorCode` (no PII, no offer text). Recording always
+     * goes through `recordSafely`, so a ledger failure never breaks the call.
+     */
+    private async call<T>(
+        purpose: AiTask,
+        request: CompletionRequest,
+        accept: (completion: CompletionResult) => T,
+    ): Promise<T> {
+        let completion: CompletionResult;
+        try {
+            completion = await this.complete(request);
+        } catch (error) {
+            const status = (error as { status?: number })?.status;
+            await recordSafely(this.recorder, {
+                purpose,
+                provider: this.name,
+                model: request.model,
+                inputTokens: 0,
+                outputTokens: 0,
+                thinkingTokens: 0,
+                units: null,
+                costUsd: estimateCostUsd(request.model, 0, 0),
+                success: false,
+                errorCode: typeof status === 'number' ? `provider_${status}` : 'provider_error',
+            });
+            throw error;
+        }
+
+        const inputTokens = completion.inputTokens;
+        const outputTokens = completion.outputTokens;
+        const thinkingTokens = completion.thinkingTokens ?? 0;
+        // Thinking is billed at the output rate, so fold it into the output figure for cost.
+        const costUsd = estimateCostUsd(request.model, inputTokens, outputTokens + thinkingTokens);
+
+        try {
+            const value = accept(completion);
+            await recordSafely(this.recorder, {
+                purpose,
+                provider: this.name,
+                model: request.model,
+                inputTokens,
+                outputTokens,
+                thinkingTokens,
+                units: null,
+                costUsd,
+                success: true,
+                errorCode: null,
+            });
+            return value;
+        } catch (error) {
+            const errorCode = error instanceof ResponseRejected
+                ? error.code
+                : error instanceof SyntaxError
+                    ? 'invalid_json'
+                    : 'response_rejected';
+            await recordSafely(this.recorder, {
+                purpose,
+                provider: this.name,
+                model: request.model,
+                inputTokens,
+                outputTokens,
+                thinkingTokens,
+                units: null,
+                costUsd,
+                success: false,
+                errorCode,
+            });
+            throw error;
+        }
     }
 
     // ─── Fallback ─────────────────────────────────────────────────────
@@ -287,38 +424,35 @@ export abstract class BaseAiProvider implements AiProvider {
                 : `${prompt}\n\nYour previous response was rejected by validation:\n${lastIssue}\n`
                   + 'Return the corrected JSON. Use exactly the field names in the schema.';
 
-            const completion = await this.complete({
-                model: modelName,
-                prompt: promptForAttempt,
-                systemInstruction: SYSTEM_INSTRUCTION,
-                jsonSchema: GEMINI_RESPONSE_SCHEMA,
-                schemaName: 'offer_analysis',
-                temperature: 0.2,
-                maxOutputTokens: 8192,
-            });
-
-            trackUsage(completion.inputTokens, completion.outputTokens);
-
-            let parsed: unknown;
             try {
-                parsed = parseJsonLoose(completion.text);
-            } catch (err) {
-                lastIssue = `Response was not valid JSON: ${(err as Error).message}`;
-                console.warn(`[${this.name} AI] attempt ${attempt}: ${lastIssue}`);
-                continue;
-            }
-
-            const validation = analysisResultSchema.safeParse(parsed);
-            if (validation.success) {
+                // One ledger row per attempt, written inside `call`. `trackUsage` still runs
+                // for rejected attempts (via the accept callback, before validation can
+                // throw), because those tokens are billed too.
+                const validated = await this.call(
+                    'analysis',
+                    {
+                        model: modelName,
+                        prompt: promptForAttempt,
+                        systemInstruction: SYSTEM_INSTRUCTION,
+                        jsonSchema: GEMINI_RESPONSE_SCHEMA,
+                        schemaName: 'offer_analysis',
+                        temperature: 0.2,
+                        maxOutputTokens: 8192,
+                    },
+                    (completion) => {
+                        trackUsage(completion.inputTokens, completion.outputTokens + (completion.thinkingTokens ?? 0));
+                        return validateAnalysis(completion.text);
+                    },
+                );
                 if (attempt > 1) this.log('✅ validation passed on retry');
-                return validation.data;
+                return validated;
+            } catch (error) {
+                // Only a rejected response is retryable here. A thrown `complete` (rate limit,
+                // 5xx) must bubble to `withFallback`, which decides whether to try another model.
+                if (!(error instanceof ResponseRejected)) throw error;
+                lastIssue = error.issue;
+                console.warn(`[${this.name} AI] attempt ${attempt} rejected (${error.code}):\n${lastIssue}`);
             }
-
-            lastIssue = validation.error.issues
-                .slice(0, 8)
-                .map((i) => `- ${i.path.join('.') || '(root)'}: ${i.message}`)
-                .join('\n');
-            console.warn(`[${this.name} AI] attempt ${attempt} failed validation:\n${lastIssue}`);
         }
 
         // Both attempts failed. Throwing marks the offer FAILED, which is correct — an empty
@@ -353,15 +487,11 @@ export abstract class BaseAiProvider implements AiProvider {
         try {
             const { result } = await this.withFallback(
                 this.resolveModel('metadata'),
-                async (modelName) => {
-                    const completion = await this.complete({
-                        model: modelName,
-                        prompt,
-                        temperature: 0.3,
-                        maxOutputTokens: 2048,
-                    });
-                    return parseJsonLoose(completion.text) as Record<string, unknown>;
-                },
+                (modelName) => this.call(
+                    'metadata',
+                    { model: modelName, prompt, temperature: 0.3, maxOutputTokens: 2048 },
+                    (completion) => parseJsonLoose(completion.text) as Record<string, unknown>,
+                ),
                 'metadata extraction',
             );
             return result;
@@ -412,15 +542,11 @@ export abstract class BaseAiProvider implements AiProvider {
         try {
             const { result } = await this.withFallback(
                 this.resolveModel('career'),
-                async (modelName) => {
-                    const completion = await this.complete({
-                        model: modelName,
-                        prompt,
-                        temperature: 0.3,
-                        maxOutputTokens: 8192,
-                    });
-                    return parseJsonLoose(completion.text);
-                },
+                (modelName) => this.call(
+                    'career',
+                    { model: modelName, prompt, temperature: 0.3, maxOutputTokens: 8192 },
+                    (completion) => parseJsonLoose(completion.text),
+                ),
                 'career path generation',
             );
             return result;
@@ -464,15 +590,11 @@ export abstract class BaseAiProvider implements AiProvider {
         try {
             const { result } = await this.withFallback(
                 this.resolveModel('negotiation'),
-                async (modelName) => {
-                    const completion = await this.complete({
-                        model: modelName,
-                        prompt,
-                        temperature: 0.7,
-                        maxOutputTokens: 4096,
-                    });
-                    return parseJsonLoose(completion.text) as { subject: string; body: string };
-                },
+                (modelName) => this.call(
+                    'negotiation',
+                    { model: modelName, prompt, temperature: 0.7, maxOutputTokens: 4096 },
+                    (completion) => parseJsonLoose(completion.text) as { subject: string; body: string },
+                ),
                 'negotiation script generation',
             );
             return result;

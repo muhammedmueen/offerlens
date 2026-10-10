@@ -8,6 +8,7 @@ import { loadAuthorizedOffer } from '@/shared/access/offer-guard.js';
 import { routeLimit } from '@/middleware/rate-limiter.js';
 import { MAX_EXTRACT_TEXT_CHARS } from '@/config/constants.js';
 import { readUploadedFile } from './multipart.js';
+import { usageContextForRequest } from '@/modules/usage/usage-ledger.js';
 
 export async function offerRoutes(fastify: FastifyInstance) {
     const guestService = new GuestService();
@@ -124,7 +125,8 @@ export async function offerRoutes(fastify: FastifyInstance) {
                 );
             }
 
-            const result = await offerService.extractMetadataFromText(body.text, req.aiSelection);
+            const usage = await usageContextForRequest(req);
+            const result = await offerService.extractMetadataFromText(body.text, req.aiSelection, usage);
 
             return reply.send({
                 success: true,
@@ -157,7 +159,8 @@ export async function offerRoutes(fastify: FastifyInstance) {
                     throw new AppError(ERROR_CODES.VALIDATION_ERROR, 'File is required', 400);
                 }
 
-                const result = await offerService.extractTextFromFile(data);
+                const usage = await usageContextForRequest(req);
+                const result = await offerService.extractTextFromFile(data, usage);
                 fastify.log.info({ textLength: result.length }, 'Text extraction complete');
 
                 return reply.send({

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isRetryableModelError } from './gemini.ai.js';
+import { isRetryableModelError, readGeminiUsage } from './gemini.ai.js';
 import { GEMINI_FALLBACK_MODELS, DEFAULT_GEMINI_MODEL } from '@/config/constants.js';
 
 describe('isRetryableModelError', () => {
@@ -71,5 +71,34 @@ describe('model configuration', () => {
 
     it('defaults to a model that is also in the fallback chain', () => {
         expect([...GEMINI_FALLBACK_MODELS]).toContain(DEFAULT_GEMINI_MODEL);
+    });
+});
+
+describe('readGeminiUsage', () => {
+    it('reads prompt, candidate and thinking token counts', () => {
+        expect(readGeminiUsage({
+            promptTokenCount: 100,
+            candidatesTokenCount: 40,
+            thoughtsTokenCount: 25,
+        })).toEqual({ inputTokens: 100, outputTokens: 40, thinkingTokens: 25 });
+    });
+
+    it('defaults thinking to 0 when the field is absent (older models / no thinking)', () => {
+        // thoughtsTokenCount is not in the 0.24.1 SDK type and is absent when no thinking ran.
+        expect(readGeminiUsage({ promptTokenCount: 10, candidatesTokenCount: 5 }))
+            .toEqual({ inputTokens: 10, outputTokens: 5, thinkingTokens: 0 });
+    });
+
+    it('returns all zeros for undefined or null metadata', () => {
+        expect(readGeminiUsage(undefined)).toEqual({ inputTokens: 0, outputTokens: 0, thinkingTokens: 0 });
+        expect(readGeminiUsage(null)).toEqual({ inputTokens: 0, outputTokens: 0, thinkingTokens: 0 });
+    });
+
+    it('coerces garbage (strings, NaN) to 0', () => {
+        expect(readGeminiUsage({
+            promptTokenCount: 'lots' as unknown,
+            candidatesTokenCount: NaN,
+            thoughtsTokenCount: Infinity,
+        })).toEqual({ inputTokens: 0, outputTokens: 0, thinkingTokens: 0 });
     });
 });

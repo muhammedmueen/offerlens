@@ -1,8 +1,29 @@
 import { AiProvider, OfferContext } from './ai.provider.js';
 import { AnalysisResult } from '@/modules/analysis/analysis.types.js';
+import { recordSafely, type UsagePurpose, type UsageRecorder } from './usage.js';
 
 export class MockAiProvider implements AiProvider {
+    /** Set by the factory, same as the real providers. Mock calls are billedTo 'mock'. */
+    recorder: UsageRecorder | null = null;
+
+    /** One zero-cost, zero-token row per call, so the mock still shows up in the ledger. */
+    private async meter(purpose: UsagePurpose, model?: string): Promise<void> {
+        await recordSafely(this.recorder, {
+            purpose,
+            provider: 'mock',
+            model: model || 'mock-v1',
+            inputTokens: 0,
+            outputTokens: 0,
+            thinkingTokens: 0,
+            units: null,
+            costUsd: null,
+            success: true,
+            errorCode: null,
+        });
+    }
+
     async analyzeOffer(_text: string, context?: OfferContext, model?: string): Promise<AnalysisResult> {
+        await this.meter('analysis', model);
         // Return sample analysis
         return {
             extractedData: {
@@ -49,6 +70,7 @@ export class MockAiProvider implements AiProvider {
         };
     }
     async generateNegotiationScript(input: any): Promise<{ subject: string; body: string }> {
+        await this.meter('negotiation');
         return {
             subject: `Discussing the ${input.role} offer at ${input.companyName}`,
             body: `Dear Hiring Manager,\n\nThank you for the offer... [Mock Negotiation Script] ...\n\nSincerely,\n[Your Name]`,
@@ -57,6 +79,7 @@ export class MockAiProvider implements AiProvider {
 
     // Mock ignores the input; the param exists to satisfy AiProvider.
     async extractMetadata(_text: string): Promise<any> {
+        await this.meter('metadata');
         return {
             role: 'Mock Software Engineer',
             city: 'Mock City',
@@ -67,6 +90,7 @@ export class MockAiProvider implements AiProvider {
     }
 
     async generateCareerPath(input: { role: string; companyType: string; industry: string }): Promise<any> {
+        await this.meter('career');
         return {
             timeline: [
                 { year: 1, title: input.role, focus: "Onboarding & learning core stack", salaryRange: "10-15 LPA" },

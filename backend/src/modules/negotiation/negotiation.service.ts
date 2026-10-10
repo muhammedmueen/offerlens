@@ -65,7 +65,11 @@ export class NegotiationService {
         }
 
         try {
-            const script = await createAiProvider(selection).generateNegotiationScript({
+            const script = await createAiProvider(selection, {
+                userId: offer.userId,
+                guestId: offer.guestId,
+                offerId,
+            }).generateNegotiationScript({
                 companyName: extractedData.companyName!,
                 role: extractedData.role || '[ROLE]',
                 currentOffer: extractedData.compensation,

@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { estimateCostUsd, emptyUsage, addCall, formatUsage, modelVendor, PRICING } from './usage.js';
+import { describe, it, expect, vi } from 'vitest';
+import {
+    estimateCostUsd, emptyUsage, addCall, formatUsage, modelVendor, PRICING,
+    recordSafely, VISION_TEXT_DETECTION_USD_PER_IMAGE, type UsageEvent,
+} from './usage.js';
 import {
     DEFAULT_GEMINI_MODEL, DEFAULT_OPENAI_MODEL, DEFAULT_ANTHROPIC_MODEL,
 } from '@/config/constants.js';
@@ -54,14 +57,28 @@ describe('addCall', () => {
         expect(usage.totalTokens).toBe(2550);
     });
 
-    it('reports the model that actually answered after a fallback', () => {
+    it('reports the model that actually answered after a fallback, priced PER model', () => {
+        // The bug this replaces: cost used to be recomputed from the cumulative tokens at the
+        // LATEST model's price, so flash's tokens were billed at the lite rate. Now each call
+        // is priced on its own model and the costs are summed.
         let usage = emptyUsage('gemini', 'gemini-2.5-flash');
-        usage = addCall(usage, { model: 'gemini-2.5-flash', inputTokens: 100, outputTokens: 0 });
-        usage = addCall(usage, { model: 'gemini-flash-lite-latest', inputTokens: 100, outputTokens: 50 });
+        usage = addCall(usage, { model: 'gemini-2.5-flash', inputTokens: 100, outputTokens: 100 });
+        usage = addCall(usage, { model: 'gemini-flash-lite-latest', inputTokens: 50, outputTokens: 0 });
 
         expect(usage.model).toBe('gemini-flash-lite-latest');
-        // ...and is priced as the lite model, not the one originally requested.
-        expect(usage.costUsd).toBeCloseTo((200 / 1e6) * 0.10 + (50 / 1e6) * 0.40, 9);
+        const expected =
+            (100 / 1e6) * 0.30 + (100 / 1e6) * 2.50 // flash input + output
+            + (50 / 1e6) * 0.10;                     // lite input
+        expect(usage.costUsd).toBeCloseTo(expected, 9);
+    });
+
+    it('makes the whole chain cost null when any one model is unpriced', () => {
+        // A known model followed by an unknown one: we cannot sum what we cannot price, so the
+        // total is null rather than a partial guess.
+        let usage = emptyUsage('gemini', 'gemini-2.5-flash');
+        usage = addCall(usage, { model: 'gemini-2.5-flash', inputTokens: 100, outputTokens: 100 });
+        usage = addCall(usage, { model: 'totally-unknown-model', inputTokens: 50, outputTokens: 50 });
+        expect(usage.costUsd).toBeNull();
     });
 
     it('tolerates a provider that reports no token counts', () => {
@@ -143,5 +160,49 @@ describe('modelVendor', () => {
         expect(modelVendor(DEFAULT_GEMINI_MODEL)).toBe('gemini');
         expect(modelVendor(DEFAULT_OPENAI_MODEL)).toBe('openai');
         expect(modelVendor(DEFAULT_ANTHROPIC_MODEL)).toBe('anthropic');
+    });
+});
+
+describe('ledger pricing additions', () => {
+    it('prices gemini-2.5-pro and gemini-pro-latest to a non-null figure', () => {
+        expect(estimateCostUsd('gemini-2.5-pro', 1000, 100)).not.toBeNull();
+        expect(estimateCostUsd('gemini-pro-latest', 1000, 100)).not.toBeNull();
+    });
+
+    it('has a positive Vision per-image price', () => {
+        expect(VISION_TEXT_DETECTION_USD_PER_IMAGE).toBeGreaterThan(0);
+    });
+});
+
+describe('recordSafely', () => {
+    const event: UsageEvent = {
+        purpose: 'analysis', provider: 'gemini', model: 'gemini-2.5-flash',
+        inputTokens: 1, outputTokens: 1, thinkingTokens: 0, units: null,
+        costUsd: 0, success: true, errorCode: null,
+    };
+
+    it('swallows a recorder that rejects, logging once', async () => {
+        const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        await expect(
+            recordSafely(async () => { throw new Error('db down'); }, event),
+        ).resolves.toBeUndefined();
+        expect(errSpy).toHaveBeenCalledTimes(1);
+        errSpy.mockRestore();
+    });
+
+    it('swallows a recorder that throws synchronously, logging once', async () => {
+        const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        await expect(
+            recordSafely((() => { throw new Error('boom'); }) as never, event),
+        ).resolves.toBeUndefined();
+        expect(errSpy).toHaveBeenCalledTimes(1);
+        errSpy.mockRestore();
+    });
+
+    it('is a no-op for a null recorder', async () => {
+        const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        await expect(recordSafely(null, event)).resolves.toBeUndefined();
+        expect(errSpy).not.toHaveBeenCalled();
+        errSpy.mockRestore();
     });
 });

@@ -106,12 +106,34 @@ export class GeminiAiProvider extends BaseAiProvider {
         });
 
         const generated = await model.generateContent(request.prompt);
-        const reported = generated.response.usageMetadata;
+        const usage = readGeminiUsage(generated.response.usageMetadata);
 
         return {
             text: generated.response.text(),
-            inputTokens: reported?.promptTokenCount ?? 0,
-            outputTokens: reported?.candidatesTokenCount ?? 0,
+            ...usage,
         };
     }
+}
+
+/**
+ * Read Gemini's token counts defensively.
+ *
+ * `thoughtsTokenCount` is reasoning ("thinking") tokens, billed at the output rate. It is not
+ * in the `@google/generative-ai` 0.24.1 type for `usageMetadata`, and it is absent on models
+ * or requests that do no thinking — so it is read off an `unknown` and any missing or
+ * non-finite value becomes 0. `promptTokenCount` and `candidatesTokenCount` are the input and
+ * output counts; `candidatesTokenCount` does NOT include the thinking tokens.
+ *
+ * Exported (not inlined) so it can be unit-tested without an API key.
+ */
+export function readGeminiUsage(
+    meta: unknown,
+): { inputTokens: number; outputTokens: number; thinkingTokens: number } {
+    const m = (meta ?? {}) as Record<string, unknown>;
+    const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+    return {
+        inputTokens: num(m.promptTokenCount),
+        outputTokens: num(m.candidatesTokenCount),
+        thinkingTokens: num(m.thoughtsTokenCount),
+    };
 }

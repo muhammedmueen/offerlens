@@ -13,5 +13,7 @@ export interface OcrResult {
 }
 
 export interface OcrProvider {
+    /** Which backend this is, so the usage ledger can price and attribute a Vision call. */
+    readonly name: 'google-vision' | 'mock';
     extractText(filePath: string): Promise<OcrResult>;
 }

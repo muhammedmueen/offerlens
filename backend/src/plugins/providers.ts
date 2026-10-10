@@ -40,7 +40,10 @@ declare module 'fastify' {
 
 const providersPlugin: FastifyPluginAsync = async (fastify) => {
     // ── OCR ──
-    const ocrProvider = config.GOOGLE_CLOUD_CREDENTIALS
+    // Typed as the interface, not the ternary's union: the two concrete classes now carry a
+    // discriminating `name`, which makes `decorate('ocr', ...)` infer the setter type from the
+    // first branch and reject the other. The decorator is declared `OcrProvider` anyway.
+    const ocrProvider: OcrProvider = config.GOOGLE_CLOUD_CREDENTIALS
         ? new GoogleVisionOcrProvider()
         : new MockOcrProvider();
 
