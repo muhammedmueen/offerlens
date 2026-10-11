@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import api from "@/services/api";
 import { ENDPOINTS } from "@/constants/api";
@@ -25,6 +25,7 @@ type DrawerType = "negotiate" | "benefits" | "career" | "corrections" | null;
 
 const ResultsPage = () => {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
   const [authGateOpen, setAuthGateOpen] = useState(false);
   const [authGateFeature, setAuthGateFeature] = useState("");
@@ -449,7 +450,7 @@ const ResultsPage = () => {
             {!isAuthenticated && <Lock className="mr-1 h-3 w-3" />}
             <Download className="mr-1 h-4 w-4" /> PDF
           </Button>
-          <Button variant="outline" size="sm" onClick={() => requireAuth("Compare Offers", null)} className="cursor-pointer rounded-xl skeu-emboss">
+          <Button variant="outline" size="sm" onClick={() => (isAuthenticated ? navigate("/compare") : requireAuth("Compare Offers", null))} className="cursor-pointer rounded-xl skeu-emboss">
             {!isAuthenticated && <Lock className="mr-1 h-3 w-3" />}
             <GitCompare className="mr-1 h-4 w-4" /> Compare
           </Button>
