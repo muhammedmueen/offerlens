@@ -10,7 +10,7 @@ import { metadataRoutes } from '@/modules/metadata/metadata.routes.js';
 import { featureRequestRoutes } from '@/modules/feature-request/feature-request.routes.js';
 import { healthRoutes } from '@/modules/health/health.routes.js';
 import { authRoutes } from '@/modules/auth/auth.routes.js';
-import { userRoutes } from '@/modules/user/user.routes.js';
+import { userRoutes, accountRoutes } from '@/modules/user/user.routes.js';
 import { negotiationRoutes } from '@/modules/negotiation/negotiation.routes.js';
 import { benefitsRoutes } from '@/modules/benefits/benefits.routes.js';
 import { comparisonRoutes } from '@/modules/comparison/comparison.routes.js';
@@ -50,6 +50,7 @@ export function buildApp() {
         await api.register(healthRoutes);
         await api.register(authRoutes, { prefix: '/auth' });
         await api.register(userRoutes, { prefix: '/users' });
+        await api.register(accountRoutes, { prefix: '/account' });
         await api.register(offerRoutes, { prefix: '/offers' });
         await api.register(analysisRoutes); // mounts /offers/:id/analysis inside
         await api.register(metadataRoutes, { prefix: '/metadata' });
