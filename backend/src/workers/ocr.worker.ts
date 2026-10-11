@@ -13,6 +13,7 @@ import { extractPdfText } from '@/providers/pdf/pdf-text.js';
 import { meterOcr } from '@/modules/usage/usage-ledger.js';
 import { failOfferAndRefund } from '@/modules/quota/quota.service.js';
 import { isFinalAttempt } from './attempts.js';
+import { runThenPurgeFile } from './stored-file.js';
 
 // Setup provider (should be injected or singleton, but new instance per worker process is fine)
 const ocrProvider: OcrProvider = config.GOOGLE_CLOUD_CREDENTIALS
@@ -31,9 +32,7 @@ async function failOffer(offerId: string, reason: string): Promise<void> {
     await failOfferAndRefund(offerId, reason);
 }
 
-export const ocrWorker = new Worker(
-    'ocr-queue',
-    async (job: Job) => {
+async function processOcr(job: Job) {
         const { offerId, storedPath, text: providedText, model, aiSelection } = job.data;
         console.log(`[OCR] Processing job ${job.id} for offer ${offerId}, model: ${model || 'default'}`);
 
@@ -188,6 +187,11 @@ export const ocrWorker = new Worker(
             }
             throw error;
         }
-    },
+}
+
+// The uploaded file is deleted once extraction is over, success or failure (task 4.5).
+export const ocrWorker = new Worker(
+    'ocr-queue',
+    (job: Job) => runThenPurgeFile(job, job.data.storedPath, () => processOcr(job)),
     defaultWorkerOptions
 );

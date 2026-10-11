@@ -9,6 +9,7 @@ import { UNFINISHED_STATUSES, stuckBefore, STUCK_FAILURE_REASON } from './reap.j
 import { quotaCounters } from '@/db/schema/quota-counters.js';
 import { releaseOfferQuota } from '@/modules/quota/quota.service.js';
 import { istDayWindow } from '@/shared/ist-day.js';
+import { purgeFilesOfOffers } from './stored-file.js';
 
 const storage = new LocalStorageProvider();
 
@@ -53,6 +54,9 @@ export const cleanupWorker = new Worker(
                     console.error(`[Reaper] Quota refund failed for offer ${id}:`, (err as Error)?.message);
                 }
             }
+
+            // A reaped offer never finished extraction, so its upload is still on disk (task 4.5).
+            if (reaped.length > 0) await purgeFilesOfOffers(reaped.map((r) => r.id));
             return;
         }
 

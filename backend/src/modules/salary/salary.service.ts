@@ -1,9 +1,10 @@
 import { db } from '@/db/index.js';
 import { salarySubmissions } from '@/db/schema/salary-submissions.js';
-import { eq, and, sql } from 'drizzle-orm';
+import { createHash } from 'node:crypto';
+import { eq, and } from 'drizzle-orm';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
-import { cached, cacheDelete } from '@/shared/cache.js';
+import { cached, cacheDelete, getRedis } from '@/shared/cache.js';
 
 /**
  * Minimum approved submissions before a role+city combination is reported as real data.
@@ -42,8 +43,19 @@ interface SalarySubmissionInput {
     ctc: number;
     companyType: 'product' | 'service' | 'startup' | 'mnc' | 'other';
     companySize?: '1-10' | '11-50' | '51-200' | '201-1000' | '1000+';
-    userId?: string | null;
+    /**
+     * Used ONLY for the one-hour repeat-submission check, which lives in Redis with a TTL.
+     * It is never written to the row: a stored submission carries no user or guest linkage (4.6).
+     */
     fingerprint?: string | null;
+}
+
+/** Repeat-submission window. Same hour the old `fingerprint` column check used. */
+export const SUBMIT_COOLDOWN_SECONDS = 3600;
+
+/** Hashed, so Redis never holds the raw guest token either. */
+export function submitCooldownKey(fingerprint: string): string {
+    return `salary:cooldown:v1:${createHash('sha256').update(fingerprint).digest('hex')}`;
 }
 
 /** 1 hour, per task 13. Bounds staleness for anything the write-path invalidation misses. */
@@ -92,16 +104,11 @@ export class SalaryService {
         // For simplicity in MVP, we skip complex Redis rate limiting here and rely on global API limits
         // But we can check DB for duplicates
 
-        if (input.fingerprint) {
-            const recent = await db.query.salarySubmissions.findFirst({
-                where: and(
-                    eq(salarySubmissions.fingerprint, input.fingerprint),
-                    sql`${salarySubmissions.createdAt} > NOW() - INTERVAL '1 hour'`
-                ),
-            });
-            if (recent) {
-                throw new AppError(ERROR_CODES.RATE_LIMIT_EXCEEDED, 'You have already submitted a salary recently.', 429);
-            }
+        // The cooldown lives in Redis, not on the row, so the stored submission needs no identity.
+        // Fails open if Redis is down: same stance as the cache, and the global rate limit remains.
+        const cooldownKey = input.fingerprint ? submitCooldownKey(input.fingerprint) : null;
+        if (cooldownKey && (await getRedis().exists(cooldownKey).catch(() => 0))) {
+            throw new AppError(ERROR_CODES.RATE_LIMIT_EXCEEDED, 'You have already submitted a salary recently.', 429);
         }
 
         // Automatic validation heuristics
@@ -110,12 +117,20 @@ export class SalaryService {
         const normedRole = input.role.toLowerCase().trim();
         const normedCity = input.city.toLowerCase().trim();
 
+        // Explicit fields, not `...input`: a spread is how an identifier would creep back in.
         await db.insert(salarySubmissions).values({
-            ...input,
             role: normedRole,
             city: normedCity,
+            experienceYears: input.experienceYears,
+            ctc: input.ctc,
+            companyType: input.companyType,
+            companySize: input.companySize,
             status,
         });
+
+        if (cooldownKey) {
+            await getRedis().set(cooldownKey, '1', 'EX', SUBMIT_COOLDOWN_SECONDS).catch(() => undefined);
+        }
 
         // Invalidate on write rather than waiting out the hour. It matters most at exactly the
         // moment a role+city crosses MIN_SAMPLE_SIZE: without this, the submission that finally

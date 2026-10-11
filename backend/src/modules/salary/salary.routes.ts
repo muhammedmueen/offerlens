@@ -24,7 +24,7 @@ export async function salaryRoutes(fastify: FastifyInstance) {
 
             await salaryService.submit({
                 ...body,
-                userId: req.userId,
+                // Cooldown key only; never stored with the submission (task 4.6).
                 fingerprint: req.guestId,
             });
 

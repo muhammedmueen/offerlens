@@ -1,6 +1,30 @@
 import { FastifyInstance } from 'fastify';
 import { UserService } from './user.service.js';
-import { requireRegistered } from '@/middleware/authenticate.js';
+import { requireAuth, requireRegistered } from '@/middleware/authenticate.js';
+import { routeLimit } from '@/middleware/rate-limiter.js';
+
+/**
+ * GET /account/export — the caller's own data as a JSON download (task 4.7).
+ *
+ * The user id comes only from the verified JWT (`authenticate`, via `requireAuth`): no query
+ * param or path param names the account, so there is nothing to tamper with. No token = 401.
+ * Guests are not exported: their offers are tied to a browser cookie and expire within a day.
+ */
+export async function accountRoutes(fastify: FastifyInstance) {
+    const userService = new UserService();
+
+    fastify.get('/export', {
+        ...routeLimit('accountExport'),
+        preHandler: [requireAuth],
+        handler: async (req, reply) => {
+            const data = await userService.exportAccount(req.userId!);
+            return reply
+                .header('Content-Disposition', 'attachment; filename="offerlens-export.json"')
+                .header('Cache-Control', 'no-store')
+                .send({ success: true, data });
+        },
+    });
+}
 
 export async function userRoutes(fastify: FastifyInstance) {
     const userService = new UserService();

@@ -3,7 +3,9 @@ import { users } from './users.js';
 
 export const salarySubmissions = pgTable('salary_submissions', {
     id: uuid('id').defaultRandom().primaryKey(),
-    userId: uuid('user_id').references(() => users.id), // Optional: can be null for guest submissions
+    // DEPRECATED (task 4.6): always NULL. Submissions are anonymous; the code no longer writes it
+    // and the migration cleared old values. Kept so the column drop ships as its own later change.
+    userId: uuid('user_id').references(() => users.id),
     role: text('role').notNull(),
     city: text('city').notNull(),
     experienceYears: integer('experience_years').notNull(),
@@ -13,7 +15,7 @@ export const salarySubmissions = pgTable('salary_submissions', {
     status: text('status', { enum: ['pending', 'approved', 'rejected'] }).notNull().default('pending'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-    fingerprint: text('fingerprint'), // To prevent spam from same device
+    fingerprint: text('fingerprint'), // DEPRECATED (task 4.6): always NULL, see userId. The cooldown is in Redis.
 }, (table) => {
     return {
         roleCityIdx: index('idx_salary_role_city').on(table.role, table.city),

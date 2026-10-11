@@ -88,6 +88,7 @@ export const RATE_LIMITS = {
     offerPolling: { max: 60, window: '1 minute' },
     analysisGet: { max: 30, window: '1 minute' },
     offerDelete: { max: 10, window: '1 minute' },
+    accountExport: { max: 5, window: '1 hour' },
     reportGet: { max: 10, window: '1 minute' },
     metadata: { max: 30, window: '1 minute' },
     featureRequestCreate: { max: 5, window: '1 hour' },
