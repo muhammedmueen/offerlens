@@ -709,12 +709,12 @@ than a theme list plus a separate priority list.
 
 | Phase | Scope | Gate |
 |---|---|---|
-| **4 — Launch Blockers** | Usage ledger, plan limits, three untrue privacy promises, one smoke spec | 4.1–4.4 ✅ done. 4.5–4.8 need nothing |
+| **4 — Launch Blockers** | Usage ledger, plan limits, three untrue privacy promises, one smoke spec | 4.1–4.8 ✅ done. Phase 4 is complete |
 | **5 — Salary Data** | Seed benchmarks, then fuzzy matching, outlier rejection, contribution prompt | All of it behind 5.1: which dataset, and does its licence allow commercial use |
 | **6 — Revenue & Compliance** | Payments, retention policy, correction loop, scanned-PDF OCR | Pricing; and 6.4 needs Cloud Vision billing |
 | **7 — Operations** | Admin auth hardening, superadmin, dashboards | One of the Phase 7 triggers firing |
 
-**4.1 through 4.4 are done** (see the Phase 4 outcome sections). Cost history lives in
+**4.1 through 4.8 are done** (see the Phase 4 outcome sections). Cost history lives in
 `usage_ledger`; every daily limit is enforced atomically through `quota_counters`.
 
 After that, the critical path runs through **a decision rather than through code**: the salary
@@ -778,7 +778,7 @@ forward references to numbers that were going to move.
 | **1** | Quick wins — structured extraction, prompt safety, real salary data | ✅ Done, 8 tasks |
 | **2** | Rule engine, tax calculator, rubric, confidence, cache | ✅ Done, 6 tasks |
 | **3** | Pipeline refactor, reliability, comparison, OCR | ✅ **Closed.** Rounds 1-5 shipped 7 tasks plus half of 21c; 3 items dropped and the rest promoted into Phases 4-6 |
-| **4** | **Launch blockers** — usage ledger, plan limits, privacy promises, smoke spec | 🟡 In progress. 4.1–4.4 ✅ done; 4.5–4.8 remain |
+| **4** | **Launch blockers** — usage ledger, plan limits, privacy promises, smoke spec | ✅ Done, 8 tasks (4.1–4.8). The results-page Compare finding was fixed in the follow-up |
 | **5** | Salary data — seeding, matching, integrity | ⬜ All behind 5.1, a dataset licence decision |
 | **6** | Revenue & compliance — payments, retention, corrections, scanned PDFs | ⬜ Not urgent while there are no users |
 | **7** | Operations — admin auth, superadmin, dashboards | ⏸ Deliberately deferred until a trigger fires |
@@ -2334,12 +2334,12 @@ additionally need a GCS bucket, since `asyncBatchAnnotateFiles` cannot read a lo
 | 4.2 | ✅ `users.plan` column, plus `PLANS` limits and feature gates as code | Something to enforce against | ✅ Done — see the 4.2–4.4 outcome below |
 | 4.3 | ✅ Enforce the per-user daily cap at the queue boundary, not the route | A retry cannot buy a free analysis | ✅ Done |
 | 4.4 | ✅ Honest 429 with remaining quota and reset time, surfaced in the UI | The user knows why and when | ✅ Done |
-| 4.5 | Delete stored files after text extraction | Closes a stated-but-false policy; registered uploads persist indefinitely today | 🟠 P1 |
-| 4.6 | Anonymise salary submissions after validation | Closes a stated-but-false policy; `userId` is a live FK | 🟠 P1 |
-| 4.7 | `GET /account/export` | Closes a stated-but-false policy; no route exists | 🟠 P1 |
-| 4.8 | One Playwright smoke spec: upload → results → all four drawers → compare | Catches the class of bug Phase 3 was made of | 🟠 P1 |
+| 4.5 | ✅ Delete stored files after text extraction | Closes a stated-but-false policy; registered uploads persist indefinitely today | ✅ Done — see the 4.5–4.6 outcome below |
+| 4.6 | ✅ Anonymise salary submissions after validation | Closes a stated-but-false policy; `userId` is a live FK | ✅ Done — see the 4.5–4.6 outcome below |
+| 4.7 | ✅ `GET /account/export` | Closes a stated-but-false policy; no route existed | ✅ Done — see the 4.7 outcome below |
+| 4.8 | ✅ One Playwright smoke spec: upload → results → all four drawers → compare | Catches the class of bug Phase 3 was made of | ✅ Done — see the 4.8 outcome below |
 
-**4.1 through 4.4 are done.** 4.5 through 4.8 need nothing and are individually small.
+**4.1 through 4.8 are done.**
 
 #### Why this is urgent: signing up removes the only limit
 
@@ -2537,6 +2537,217 @@ What was verified: backend `tsc --noEmit`, `eslint`, `vitest` (552 passed, 3 ski
 and `db:generate` reporting no drift; frontend `tsc -p tsconfig.app.json`, lint (0 errors),
 `vitest` (18/18), `build`.
 
+#### Tasks 4.5–4.6 outcome — files deleted after extraction, salary rows anonymous
+
+Backend 560 tests passing + 3 skipped (from 552; 8 new). One migration, `0005_anonymise_salary_submissions.sql`
+(data-only). No new dependency.
+
+**4.5 — the upload is deleted once extraction is over.** `workers/stored-file.ts` holds
+`runThenPurgeFile`, a `try/finally` around the OCR processor: the file is removed from disk and its
+`offer_files` row marked `is_deleted` / `deleted_at`, on success, on a terminal failure the
+processor reports itself (bad PDF, scan, empty text) and on the **final** failed attempt. The reaper
+(`reap-stuck`) also purges the files of the offers it fails, since those never finished extraction.
+Pasted-text jobs have no file and are untouched. A purge error is logged and swallowed: it must not
+turn a finished job into a failed one.
+
+Decided in the plan: **an earlier failed attempt does not delete.** BullMQ retries run against the
+same `storedPath` (`attempts: 3`), so deleting in a plain `finally` would make every retry fail with
+"file not found". "Failure path" is therefore read as terminal failure. The final attempt reuses
+`isFinalAttempt`, the same test that gates the quota refund.
+
+**4.6 — a stored submission carries no identity.** `SalaryService.submit` now inserts an explicit
+field list (no `...input`) with neither `userId` nor `fingerprint`; the route stops passing `userId`.
+The columns stay in the schema, marked deprecated and always NULL: dropping them belongs in a later
+change (expand-contract). Migration `0005` clears the existing values
+(`UPDATE salary_submissions SET user_id = NULL, fingerprint = NULL`). Stats and the Salary Explorer
+read only role, city, ctc and status, so they are unchanged.
+
+Decided in the plan: the one-hour repeat-submission check used to read `fingerprint` back off the
+row, which is the linkage itself. It now lives in Redis: key `salary:cooldown:v1:<sha256 of guest
+token>`, 1h TTL, checked before the insert and set after it. Behaviour is the same (second submit
+in the hour is the same 429 `RATE_LIMIT_EXCEEDED`). It fails open if Redis is down, as the cache
+does. This also closes follow-up **F5**: account deletion no longer trips the
+`salary_submissions.user_id` FK, because no row references a user.
+
+##### Verified live (Docker Postgres 16 + Redis 7, `db:migrate`, backend and workers booted, real Gemini key)
+
+- `db:migrate` applied `0005`; a second `db:generate` reports no changes.
+- **4.5.** Text-layer PDF, `.txt` and image uploads (the last on the mock OCR provider, see below)
+  all reached `COMPLETED` with `raw_text` set, the file gone from `backend/uploads`, and
+  `offer_files.is_deleted = true`. A corrupt PDF ended `FAILED` ("We could not open that PDF") with
+  its file also gone. Two jobs stalled by a worker crash were re-run by BullMQ and also left no file.
+- **4.6.** Five guests and one registered user submitted salaries: all `201`. Every stored row had
+  `user_id` and `fingerprint` NULL (0 of 33 rows had either). Stats for the role+city returned
+  `count 5` then `count 6` with sensible percentiles. A repeat submit by the same guest and by the
+  same user each returned `429`. Redis held only hashed `salary:cooldown:*` keys.
+- The migration SQL was run against a row seeded with a user id and a fingerprint; both were cleared.
+- A user who had submitted a salary deleted their account: `200`.
+- Backend `tsc --noEmit` clean, `eslint src/workers src/modules/salary` clean, `npm test` 560 passed.
+
+##### Not verified
+
+- **Real Cloud Vision.** `backend/keys/service-account.json` does not exist (it was untracked after
+  F1), and the Vision client then throws an unhandled rejection that **kills the worker process**
+  (seen twice). That is existing behaviour, not caused by this work; it means a scanned image cannot
+  be OCR'd here at all. The image checks above used the mock provider, started with
+  `DOTENV_CONFIG_PATH` pointing at a copy of `.env` without `GOOGLE_CLOUD_CREDENTIALS`.
+- **The live final-attempt throw path.** A real thrown OCR error needs Vision, so "final attempt
+  fails, file deleted" and "earlier attempt fails, file kept" are proved only by
+  `stored-file.test.ts` (real files on disk, mocked DB), not by a live job.
+- The reaper's file purge was not run live (it needs an offer unfinished for 5 minutes). It reuses
+  the same `purgeStoredFile`.
+- Stored `created_at` is still an exact timestamp on each salary row. It does not identify a user
+  by itself, but it could be correlated with request logs; coarsening it was not done.
+
+#### Task 4.7 outcome — `GET /account/export`, scoped to the caller
+
+Backend 564 tests passing + 3 skipped (from 560; 4 new, `modules/user/account.export.test.ts`). No
+migration, no new dependency. The route is `GET /api/v1/account/export` (`accountRoutes` in
+`user.routes.ts`, service method `UserService.exportAccount`).
+
+- **Identity comes only from the verified JWT.** The route uses the existing `authenticate` hook
+  through `requireAuth`; no query or path parameter names an account, so there is nothing to tamper
+  with. A missing or bad token is `401 UNAUTHORIZED`. No parallel auth mechanism.
+- **Scoped twice.** Every query filters on the caller's id, and the rows are filtered again in code:
+  offers through `canAccessOffer`, the rest by `userId` / owned offer ids. A query that ever
+  widened would still not leak another user's rows.
+- **Contents.** Profile (id, email, name, avatar, verified, plan, created), offers with
+  `rawText`, `userContext` and the full analysis, corrections, forum posts and comments, and the AI
+  usage ledger rows for the account. Served as `attachment; filename="offerlens-export.json"`,
+  `Cache-Control: no-store`, in the usual `{ success, data }` shape. Rate limit 5 per hour
+  (`RATE_LIMITS.accountExport`).
+- **Deliberately left out.** Password hash, Google id and refresh tokens (credentials, not the
+  user's data); salary submissions (anonymous since 4.6, so nothing links them to an account);
+  unclaimed guest offers (they belong to a browser cookie, not an account).
+
+Decided in the plan, flagged for the owner:
+
+- **Registered accounts only; a guest cookie alone gets 401.** The signed guest cookie (ADR-001)
+  identifies a browser, not a person, and guest offers expire within a day, so the "data export"
+  promise is read as applying to accounts. Exporting a guest's own offers by cookie would be a
+  small addition if wanted, and is a product call rather than an engineering one.
+- **401, not the 403 `GUEST_RESTRICTED` that `requireRegistered` gives.** "Not logged in" is a 401;
+  `requireAuth` already existed and was unused.
+- **Unpaged.** One read per table, marked `ponytail:` in the service. Fine at 3 analyses a day;
+  the ledger is the table that grows.
+
+##### Verified live (Docker Postgres 16 + Redis 7, `db:migrate` already applied, backend booted on :8123)
+
+- Two users signed up through `/auth/signup`; each had an offer, analysis, correction, forum post
+  and ledger row seeded by SQL with distinct markers.
+- **User A's export (200)** contained A's offer text, analysis score, correction, post, ledger row,
+  email and id, and **none** of B's: no B marker, email or id. It carried no `passwordHash`.
+- **User B's export** held B's data and nothing of A's. `?userId=<B>` sent as A was ignored: A still
+  got only A's data.
+- **No token, a garbage token, and a guest cookie only: all `401`.**
+- `Content-Disposition: attachment; filename="offerlens-export.json"` present.
+- Backend `tsc --noEmit` clean, `eslint` clean on the touched files, `npm test` 564 passed. The
+  seeded test users and rows were deleted afterwards.
+
+##### Not verified
+
+- **Offers created through the real upload and analysis pipeline.** The live rows were seeded by SQL,
+  so the export was not exercised against a Gemini-produced `analysis` row or a migrated guest offer
+  (`migrateGuestOffers`). The shape comes straight from the schema, and the unit test covers an
+  unclaimed guest offer being excluded.
+- **A very large account.** Nothing was measured beyond a handful of rows.
+- **The frontend.** There is no UI for it yet, so the promise is closed at the API only.
+- One earlier full `npm test` run showed a single failure in the PDF text test (a timeout under
+  load); the next full run passed 564/564. Not investigated.
+
+#### Task 4.8 outcome — one Playwright smoke spec
+
+New dependency `@playwright/test` pinned at `1.64.0` (devDependency, `frontend/`). New files:
+`frontend/playwright.config.ts`, `frontend/e2e/smoke.spec.ts`, a `test:e2e` script, and
+`test-results` / `playwright-report` in `frontend/.gitignore`. `tsconfig.app.json` and vitest both
+cover `src` only, so neither picks the spec up. The lockfile also moved some `"peer": true` flags,
+which is npm noise from the install.
+
+One test, one journey, in a real browser against the real stack: sign up through the form, paste the
+`05-red-flag-heavy` letter from `backend/eval/corpus.ts`, wait for the real analysis, then open each
+drawer and assert on the content that broke in Phase 3:
+
+- **Results:** reaches `/offers/:id`, a "Red Flags" heading is shown, and the `h1` is not the empty
+  or "Company" placeholder.
+- **Negotiation:** Generate Script returns a script (the Copy button appears).
+- **Benefits:** "Total compensation" renders.
+- **Career:** both "Skills to build" and "Roles this could lead to" render.
+- **Correct:** Company name is pre-filled, and the button reads "No changes yet" and is disabled.
+- **Every drawer:** no error-boundary fallback text. The whole test fails on any uncaught page error.
+- **Compare:** a second letter (`01-indian-product-clean`) is analysed, then Dashboard → Compare →
+  tick two offers → Compare Selected gives the 11-row table and the "On the numbers" verdict.
+  (Since the follow-up the spec reaches Compare through the results-page button, not the Dashboard.)
+
+The spec needs the stack up (Postgres, Redis, API, workers, `npm run dev`) and a working Gemini key.
+It deliberately has no `webServer` block, so a missing worker shows up as a timeout instead of being
+hidden. It creates a fresh `e2e-<timestamp>@example.com` user per run, so it never touches the
+daily quota of an existing account. A run makes at least 4 Gemini calls (2 analyses, one negotiation
+script, one career path) and uses 2 of that user's 3 daily analyses.
+
+##### Finding for the owner — fixed in the follow-up (see "Follow-up fixes" below)
+
+**The "Compare" button on the results page did nothing for a signed-in user.** `ResultsPage` called
+`requireAuth("Compare Offers", null)`; signed in, that became `setActiveDrawer(null)` and there was
+no `navigate`. Only a guest saw anything (the sign-up gate). The spec originally reached Compare
+through the Dashboard's button; it now clicks the results-page button.
+
+##### Verified live (Docker Postgres 16 + Redis 7, `db:migrate` + `db:seed`, API on :8000, workers, Vite on :8080, real Gemini key)
+
+- `cd frontend && npx playwright test` → `1 passed` (2.0 min, on the final spec).
+  An earlier run failed on my own wrong assertion in the Correct drawer (I looked for a "Save"
+  button; it reads "No changes yet" until a field changes) and was fixed. Every step before it had
+  passed, including the other three drawers.
+- `cd frontend && npx tsc --noEmit -p tsconfig.app.json` → clean. `npx eslint e2e playwright.config.ts`
+  → clean. `npx vitest run` → 18/18.
+- Regression suites from `backend/`, with the stack up: `node test-security.mjs` → **20 passed, 0
+  failed**; `node test-m3.mjs` → **19 passed, 0 failed**; `node test-m2.mjs` → **32 passed, 0
+  failed** on the 2nd and 3rd runs.
+- No backend source changed in 4.8, so the backend unit suite was not re-run.
+- The three `e2e-*@example.com` users the spec created were deleted afterwards.
+
+##### Not verified
+
+- **The first `test-m2.mjs` run did not finish clean.** Its output ended with several calls refused
+  `OFFER_NOT_READY` (an offer still `PROCESSING`), and I did not capture its summary line. The two
+  reruns were 32/0. I did not find the cause; a slow Gemini response is the likeliest, but that is a
+  guess.
+- **That the spec fails when the app breaks.** It did fail once, on a wrong assertion, so it can
+  fail. I did not re-introduce one of the four Phase 3 bugs to see it caught.
+- **Anything but Chromium**, anything on CI, and a mobile viewport. `npx playwright install chromium`
+  is needed once per machine; no CI job runs the spec yet.
+- **Real Cloud Vision / file upload.** The spec pastes text, as the walkthrough does, so the file
+  tab and OCR are not exercised.
+- **The 429 / quota paths and guest isolation** (§8.2, §8.3) are not in the spec.
+- The spec depends on live model output: it fails if Gemini is down or rate-limited, or if an
+  analysis returns no negotiation suggestions (the button only renders when there are some).
+
+#### Follow-up fixes (after the 4.5–4.8 review)
+
+1. **Reaper purge was unguarded.** The `offerFiles` lookup after the reap loop could reject the job
+   after offers were already `FAILED`, and the next sweep would not revisit them. It is now
+   `purgeFilesOfOffers` in `workers/stored-file.ts` (log and swallow, per-file purge via
+   `purgeStoredFile`). Test: a rejecting lookup resolves instead of failing the job.
+2. **Export of an account with no offers.** Installed `drizzle-orm` is 0.45.1, where
+   `inArray(col, [])` compiles to `false`. It does not throw, so no service change. Tests added for a
+   brand-new account (profile plus empty collections) and for the `false` compilation.
+3. **Results-page Compare button** did nothing when signed in (`requireAuth(..., null)` only set a
+   null drawer). It now navigates to `/compare`; guests still get the sign-up gate. The smoke spec
+   uses the button.
+
+Verified live: backend `tsc`, eslint and vitest (568 passed, 3 skipped); frontend `tsc` and vitest
+(18/18); `GET /account/export` for a fresh signup returned 200 with empty collections; the
+Playwright spec passed (3.9 min) through the results-page button; `test-security.mjs` 20/20 and
+`test-m3.mjs` 19/0 (both run from `backend/`).
+
+Only reasoned about: the new reaper test was not mutation-checked, a real `reap-stuck` run with a
+stuck offer was not triggered, and the guest Compare gate was not re-run in a browser. Compare does
+not pre-select the offer being viewed.
+
+Deliberately left **unfixed**: (1) the salary cooldown check-then-set race and its Redis fail-open;
+(2) no CI job runs the Playwright spec.
+
+Evidence log: `.agents/tasks/phase4-followup-verification.md`.
+
 #### Open follow-ups from the 4.1–4.4 reviews (2026-10-10)
 
 Found during the Phase 4 readiness check and the two reviews. None blocked those merges; all are
@@ -2548,7 +2759,7 @@ untracked work. Small ones can ride along with 4.5–4.8.
 | F2 | Run the Postgres proof and a migrate from empty | `quota.pg.test.ts`, `drizzle/0000`–`0004` | Start Docker, `docker compose up -d`, `npm run db:migrate`, `QUOTA_PG_TEST=1 npx vitest run src/modules/quota` |
 | F3 | Analysis retry can leave a FAILED offer unrefunded if a later attempt stalls; the reaper only scans QUEUED/PROCESSING | `workers/analysis.worker.ts` | Set `status: 'PROCESSING'` at the start of the processor, as the OCR worker does |
 | F4 | Career slot release in the catch is unguarded, so a DB error masks the AI error | `modules/career/career.service.ts` | Wrap with `.catch(log)`, as negotiation does |
-| F5 | Account deletion fails for any user with a salary submission: FK is `ON DELETE no action`. It also leaves upload files on disk | `salary_submissions.user_id`, `UserService.deleteAccount` | Fold into 4.6 (`SET NULL` plus clearing `fingerprint`) and 4.5 (file deletion) |
+| F5 | Account deletion fails for any user with a salary submission: FK is `ON DELETE no action`. It also leaves upload files on disk | `salary_submissions.user_id`, `UserService.deleteAccount` | ✅ Closed by 4.5 and 4.6: no salary row references a user any more, and uploads are deleted after extraction. Deleting an account that had submitted a salary was verified live |
 | F6 | `ALLOW_AI_REQUEST_OVERRIDE=false` parses as `true` (`z.coerce.boolean()`), so only `NODE_ENV=production` closes the override | `config/env.schema.ts` | Parse the string explicitly (`'true'` only) |
 | F7 | Unmetered `fastify.ai` decorator: unused today, but a future caller would bypass the ledger | `plugins/providers.ts` | Remove the decorator |
 | F8 | Ledger row dropped if its user or guest is deleted mid-call (FK violation on insert) | `modules/usage/usage-ledger.ts` | Retry the insert with null owner on error `23503` |
