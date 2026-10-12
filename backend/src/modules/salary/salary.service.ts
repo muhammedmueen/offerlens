@@ -110,8 +110,11 @@ export class SalaryService {
      */
     private async crowdRows(roleKey: string, cityKey: string): Promise<Array<[number, number]>> {
         // ponytail: the key holds caller-supplied role/city (<= 120 chars each) and an empty cell is
-        // cached, so a caller can create many tiny keys that live 3600 s. Bounded by the 30/min
-        // route limit. Upgrade path: skip the write for an empty array when the role is unmatched.
+        // cached, so a caller can create many tiny keys that live 3600 s. The 30/min route limit slows
+        // that per client but does not cap it: each fresh guest cookie gets its own 30/min, and cookies
+        // are minted at up to 100/min per IP (global limit), so one IP can still add on the order of
+        // thousands of keys a minute. Fine at personal-project scale. Upgrade path: skip the write for
+        // an empty array when the role is unmatched (or a shorter TTL for empty cells).
         return cached(crowdCacheKey(roleKey, cityKey), SALARY_CACHE_TTL_SECONDS, async () => {
             const rows = await db
                 .select({ ctc: salarySubmissions.ctc, createdAt: salarySubmissions.createdAt })
@@ -307,7 +310,7 @@ export class SalaryService {
 
     /**
      * Salary Explorer. `GET /salaries/stats` is public and unauthenticated by design; it is limited
-     * to 30/min per guest/IP by the route (`RATE_LIMITS.salaryStats`).
+     * to 30/min per signed-in user, guest cookie, or (cookie-less) IP by the route (`RATE_LIMITS.salaryStats`).
      *
      * Without an experience level this can reach tiers 1 and 3 only. In the not-enough case `count`
      * is the number of approved crowdsourced rows (never a survey count).

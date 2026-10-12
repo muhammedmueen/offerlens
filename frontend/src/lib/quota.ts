@@ -65,6 +65,9 @@ export function isUploadBlocked(quota: QuotaSnapshot | undefined): boolean {
 
 export const RATE_LIMITED_TEXT = "Too many requests. Please wait a minute and try again.";
 
+/** Login and signup windows are 15 minutes and 1 hour, so no "a minute" here. */
+export const RATE_LIMITED_AUTH_TEXT = "Too many attempts. Please wait a while before trying again.";
+
 const istTime = new Intl.DateTimeFormat("en-IN", {
   timeZone: "Asia/Kolkata",
   hour: "numeric",

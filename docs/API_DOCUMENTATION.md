@@ -75,7 +75,7 @@ Error:
 - `role`: Job role (required)
 - `city`: City location (required)
 
-Rate limit: 30/min. With enough data the response holds `count`, `dataSource` (`crowdsourced` or
+Rate limit: 30/min per signed-in user, guest cookie or (cookie-less) IP; the 31st call in a window gets a 429 `RATE_LIMIT_EXCEEDED` with `Retry-After` (checked live, see the PLAN's rate-limiter outcome; all limits are in api-spec.md). With enough data the response holds `count`, `dataSource` (`crowdsourced` or
 `public_survey`), `scope` (`role_city`, `role_experience_national`, `role_national`), `role`, `city`,
 `locationUsed`, `p25`, `p50`, `p75`, `p90`. Otherwise `dataSource` is `null`, `data` is `null` and `count`
 is the number of crowdsourced submissions so far. `public_survey` is a modelled, India-wide benchmark from

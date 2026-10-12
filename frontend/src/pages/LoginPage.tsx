@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import PageShell from "@/components/layout/PageShell";
 import { Loader2 } from "lucide-react";
+import { RATE_LIMITED_AUTH_TEXT, isRateLimited } from "@/lib/quota";
 
 const LoginPage = () => {
   const { login, loginWithGoogle } = useAuth();
@@ -26,7 +27,7 @@ const LoginPage = () => {
         await loginWithGoogle(tokenResponse.access_token);
         navigate(returnUrl, { replace: true });
       } catch (err) {
-        setError("Google login failed.");
+        setError(isRateLimited(err) ? RATE_LIMITED_AUTH_TEXT : "Google login failed.");
         setLoading(false);
       }
     },
@@ -43,8 +44,9 @@ const LoginPage = () => {
     try {
       await login(email, password);
       navigate(returnUrl, { replace: true });
-    } catch {
-      setError("Invalid email or password.");
+    } catch (err) {
+      // A rate-limited login is not a wrong password; saying so would send a locked-out user round in circles.
+      setError(isRateLimited(err) ? RATE_LIMITED_AUTH_TEXT : "Invalid email or password.");
     } finally {
       setLoading(false);
     }

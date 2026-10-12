@@ -14,6 +14,8 @@ declare module 'fastify' {
          * Kept as the raw token because the rate limiter keys on it directly.
          */
         guestId?: string;
+        /** True when this request carried no valid cookie and `guestId` was minted just now. */
+        guestIsNew?: boolean;
     }
 }
 
@@ -86,4 +88,5 @@ export const guestIdentifier = async (request: FastifyRequest, reply: FastifyRep
     }
 
     request.guestId = token;
+    request.guestIsNew = isNew;
 };

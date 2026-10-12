@@ -328,10 +328,12 @@ gantt
 > **Then** rate limiting falls back to IP-only mode for that IP, and the incident is logged
 
 > [!WARNING]
-> **Status: mostly unimplemented.** `config/constants.ts` defines 15 per-route limits in `RATE_LIMITS`. `middleware/rate-limiter.ts` registers exactly **one** — `global` at 100/min. Only `guestUpload` is separately enforced, inside `GuestService.checkLimits`.
+> **Update (fix-rate-limiter): the limiter now works.** `registerRateLimiter` was not wrapped in `fastify-plugin`, so none of these limits ever reached a real route; 9 of the per-route limits plus the global one are now enforced and verified live (see the "Rate limiter fix" outcome in `PLAN-analysis-pipeline.md` and the table in `api-spec.md`). Bullets below describe the state before that fix, except the spoofing, `spoofingTracker` and TOCTOU ones which this fix did not touch.
+>
+> **Original status: mostly unimplemented.** `config/constants.ts` defines 15 per-route limits in `RATE_LIMITS`. `middleware/rate-limiter.ts` registers exactly **one** — `global` at 100/min. Only `guestUpload` is separately enforced, inside `GuestService.checkLimits`.
 >
 > - The "30 API requests per minute" happy path is actually **100/min**, and no `Retry-After` header is set.
-> - `authLogin: { max: 10, window: '15 minutes' }` is **dead config** — login brute-force protection is whatever the global limit allows.
+> - `authLogin: { max: 10, window: '15 minutes' }` was **dead config** (now enforced) — login brute-force protection is whatever the global limit allows.
 > - The spoofing detector **can never fire**, because the frontend never sends `X-Fingerprint`, so exactly one fingerprint is ever seen per IP.
 > - `spoofingTracker` is an unbounded in-memory `Map`, so it is single-instance only and leaks across many distinct IPs.
 > - `checkLimits` / `incrementAnalysisCount` is a TOCTOU race — concurrent uploads can both clear the check.
@@ -805,7 +807,7 @@ flowchart TB
 |---|---|---|
 | **Guest fingerprint spoofing** — "Low likelihood, mitigated by IP fallback" | Inverted. Nobody needs to spoof: the header is never sent, so **everyone** already shares one identity. The IP-fallback mitigation *is* the failure mode, and the 5-fingerprint detector can never fire. ✅ **Resolved by ADR-001** — signed httpOnly cookie replaces fingerprinting entirely and deletes the detector as dead code | Phase -1a |
 | **AI hallucination** — "mitigated by hallucination guard" | The red-flag guard works, but it was the *narrow* case. Salary benchmarks (`p25/p50/p75/p90`) are fabricated wholesale with no guard, and the prompt never contains the schema | Phase 1 |
-| **GCP cost overrun** — "mitigated by rate limiting" | Per-route rate limiting was never registered. `POST /offers/extract` (Gemini) and `/extract-file` (Vision) are unauthenticated behind a single 100/min global limit. **Root cause found**: v1 commit `ab9702f` disabled these deliberately — *"to allow unrestricted access during development/testing"* — and they were never restored. No incident, so re-enabling is safe | Phase -1e, -1f |
+| **GCP cost overrun** — "mitigated by rate limiting" | Per-route rate limiting was never registered (fixed in fix-rate-limiter: extract is now 20/hour and extract-file 10/hour per caller). `POST /offers/extract` (Gemini) and `/extract-file` (Vision) are unauthenticated behind a single 100/min global limit. **Root cause found**: v1 commit `ab9702f` disabled these deliberately — *"to allow unrestricted access during development/testing"* — and they were never restored. No incident, so re-enabling is safe | Phase -1e, -1f |
 | **Cloud Vision OCR accuracy** — "mitigated by showing confidence score" | The confidence score never reaches the UI: `\|\| 0.85` masks a real `0`, low confidence hard-fails instead of warning, and `lowConfidence` is hardcoded `false` | Phase 3, 21d |
 | **Low crowdsourced salary data** — "mitigated by AI fallback with source label" | Moot — the crowdsourced path is never consulted during analysis at all, so it is *always* the AI fallback, and the `dataSource` label is not surfaced | Phase 1 |
 
