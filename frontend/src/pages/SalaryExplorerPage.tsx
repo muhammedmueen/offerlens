@@ -5,6 +5,7 @@ import { ENDPOINTS } from "@/constants/api";
 import PageShell from "@/components/layout/PageShell";
 import LoadingState from "@/components/common/LoadingState";
 import SalaryBar from "@/components/charts/SalaryBar";
+import BenchmarkNotice from "@/components/salary/BenchmarkNotice";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -88,9 +89,16 @@ const SalaryExplorerPage = () => {
         {hasStats && (
           <div className="rounded-xl border border-border bg-card p-6 space-y-4">
             <SalaryBar p25={data.p25} p50={data.p50} p75={data.p75} p90={data.p90} />
-            <p className="text-xs text-muted-foreground">
-              Based on {data.count} verified submission{data.count === 1 ? "" : "s"}
-            </p>
+            <BenchmarkNotice
+              dataSource={data.dataSource}
+              sampleSize={data.count}
+              disclaimer={data.dataSource === "public_survey" ? "Modelled from public surveys, not offers in your city." : undefined}
+            />
+            {data.dataSource === "public_survey" && (
+              <p className="text-sm text-foreground">
+                Fewer than 10 city-level submissions so far. This is an India-wide benchmark across all cities and experience levels.
+              </p>
+            )}
           </div>
         )}
 
@@ -99,7 +107,8 @@ const SalaryExplorerPage = () => {
             <p className="text-muted-foreground">
               {data?.message ?? "No data for this combination yet."}
             </p>
-            {typeof data?.count === "number" && data.count > 0 && (
+            {/* 10 = backend MIN_SAMPLE_SIZE. Above it the count is pre-outlier-rejection, so "a few more" would mislead. */}
+            {typeof data?.count === "number" && data.count > 0 && data.count < 10 && (
               <p className="mt-1 text-xs text-muted-foreground">
                 {data.count} submission{data.count === 1 ? "" : "s"} so far — a few more and we can show a range.
               </p>

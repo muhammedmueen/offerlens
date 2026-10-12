@@ -11,6 +11,7 @@ import GuestBanner from "@/components/common/GuestBanner";
 import AuthGateModal from "@/components/common/AuthGateModal";
 import ScoreGauge from "@/components/charts/ScoreGauge";
 import SalaryBar from "@/components/charts/SalaryBar";
+import BenchmarkNotice from "@/components/salary/BenchmarkNotice";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, Download, GitCompare, TrendingUp, Pencil, Share2, Lock, CheckCircle, ShieldQuestion } from "lucide-react";
@@ -213,12 +214,11 @@ const ResultsPage = () => {
                   : undefined
               }
             />
-            <p className="mt-2 text-xs text-muted-foreground">
-              {a.salaryComparison?.dataSource === "crowdsourced"
-                ? "Based on crowdsourced submissions"
-                : "AI-estimated range — not benchmarked against real submissions"}
-              {a.salaryComparison?.disclaimer ? ` · ${a.salaryComparison.disclaimer}` : ""}
-            </p>
+            <BenchmarkNotice
+              dataSource={a.salaryComparison?.dataSource}
+              sampleSize={a.salaryComparison?.sampleSize}
+              disclaimer={a.salaryComparison?.disclaimer}
+            />
           </section>
         )}
 
