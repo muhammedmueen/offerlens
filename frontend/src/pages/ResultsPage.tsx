@@ -12,6 +12,7 @@ import AuthGateModal from "@/components/common/AuthGateModal";
 import ScoreGauge from "@/components/charts/ScoreGauge";
 import SalaryBar from "@/components/charts/SalaryBar";
 import BenchmarkNotice from "@/components/salary/BenchmarkNotice";
+import ContributeSalaryCard from "@/components/salary/ContributeSalaryCard";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, Download, GitCompare, TrendingUp, Pencil, Share2, Lock, CheckCircle, ShieldQuestion } from "lucide-react";
@@ -441,6 +442,9 @@ const ResultsPage = () => {
             Calculate Full Benefits Value
           </Button>
         </section>
+
+        {/* 5.4: optional, per-offer; decides its own visibility. Never posts until Send. */}
+        <ContributeSalaryCard key={id} offerId={id!} analysis={a} />
       </div>
 
       {/* Sticky Action Bar */}
