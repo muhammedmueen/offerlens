@@ -48,3 +48,6 @@ coverage/
 
 # Python
 __pycache__/
+
+# Agent working notes (designs, reviews, throwaway live-check scripts); local only
+.agents/

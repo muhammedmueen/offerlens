@@ -157,7 +157,7 @@ flowchart TB
 #### Section A: Salary Comparison
 - Your CTC vs Market range (min / median / max) — visual bar chart
 - Percentile position: "Your offer is at the 65th percentile"
-- Data source label: "Based on 127 verified submissions" or "Estimated — AI-generated range"
+- Data source label: "Based on 127 verified submissions" or "Estimated — AI-generated range" *(historical example; the shipped wording says "crowdsourced, unverified", see task 5.4 in PLAN-analysis-pipeline.md)*
 
 #### Section B: Red Flags
 - Card list, each with:

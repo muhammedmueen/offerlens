@@ -454,7 +454,7 @@ npx drizzle-kit push
 | **Phase 2** | Add `users` table, add `user_id` FK to `offers`, `feature_requests`, `analytics_events` | Guest → user migration: update `offers.user_id` where `guest_id` matches fingerprint |
 | **Phase 2** | Add `payments` table (pass type, amount, status, expires_at) | Links to `users` |
 | **Phase 2** | Add `offer_comparisons` table (set of offer IDs, recommendation) | JSONB for comparison matrix |
-| **Phase 3** | Add `salary_submissions` table (anonymized salary data) | No FK to users — fully anonymous |
+| **Phase 3** | Add `salary_submissions` table (anonymized salary data) | The `user_id` column and its FK to users remain but are deprecated and never written (always NULL), as is `fingerprint`; timestamps are coarsened to the UTC day |
 | **Phase 3** | Add `forum_posts`, `forum_replies` tables | Standard forum schema |
 
 > No existing tables need structural changes. Phase 2/3 is purely additive — new tables, new FKs on existing tables.

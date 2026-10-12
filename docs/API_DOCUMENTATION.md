@@ -68,8 +68,19 @@ Error:
 
 | Method | Endpoint | Description | Auth Required |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/salaries` | Submit anonymous salary data | No |
+| `POST` | `/salaries` | Submit salary data (stored without your name or account) | No |
 | `GET` | `/salaries/stats` | Get aggregated market stats | No |
+
+`POST /salaries` body: `role`, `city`, `experienceYears` (0-60), `ctc` (positive integer, up to 1,000,000,000),
+`companyType` (`product` | `service` | `startup` | `mnc` | `other`) and an optional `companySize`. Nothing else is
+read. The stored row carries no user, guest, fingerprint, offer or company: role and city are saved as canonical
+keys, and `created_at` / `updated_at` are coarsened to the UTC day. One submission per browser per hour (a Redis
+cooldown keyed on a hash of the guest cookie, not stored on the row). The repeat gets a 429 with code
+`RATE_LIMIT_EXCEEDED` and `error.details.reason = "ALREADY_SUBMITTED"`, so a client can tell it from the global
+limiter's 429 (same code, no `details.reason`). A submission is used in a benchmark only once the role and city
+have 10 approved rows after outlier rejection. The Salary Explorer dialog and the results-page contribution card
+(task 5.4) both call this one endpoint with the same body. The figure is whatever CTC the contributor enters
+(often an offered, not a current, figure); nothing verifies it.
 
 ### Query Parameters for `/salaries/stats`
 - `role`: Job role (required)

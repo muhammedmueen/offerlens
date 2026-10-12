@@ -302,7 +302,7 @@ Get full analysis results. Only available when `status = COMPLETED`.
       "roleUsed": "Senior Software Engineer",
       "roleMatchConfidence": 0.95,
       "locationUsed": "Bangalore, India",
-      "dataSource": "ai_estimated",   // or "crowdsourced" | "public_survey" (modelled, India-wide; ODbL attribution required)
+      "dataSource": "ai_estimated",   // or "crowdsourced" (unverified; confidence level medium, badge "Check this", never "Verified") | "public_survey" (modelled, India-wide; ODbL attribution required)
       "disclaimer": null
     },
 
@@ -589,7 +589,7 @@ Vote on a feature request. One vote per fingerprint.
 | `POST /offers/extract-file` | 10 | 1 hour |
 | `POST /offers/:id/negotiate` | 10 | 1 hour |
 | `POST /offers/compare` | 20 | 1 hour |
-| `POST /offers/:id/benefits` | 20 | 1 hour |
+| `POST /offers/:id/benefits` | 60 | 1 hour |
 | `GET /account/export` | 5 | 1 hour |
 | `GET /salaries/stats` | 30 | 1 minute |
 | Every other route (offer polling, analysis, report, delete, metadata, forum, feature requests, `/auth/refresh`, `/health`, ...) | 100 | 1 minute |

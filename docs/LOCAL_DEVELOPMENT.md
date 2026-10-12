@@ -500,7 +500,9 @@ Then check the dashboard shows a score distribution.
 3. Submit a salary. **Expected:** success. A second submission within the hour should be
    rate-limited. An approved submission **invalidates** the cache for that role and city, so
    the key above should disappear and the next search should reflect your submission
-   immediately rather than in an hour.
+   immediately rather than in an hour. A contribution (from the Explorer or the results-page card)
+   only shows up in a range once the role and city have 10 approved rows after outlier rejection, and
+   analyses already stored are never updated.
 
 ### 8.7 Forum
 

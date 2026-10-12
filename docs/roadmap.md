@@ -589,7 +589,7 @@ See [implementation_plan.md](file:///C:/Users/Mueen/.gemini/antigravity/brain/42
 
 > **Given** 50+ data points for a role+city combination
 > **When** a user analyzes an offer for that combination
-> **Then** the salary comparison uses real crowdsourced data instead of AI estimates, with source label: `"Based on 127 verified submissions"`
+> **Then** the salary comparison uses real crowdsourced data instead of AI estimates, with source label: `"Based on 127 verified submissions"` *(historical example; the shipped label is "Based on N crowdsourced, unverified submissions ... Some may be offered, not current, pay", see task 5.4 in PLAN-analysis-pipeline.md)*
 
 **Sad Paths & Moderation**:
 
@@ -614,7 +614,7 @@ See [implementation_plan.md](file:///C:/Users/Mueen/.gemini/antigravity/brain/42
 >
 > | Layer | Frontend sends | Backend expects | Result |
 > |---|---|---|---|
-> | Path | `POST /salaries`, `GET /salaries/stats` | `POST /salary`, `GET /salary` | **404** |
+> | Path | `POST /salaries`, `GET /salaries/stats` | `POST /salary`, `GET /salary` | **404** (historical: the route is `POST /salaries`) |
 > | Field | `annualCtc` | `ctc` | NOT NULL violation |
 > | Field | *(omitted)* | `companyType` (`.notNull()`) | NOT NULL violation |
 >
@@ -623,9 +623,9 @@ See [implementation_plan.md](file:///C:/Users/Mueen/.gemini/antigravity/brain/42
 > **The anonymity guarantee is false.** `salary_submissions` has a `user_id` column that is a **live foreign key to `users.id`**, plus a `fingerprint` column. Both are written on submit and never scrubbed. "No PII linkage" and "fully anonymized after validation" do not hold.
 >
 > Also on this section:
-> - The **50-data-point threshold does not exist**. `SalaryService.getStats()` uses `data.length < 5`, and the analysis worker never calls it, so crowdsourced data never reaches an offer analysis regardless of volume.
-> - The **burst-rate spec is inverted in practice.** Implementation is 1 submission per hour per *fingerprint*, not 10 per IP. Stricter on paper — but since fingerprints collapse to IP+UA, it means **one person per network per hour** can contribute.
-> - Numeric sanity checks work: `<₹1L with >5 YOE`, `>40 YOE`, `>₹20Cr` are rejected. No 3σ outlier rejection or recency weighting (Phase 4, task 24).
+> - *(Historical, obsolete.)* The **50-data-point threshold does not exist**. `SalaryService.getStats()` uses `data.length < 5`, and the analysis worker never calls it, so crowdsourced data never reaches an offer analysis regardless of volume.
+> - *(Historical, obsolete.)* The **burst-rate spec is inverted in practice.** Implementation is 1 submission per hour per *fingerprint*, not 10 per IP. Stricter on paper — but since fingerprints collapse to IP+UA, it means **one person per network per hour** can contribute. Identity is now the guest cookie with a Redis cooldown (task 4.6), and the minimum sample is 10 (task 5.3).
+> - Numeric sanity checks work: `<₹1L with >5 YOE`, `>40 YOE`, `>₹20Cr` are rejected. No 3σ outlier rejection or recency weighting (Phase 4, task 24) *(both shipped in task 5.3)*.
 
 ---
 
