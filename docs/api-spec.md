@@ -40,7 +40,7 @@ All responses follow a consistent envelope:
 | `X-Fingerprint` | Request | Client-generated browser fingerprint (guest tracking) |
 | `X-RateLimit-Limit` | Response | Max requests allowed in window |
 | `X-RateLimit-Remaining` | Response | Requests remaining in window |
-| `X-RateLimit-Reset` | Response | Unix timestamp when window resets |
+| `X-RateLimit-Reset` | Response | Seconds until the window resets |
 | `Retry-After` | Response (429) | Seconds until next request allowed |
 
 ### Error Codes
@@ -70,7 +70,7 @@ All responses follow a consistent envelope:
 
 #### `GET /api/v1/health`
 
-Returns server status. No rate limiting.
+Returns server status. Counts against the global 100/min limit like any other route.
 
 **Response** `200`:
 ```json
@@ -126,7 +126,7 @@ until then.
 
 Upload an offer letter for analysis. Accepts multipart/form-data.
 
-**Daily quota**: guest 1, `free` 3, `unlimited` none (IST calendar day, see `GET /quota`) | **Rate limit**: Global 100/min
+**Daily quota**: guest 1, `free` 3, `unlimited` none (IST calendar day, see `GET /quota`) | **Rate limit**: global 100/min, no route-specific limit
 
 **Request** (`multipart/form-data`):
 
@@ -191,7 +191,7 @@ duplicate of an offer that did not fail is returned without charging.
 
 Get offer status and basic info. Used for polling during processing.
 
-**Rate limit**: 60/min per IP (polling-friendly)
+**Rate limit**: global 100/min, no route-specific limit (the app polls every 3 s, about 20/min)
 
 **Path params**: `id` — offer UUID
 
@@ -249,7 +249,7 @@ Get offer status and basic info. Used for polling during processing.
 
 Get full analysis results. Only available when `status = COMPLETED`.
 
-**Rate limit**: 30/min per IP
+**Rate limit**: global 100/min, no route-specific limit
 
 **Path params**: `id` — offer UUID
 
@@ -350,7 +350,7 @@ Get full analysis results. Only available when `status = COMPLETED`.
 
 Delete an offer and its analysis permanently.
 
-**Rate limit**: 10/min per IP
+**Rate limit**: global 100/min, no route-specific limit
 
 **Path params**: `id` — offer UUID
 
@@ -370,7 +370,7 @@ Delete an offer and its analysis permanently.
 
 Download PDF report of the analysis.
 
-**Rate limit**: 10/min per IP
+**Rate limit**: global 100/min, no route-specific limit
 
 **Path params**: `id` — offer UUID
 
@@ -391,7 +391,7 @@ Download PDF report of the analysis.
 
 List all available job roles for dropdown.
 
-**Rate limit**: 30/min per IP | **Cache**: Redis, 1h TTL
+**Rate limit**: global 100/min, no route-specific limit | **Cache**: Redis, 1h TTL
 
 **Query params**:
 
@@ -418,7 +418,7 @@ List all available job roles for dropdown.
 
 List available cities for dropdown.
 
-**Rate limit**: 30/min per IP | **Cache**: Redis, 1h TTL
+**Rate limit**: global 100/min, no route-specific limit | **Cache**: Redis, 1h TTL
 
 **Query params**:
 
@@ -445,7 +445,7 @@ List available cities for dropdown.
 
 List experience levels for dropdown.
 
-**Rate limit**: 30/min per IP | **Cache**: Redis, 1h TTL
+**Rate limit**: global 100/min, no route-specific limit | **Cache**: Redis, 1h TTL
 
 **Response** `200`:
 ```json
@@ -470,7 +470,7 @@ List experience levels for dropdown.
 
 Submit a feature request.
 
-**Rate limit**: 5/hour per fingerprint
+**Rate limit**: global 100/min, no route-specific limit
 
 **Request body** (`application/json`):
 
@@ -512,7 +512,7 @@ Submit a feature request.
 
 List feature requests with sorting and pagination.
 
-**Rate limit**: 30/min per IP
+**Rate limit**: global 100/min, no route-specific limit
 
 **Query params**:
 
@@ -554,7 +554,7 @@ List feature requests with sorting and pagination.
 
 Vote on a feature request. One vote per fingerprint.
 
-**Rate limit**: 30/min per IP
+**Rate limit**: global 100/min, no route-specific limit
 
 **Path params**: `id` — feature request UUID
 
@@ -580,18 +580,30 @@ Vote on a feature request. One vote per fingerprint.
 
 ## Rate Limit Summary
 
-| Endpoint Group | Limit | Key | Window |
-|---|---|---|---|
-| `POST /offers` (daily quota, not a rate limit) | guest 1, `free` 3, `unlimited` none | user, else guest cookie | IST calendar day |
-| `GET /offers/:id` (polling) | 60 | IP | 1 minute |
-| `GET /offers/:id/analysis` | 30 | IP | 1 minute |
-| `DELETE /offers/:id` | 10 | IP | 1 minute |
-| `GET /offers/:id/report` | 10 | IP | 1 minute |
-| `GET /metadata/*` | 30 | IP | 1 minute |
-| `GET /salaries/stats` | 30 | IP | 1 minute |
-| `POST /feature-requests` | 5 | fingerprint | 1 hour |
-| `POST /feature-requests/:id/vote` | 30 | IP | 1 minute |
-| Global fallback | 100 | IP | 1 minute |
+| Endpoint | Limit | Window |
+|---|---|---|
+| `POST /offers` (daily quota, not a rate limit) | guest 1, `free` 3, `unlimited` none | IST calendar day |
+| `POST /auth/signup` | 5 | 1 hour |
+| `POST /auth/login`, `POST /auth/google` | 10 | 15 minutes |
+| `POST /offers/extract` | 20 | 1 hour |
+| `POST /offers/extract-file` | 10 | 1 hour |
+| `POST /offers/:id/negotiate` | 10 | 1 hour |
+| `POST /offers/compare` | 20 | 1 hour |
+| `POST /offers/:id/benefits` | 20 | 1 hour |
+| `GET /account/export` | 5 | 1 hour |
+| `GET /salaries/stats` | 30 | 1 minute |
+| Every other route (offer polling, analysis, report, delete, metadata, forum, feature requests, `/auth/refresh`, `/health`, ...) | 100 | 1 minute |
+
+Each row is its own bucket per caller, and a route with its own limit does not also count against the global 100/min.
+
+**Who is counted.** A signed-in user is counted by account, so clearing cookies or switching device does not reset the budget.
+Anyone else is counted by their signed `ol_guest` cookie (one bucket per browser, not per network). A request that arrives
+without a valid cookie is counted by client IP instead, so a script that drops cookies cannot get a fresh budget per request.
+Behind a reverse proxy, cookie-less clients are counted by the proxy address unless Fastify `trustProxy` is set (see DEPLOYMENT.md).
+
+**What a rate-limit 429 looks like.** `{ "success": false, "error": { "code": "RATE_LIMIT_EXCEEDED", "message": "..." } }` with
+`Retry-After`, `X-RateLimit-Limit`, `X-RateLimit-Remaining` (0) and `X-RateLimit-Reset`. It is a short-window "slow down" and is
+different from the daily quota 429s (`UPLOAD_LIMIT_EXCEEDED`, `QUOTA_EXCEEDED`), which carry `details` and reset at 00:00 IST.
 
 ---
 

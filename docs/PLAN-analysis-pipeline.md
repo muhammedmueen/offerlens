@@ -269,6 +269,8 @@ Net effect: nothing runs until three separate values are overridden, and the fil
 
 ### 🟠 P1 — Per-route rate limits are dead config
 
+> **Fixed (branch `fix-rate-limiter`).** The root cause was not only unwired limits: `registerRateLimiter` was not wrapped in `fastify-plugin`, so *no* limiter, not even the global one, reached any real route. Now enforced and verified live; see "Rate limiter fix" under Phase 5 and open item 5. The text below is the original audit finding.
+
 `config/constants.ts` defines 15 per-route limits in `RATE_LIMITS`. `middleware/rate-limiter.ts` registers exactly **one**: `global` at 100/min. Only `guestUpload` is separately enforced, inside `GuestService.checkLimits`.
 
 So `authLogin: { max: 10, window: '15 minutes' }` is unused — login brute-force protection is 100/min, keyed on the IP+UA hash above. Same for `featureRequestCreate`, `negotiate`, `compare`, `corrections`, `benefits`, and the rest.
@@ -914,7 +916,7 @@ No user-visible behaviour change. Safe to defer past -1A/-1B if needed.
 
 | # | Task | Severity | Status |
 |---|------|----------|--------|
-| C1 | Wire the per-route `RATE_LIMITS` that already exist, starting with `authLogin` | 🟠 P1 | ✅ Added `routeLimit()` helper; applied to signup, login, google, negotiate, compare, benefits |
+| C1 | Wire the per-route `RATE_LIMITS` that already exist, starting with `authLogin` | 🟠 P1 | ✅ Added `routeLimit()` helper; applied to signup, login, google, negotiate, compare, benefits. **Not actually enforced until the `fastify-plugin` fix on `fix-rate-limiter`** (see "Rate limiter fix") |
 | C2 | Gate `POST /offers/extract` and `/extract-file` behind auth or a strict limit | 🟠 P1 | ✅ Kept unauthenticated by design (the upload form pre-fills before signup) but given their own tight limits — 20/hr and 10/hr — plus a 100k-char payload cap on `/extract` |
 | C3 | Sanitize `file.filename` before temp-file writes | 🟠 P1 | ✅ Plus moved scratch writes from the process CWD to `os.tmpdir()` |
 | C4 | Fix the benefits `extractNumber()` unit handling (lakh / L / LPA / Cr) | 🟠 P1 | ✅ Split into `extractMoney()` (unit-aware) and `extractCount()` (never scaled) |
@@ -3088,8 +3090,9 @@ Docker Postgres 16 + Redis 7, real data, real Gemini key.
   `scope: "role_national"`, `count` 184, p25 887500, p50 2050000, p75 4080000, p90 6500000; `SDE-2` /
   Bangalore → `Software Engineer`, count 557 (four-family pool); `Wizard` / Pune → `count` 0,
   `dataSource` null.
-- **The 31-call 429 on `salaryStats` did NOT reproduce.** See open item 5: the global and per-route
-  limiters are not applied at all at HEAD.
+- **The 31-call 429 on `salaryStats` did NOT reproduce at the time.** The global and per-route
+  limiters were not applied at all at that commit (open item 5). **Since fixed and re-verified live:**
+  30 x 200 then a 429 (see "Rate limiter fix").
 
 ##### Not verified
 
@@ -3102,7 +3105,7 @@ Docker Postgres 16 + Redis 7, real data, real Gemini key.
   Playwright spec does not assert on the benchmark notice.
 - **The PDF** containing the attribution text (the report builder is unit-tested; a real PDF download of
   a survey-sourced result was not checked: the analyses in the regression scripts resolved to the
-  crowdsourced tier). The 31-call 429 on `salaryStats` (see open item 5).
+  crowdsourced tier). The 31-call 429 on `salaryStats` (open item 5; verified later by the rate limiter fix).
 - **Crowdsourced precedence** at n = 10 versus 9 with real rows is covered by `salary.lookup.test.ts`
   (mocked database), not by live inserts.
 - The attribution text rendered inside a deployed instance: `DATASET_URL` points at a GitHub path that
@@ -3122,20 +3125,144 @@ Docker Postgres 16 + Redis 7, real data, real Gemini key.
    pattern.
 4. **Pre-deploy gate.** Do not load the reference data into a deployed database until the repo is public
    and `DATASET_URL` resolves, and the service-account key found in git history (follow-up F1) is resolved.
-5. **Rate limiters are inert at HEAD (pre-existing, found during the review-fix pass; owner decision
-   pending).** `registerRateLimiter` in `middleware/rate-limiter.ts` is registered with
+5. **RESOLVED on branch `fix-rate-limiter` (see "Rate limiter fix" below).** Was: rate limiters inert at
+   HEAD (pre-existing, found during the review-fix pass). `registerRateLimiter` in `middleware/rate-limiter.ts` is registered with
    `app.register(...)` but is not wrapped in `fastify-plugin`, so `@fastify/rate-limit` lives in a child
    scope and never sees the real routes. Evidence: no `x-ratelimit-*` header on any response; with the
    plugin wrapped in `fp()` the headers appear (`x-ratelimit-limit: 100`) and 32 calls to
    `/salaries/stats` with one cookie jar return 30 x 200 then 429, 429. That means `RATE_LIMITS.global`
    (100/min), `authLogin` (10 per 15 min) and the other per-route limits are dead config today, and the
    `salaryStats: 30/min` limit added in B0 is too. The one-line fix turns all of them on at once, which
-   changes behaviour app-wide, so it was tried, reverted, and not applied.
+   changes behaviour app-wide, so it was tried, reverted, and not applied. (The owner then decided to
+   fix it; the fix, the audit of every limit and the live evidence are in "Rate limiter fix" below.)
 6. **Lighthouse accessibility on `/salaries` is 0.94 at HEAD and after this change** (design floor 95):
    one icon `button` with no accessible name, not in the new code. Not fixed here; a one-line `aria-label`
    once the button is identified.
 7. **Not done, by design:** Phase B (PLFS city factors), 5.4 (contribution prompt), 5.5 (career-path
    salary progression), a route limit on `POST /salaries`, `company_type` / `company_size` on reference rows.
+
+#### Rate limiter fix (branch `fix-rate-limiter`, resolves Phase 5 open item 5 and the "dead config" audit item)
+
+**Root cause.** `registerRateLimiter` was an ordinary async plugin. `@fastify/rate-limit` (10.3.0, read in
+`node_modules`) enforces limits through an `onRoute` hook, and that hook only sees routes registered in the
+same Fastify context. The routes live in the sibling `/api/v1` context, so the hook never saw one: no
+`x-ratelimit-*` header, no 429, ever, for the global 100/min, `authLogin`, the Gemini and Vision routes and
+`salaryStats`. Fix: wrap it in `fastify-plugin` (`rate-limiter.ts`), with
+`dependencies: ['redis', 'guest-identity']` so boot fails if either is registered after it. `fastify-plugin`
+5.1.0 was already imported by six files under `src/plugins` and sits in the lockfile as a transitive
+dependency; it is not in `package.json`. I did not add it (no dependency change); declaring it is a
+one-line follow-up. Registration order was already right: the guest cookie hook (`guest-identity`) is a
+root-level `onRequest`, and the limiter's check is a route-level `onRequest`, which Fastify runs after the
+root ones, as does `authenticate`.
+
+**Key generator.** Was `guestId || ip`. Two problems found once it was live, both fixed in the same function:
+1. `guestIdentifier` mints a fresh token for any request without a valid cookie, so a cookie-less client
+   (curl, a script) got a brand-new bucket per request and bypassed every limit, `authLogin` included. Now
+   a request that arrived without a valid cookie is keyed by IP (`request.guestIsNew`, a new field set in
+   `guest-identifier.ts`). Browsers are still per-cookie, so users behind one NAT do not share a bucket
+   (ADR-001 is not regressed).
+2. A signed-in user was keyed by whichever cookie they happened to send. Now `u:<userId>` first, so clearing
+   cookies or switching browser does not reset a budget, and a Bearer-only client is not lumped in by IP.
+Order is user, then guest cookie, then IP; prefixes `u:` `g:` `ip:` keep the namespaces apart.
+
+**Audit of every limit** (all counted per caller as above; a route with its own limit does not also count
+against the global 100/min, because the plugin picks one or the other per route):
+
+| Limit | Value | Enforced? | Verdict |
+|---|---|---|---|
+| `global` | 100/min | yes, every route without its own limit (polling, `POST /offers`, analysis, report, delete, metadata, forum, feature requests, `/auth/refresh`, `/health`) | Kept. Measured headroom below |
+| `authLogin` | 10 / 15 min | `POST /auth/login`, `/auth/google` (each its own bucket) | Kept. Counts successes too; a real user does not log in 10 times in 15 min |
+| `authSignup` | 5 / hour | yes | Kept. Validation failures count |
+| `offerExtractText` | 20 / hour | yes | Kept. One call per upload attempt |
+| `offerExtractFile` | 10 / hour | yes | Kept |
+| `negotiate` | 10 / hour | yes | Kept. Each click is a Gemini call |
+| `compare` | 20 / hour | yes | Kept |
+| `benefits` | 20 / hour | yes | **Kept, but the one most likely to bite.** It is a pure calculation, not an AI call, and the panel's "Recalculate" button plus the open-time fetch each spend one. Raising it later is safe if someone hits it |
+| `accountExport` | 5 / hour | yes | Kept |
+| `salaryStats` | 30 / min | yes | Kept. The Explorer queries only on an explicit Search click |
+| `offerPolling` 60/min, `analysisGet`, `offerDelete`, `reportGet`, `metadata`, `featureRequestCreate`, `featureRequestVote`, `corrections` | various | **no route uses them** (never wired, same as before) | Left unwired and now commented as such in `constants.ts`. Wiring `offerPolling` as written would be a mistake (60/min leaves little room over a 1 s poll loop). Their routes ride the global 100/min |
+
+**No limit was changed, and none was loosened or exempted.** The polling endpoint (`GET /offers/:id`) has no
+route limit; the frontend polls every 3 s (about 20/min), and the global 100/min leaves room for it plus the
+other calls on the page.
+
+**Collision with the daily quota 429.** None. They are different codes (`RATE_LIMIT_EXCEEDED` versus
+`UPLOAD_LIMIT_EXCEEDED` / `QUOTA_EXCEEDED`), different sources (the plugin's thrown error versus
+`QuotaExceededError`) and the frontend already tells them apart (`isRateLimited()` versus `getQuotaError()`).
+The rate-limit body is `{ success: false, error: { code, message } }` plus `Retry-After` and `x-ratelimit-*`,
+which is the repo's actual error shape. The repo's errors carry no `meta.requestId` anywhere; the request id is
+the `x-request-id` header. I did not add a `meta` object to every error.
+
+**Frontend (minimal).** `UploadPage` already showed a "Slow down" toast for a rate-limit 429. Two pages did
+not, and became misleading once the limiter is live: `LoginPage` / `SignupPage` told a rate-limited user
+"Invalid email or password" / "Signup failed", and `SalaryExplorerPage` showed "No data for this combination
+yet" on a stats 429. They now show a rate-limit message (`RATE_LIMITED_AUTH_TEXT` and `RATE_LIMITED_TEXT` in
+`lib/quota.ts`). `ProcessingPage` polling needed no change: a 429 on one poll is retried on the next
+interval, and only a persistent failure shows "Could not load status" with a retry button.
+
+**Tests.** New `backend/src/middleware/rate-limiter.test.ts` (6 tests): boots Fastify with the same
+order as `app.ts` (identity, limiter, then routes in a sibling `/api/v1` context) and asserts the
+`x-ratelimit-limit` header, a 429 in the standard shape with `Retry-After`, `routeLimit()` applied across the
+context boundary, independent buckets per cookie and a shared one per cookie, per-account keying, and that a
+cookie-less client cannot dodge the limit. Redis is stubbed with `null`, which makes the plugin use its
+in-memory store. **Red before, green after:** against the unfixed `registerRateLimiter` (plain async
+function) the file failed 6 of 6 (no header, no 429, no buckets; the reviewer re-ran it and confirmed 6 of 6); with the `fp` wrap and key change 6 of 6 pass.
+(The three encapsulation tests fail on the wrap alone; the key-generator tests also needed the key change.)
+
+##### Verified live (Docker Postgres 16 + Redis 7, `db:migrate`, API on :8000, workers, Vite on :8080, real Gemini key)
+
+- (a) Ordinary routes now send `x-ratelimit-limit: 100` and `x-ratelimit-remaining`.
+- (b) 31 calls to `GET /salaries/stats` from one cookie jar (cookie obtained first): **30 x 200 then 429**,
+  with `retry-after: 60`, `x-ratelimit-limit: 30`, `x-ratelimit-remaining: 0` and the body
+  `{"success":false,"error":{"code":"RATE_LIMIT_EXCEEDED",...}}`. So the "30/min" claim in `API_DOCUMENTATION.md`
+  and `api-spec.md` is now **true** and kept. (A cookie-less first call is keyed by IP, so a fresh jar's call 1
+  does not count toward its own bucket; the run above warmed the cookie first.)
+- (c) A second cookie jar right after: 200, `remaining: 29`. Unaffected.
+- (d) Login: 10 wrong passwords gave 401 x 10, then **429** with `retry-after: 900` and the standard body, from a
+  cookie jar and also from a client that sends no cookie (fresh token each time). With a real account, jar A
+  (locked out) got 429 even with the correct password, and **jar B logged in fine (200)**. I did not wait out the
+  15-minute window, so "works again after the window" is the plugin's documented behaviour, not something I saw.
+- Per-account keying: `GET /account/export` (5/hour) through two different cookie jars with the same
+  Bearer token: 5 x 200 then 429.
+- (e) Realistic flow, as the frontend does it (quota and three metadata calls, extract, `POST /offers`, 3 s
+  polling until COMPLETED, results page loads): 14 requests, peak 14 in any 60 s; lowest remaining 88 of the
+  global 100, and 19 of 20 on the extract route. That analysis finished in about 6 s, so I also ran the worst
+  case for the global bucket: 1 s polling for 60 s plus the page calls = **66 requests in the minute, no 429,
+  lowest remaining 37**. A 20-60 s analysis at 3 s polling is about 20 polls.
+- Regression suites against the final code: `node test-security.mjs` **20 passed, 0 failed**; `node test-m3.mjs`
+  **19 passed, 0 failed**; `node test-m2.mjs` **32 passed, 0 failed**; `cd frontend && npx playwright test`
+  **1 passed** (33 s). No script needed changing and no limit was raised or disabled for them.
+- `backend`: `npx tsc --noEmit` clean, `npx eslint src` clean, `npx vitest run` **704 passed, 3 skipped**
+  (baseline 698 + 3 skipped, plus the 6 new). `frontend`: `npx tsc --noEmit -p tsconfig.app.json` clean,
+  `npx eslint` on the touched files 0 errors (1 existing `any` warning), `npx vitest run` 20/20.
+
+##### Not verified / only reasoned
+
+- **One vitest failure, not reproduced.** The first full backend run after the limiter change showed 1 failed
+  test; I did not capture its name. Four later full runs were clean (704 passed each). The run overlapped with
+  the live API and workers, so a timing-sensitive test is the likeliest cause, but that is a guess.
+- **The new UI messages were not rendered in a browser.** Typechecked and linted only; the Playwright spec covers
+  the normal path, not a 429.
+- **Reasoned from the plugin source, not run:** an unreachable Redis makes limited routes error rather than skip
+  the limit (`skipOnError` is off); the browser cannot read `Retry-After` cross-origin (not exposed in CORS, and
+  the frontend does not use it); the limiter does not touch the `OPTIONS` preflight route (registered before it).
+- **Behind a proxy:** the app does not set `trustProxy`, so there cookie-less clients would share the proxy's IP
+  bucket. Documented in `DEPLOYMENT.md`; not changed.
+- **Known ceiling:** a client can still mint many cookies (each costs one IP-keyed request, up to 100/min per IP)
+  and get a bucket per cookie. That weakens `authLogin` in particular; the upgrade path is a per-route IP or
+  email key for login. Not done because keying login by IP alone would make one office NAT share 10 attempts per
+  15 minutes, which is a behaviour decision for the owner.
+- **`salary.service.ts` cache-key comment** said cache-key cardinality is "bounded by the 30/min route limit".
+  That was not true even with a working limiter (each new cookie gets its own 30/min), so the comment now says
+  the limit slows but does not cap it.
+- Throwaway test accounts from the live runs (`e2e-*`, `m3-*`) remain in the local database, as they did before.
+
+##### Docs changed
+
+`api-spec.md` (per-route lines and the summary table now match the real config; the old table listed per-IP limits
+for routes that never had one), `API_DOCUMENTATION.md`, `DEPLOYMENT.md` (Redis dependency, proxy note),
+`LOCAL_DEVELOPMENT.md` (troubleshooting row for tripping a limit while testing), `roadmap.md` (M5 status), and
+this plan (open item 5, the audit item, the C1 row, the before/after table).
 
 ---
 
@@ -3241,7 +3368,7 @@ slower would revive 18, and a genuine need to test the worker's stages in isolat
 | **Measurement** | None | Test corpus + field-level accuracy tracking |
 | **Authorization** | Ownership enforced on 5 feature modules; absent on offer read/delete/report | Single guard covering ownership for every offer-scoped route |
 | **Guest identity** | Collapses to MD5(IP + User-Agent) — quota and migration shared across users | Per-browser identity, no cross-user inheritance |
-| **Rate limiting** | One global 100/min; 15 per-route limits defined but unused | Per-route limits actually registered |
+| **Rate limiting** | One global 100/min; 15 per-route limits defined but unused. In fact none were enforced (plugin encapsulation) | 9 per-route limits and the global one enforced and verified live; 8 `RATE_LIMITS` entries remain unwired (listed in "Rate limiter fix") |
 
 ---
 
