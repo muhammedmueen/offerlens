@@ -171,8 +171,13 @@ describe('red flag provenance', () => {
 });
 
 describe('provenance and derivation', () => {
-    it('trusts a crowdsourced benchmark and distrusts an estimated one', () => {
-        expect(assessConfidence(input()).fields.salaryComparison.level).toBe('high');
+    it('rates a crowdsourced benchmark medium (never the "Verified" level) and an estimated one low', () => {
+        const crowd = assessConfidence(input());
+        expect(crowd.fields.salaryComparison.level).toBe('medium');
+        expect(crowd.fields.salaryComparison.level).not.toBe('high');
+        expect(crowd.fields.salaryComparison.reason).toMatch(/unverified/);
+        // The crowd level must not move `overall`, which is anchored on role and totalCTC only.
+        expect(crowd.overall).toBe('high');
 
         const estimated = assessConfidence(input({
             salaryComparison: { dataSource: 'ai_estimated' } as never,
@@ -248,7 +253,7 @@ describe('OCR downgrades everything read from the page', () => {
         }));
 
         expect(report.fields.takeHome.level).toBe('high');
-        expect(report.fields.salaryComparison.level).toBe('high');
+        expect(report.fields.salaryComparison.level).toBe('medium');
     });
 
     it('adds no caveat for text the user typed in', () => {

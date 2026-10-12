@@ -75,7 +75,7 @@ describe('scoreSalary', () => {
 
     it('keeps the crowdsourced wording and records its basis', () => {
         const r = scoreSalary(72, 'crowdsourced', 'role_city');
-        expect(r.note).toContain('verified submissions');
+        expect(r.note).toContain('crowdsourced submissions');
         expect(r.basis).toEqual({ source: 'crowdsourced', scope: 'role_city' });
     });
 
@@ -98,7 +98,7 @@ describe('scoreSalary', () => {
         expect(r.note).toBe('No salary benchmark with enough data for this role and city, so salary is not scored.');
     });
 
-    it('returns null when there is no verified data, rather than a zero', () => {
+    it('returns null when there is no benchmark data, rather than a zero', () => {
         // The old formula moved the score up to 20 points on a percentile the model invented,
         // which is worse than not scoring salary at all — it looks like evidence.
         expect(scoreSalary(null, 'crowdsourced').value).toBeNull();
@@ -287,7 +287,7 @@ describe('calculateScore — weighting', () => {
 });
 
 describe('calculateScore — redistribution', () => {
-    it('spreads the salary weight when there are no verified submissions', () => {
+    it('spreads the salary weight when there are no crowdsourced submissions', () => {
         const result = calculateScore(baseInput({ offerPercentile: null }));
 
         const salary = result.components.find((c) => c.key === 'salary')!;

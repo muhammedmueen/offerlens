@@ -8,6 +8,10 @@ import { isIndianMetro } from './role-matching.js';
  * UI and the PDF, so the wording can be corrected without migrating stored analyses.
  */
 
+/** Fallback disclaimer when the model's own estimate carries none (used by the analysis worker). */
+export const AI_ESTIMATE_DISCLAIMER =
+    'Estimated from general market knowledge — not benchmarked against crowdsourced submissions.';
+
 function roleScope(families: readonly string[]): string {
     if (families.length === 1) return `${families[0]} respondents`;
     // A generic "Software Engineer" is never presented as if the survey had that exact title.
@@ -38,7 +42,8 @@ export function toSalaryComparison(b: Benchmark): SalaryComparison {
         return {
             ...common,
             dataSource: 'crowdsourced',
-            disclaimer: `Based on ${b.sampleSize} verified submission${b.sampleSize === 1 ? '' : 's'} for this role and city.`,
+            // Nothing verifies a submission, and 5.4 adds offered figures to the pool (see the plan, 5.4 outcome).
+            disclaimer: `Based on ${b.sampleSize} crowdsourced, unverified submission${b.sampleSize === 1 ? '' : 's'} for this role and city. Some may be offered, not current, pay.`,
         };
     }
 

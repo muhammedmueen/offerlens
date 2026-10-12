@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toSalaryComparison, pickBenchmarkCity } from './benchmark-comparison.js';
+import { toSalaryComparison, pickBenchmarkCity, AI_ESTIMATE_DISCLAIMER } from './benchmark-comparison.js';
 import type { Benchmark } from './salary.service.js';
 
 const FOUR = ['Full Stack Engineer', 'Backend Engineer', 'Frontend Engineer', 'Mobile Engineer'];
@@ -59,12 +59,19 @@ describe('toSalaryComparison: crowdsourced', () => {
         roleMatchConfidence: 1, locationUsed: 'pune', sampleSize: 12, experienceBracket: null, experienceYearsRange: null,
     });
 
-    it('keeps the verified-submissions wording and passes confidence 1 through', () => {
+    it('labels crowd rows unverified, says some may be offered pay, and passes confidence 1 through', () => {
         const c = toSalaryComparison(crowd);
         expect(c.dataSource).toBe('crowdsourced');
-        expect(c.disclaimer).toBe('Based on 12 verified submissions for this role and city.');
+        expect(c.disclaimer).toBe('Based on 12 crowdsourced, unverified submissions for this role and city. Some may be offered, not current, pay.');
         expect(c.roleMatchConfidence).toBe(1);
-        expect(toSalaryComparison({ ...crowd, sampleSize: 1 }).disclaimer).toContain('1 verified submission for');
+        expect(toSalaryComparison({ ...crowd, sampleSize: 1 }).disclaimer).toContain('1 crowdsourced, unverified submission for');
+    });
+});
+
+describe('AI_ESTIMATE_DISCLAIMER', () => {
+    it('does not claim verification', () => {
+        expect(AI_ESTIMATE_DISCLAIMER).toContain('crowdsourced');
+        expect(AI_ESTIMATE_DISCLAIMER).not.toMatch(/verified/i);
     });
 });
 

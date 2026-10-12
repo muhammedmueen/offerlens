@@ -137,7 +137,7 @@ export function scoreRedFlags(flags: RedFlag[]): { value: number; note: string }
 export function scoreSalary(
     offerPercentile: number | null,
     // No default: a caller that forgets it fails `tsc` instead of labelling a survey percentile
-    // "verified submissions".
+    // "crowdsourced submissions".
     source: SalaryBasis['source'],
     scope?: SalaryBasis['scope'],
 ): { value: number | null; note: string; basis?: SalaryBasis } {
@@ -158,7 +158,7 @@ export function scoreSalary(
             ? `Offer sits at roughly the ${rank}th percentile of Stack Overflow Developer Survey 2025 respondents `
                 + 'in India (national, not specific to your city)'
                 + (basis.scope === 'role_national' ? ' across all experience levels' : '')
-            : `Offer sits at roughly the ${rank}th percentile of verified submissions.`,
+            : `Offer sits at roughly the ${rank}th percentile of crowdsourced submissions.`,
     };
 }
 

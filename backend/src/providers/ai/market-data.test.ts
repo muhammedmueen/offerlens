@@ -7,7 +7,7 @@ const REAL = {
     offerPercentile: 62,
     roleUsed: 'senior software engineer',
     locationUsed: 'bangalore',
-    disclaimer: 'Based on 9 verified submissions for this role and city.',
+    disclaimer: 'Based on 9 crowdsourced, unverified submissions for this role and city.',
 };
 
 const ESTIMATED = {
@@ -17,10 +17,10 @@ const ESTIMATED = {
     disclaimer: 'Estimated from general market knowledge.',
 };
 
-describe('describeMarketData — verified submissions', () => {
+describe('describeMarketData — crowdsourced submissions', () => {
     it('permits citing the figures and includes the percentile', () => {
         const out = describeMarketData(REAL);
-        expect(out).toContain('VERIFIED');
+        expect(out).toContain('CROWDSOURCED');
         expect(out).toContain('You MAY cite these figures');
         expect(out).toContain('62');
         expect(out).toContain('2400000');
@@ -91,7 +91,7 @@ describe('describeMarketData — provenance is never lost', () => {
         // A branch that renders bare numbers with no provenance is the bug this guards.
         for (const input of [REAL, ESTIMATED, SURVEY, null]) {
             const out = describeMarketData(input);
-            expect(out).toMatch(/VERIFIED|AI ESTIMATE|PUBLIC SURVEY|NONE AVAILABLE/);
+            expect(out).toMatch(/CROWDSOURCED|AI ESTIMATE|PUBLIC SURVEY|NONE AVAILABLE/);
         }
     });
 

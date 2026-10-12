@@ -230,7 +230,8 @@ export function assessConfidence(input: ConfidenceInput): ConfidenceReport {
     // ── Salary benchmark: provenance ──
     const benchmarkSource = input.salaryComparison?.dataSource;
     fields.salaryComparison = benchmarkSource === 'crowdsourced'
-        ? { level: 'high', reason: 'Benchmarked against verified salary submissions for this role and city.' }
+        // 'medium', not 'high' (5.4): 'high' renders the green "Verified" badge, and nobody verifies a crowd row.
+        ? { level: 'medium', reason: 'Benchmarked against crowdsourced (unverified) salary submissions for this role and city.' }
         : benchmarkSource === 'public_survey'
             ? {
                 level: 'medium',

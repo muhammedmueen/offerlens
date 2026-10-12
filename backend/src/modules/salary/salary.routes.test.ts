@@ -18,4 +18,8 @@ describe('salary routes rate limits (design 4.7)', () => {
         expect(RATE_LIMITS.salaryStats).toEqual({ max: 30, window: '1 minute' });
         expect(seen['GET /salaries/stats'].config.rateLimit).toMatchObject({ max: 30, timeWindow: '1 minute' });
     });
+
+    it('POST /offers/:id/benefits is limited to 60/hour (5.4 owner-approved loosening from 20)', () => {
+        expect(RATE_LIMITS.benefits).toEqual({ max: 60, window: '1 hour' });
+    });
 });

@@ -78,6 +78,11 @@ export function submitCooldownKey(fingerprint: string): string {
     return `salary:cooldown:v1:${createHash('sha256').update(fingerprint).digest('hex')}`;
 }
 
+/** UTC midnight of `now`. Stored timestamps are coarsened to this (5.4, D6). */
+export function dayStartUtc(now: Date): Date {
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
+
 /** 1 hour, per task 13. Bounds staleness for anything the write-path invalidation misses. */
 export const SALARY_CACHE_TTL_SECONDS = 3600;
 
@@ -273,7 +278,10 @@ export class SalaryService {
         // Fails open if Redis is down: same stance as the cache, and the global rate limit remains.
         const cooldownKey = input.fingerprint ? submitCooldownKey(input.fingerprint) : null;
         if (cooldownKey && (await getRedis().exists(cooldownKey).catch(() => 0))) {
-            throw new AppError(ERROR_CODES.RATE_LIMIT_EXCEEDED, 'You have already submitted a salary recently.', 429);
+            // details.reason lets the UI tell this cooldown from the global limiter's 429 (5.4, D7).
+            throw new AppError(ERROR_CODES.RATE_LIMIT_EXCEEDED, 'You have already submitted a salary recently.', 429, {
+                reason: 'ALREADY_SUBMITTED',
+            });
         }
 
         // Automatic validation heuristics
@@ -286,6 +294,8 @@ export class SalaryService {
         const normedRole = matchRole(input.role).crowdKey;
         const normedCity = canonicalCity(input.city) ?? input.city.toLowerCase().trim();
 
+        const day = dayStartUtc(new Date());
+
         // Explicit fields, not `...input`: a spread is how an identifier would creep back in.
         await db.insert(salarySubmissions).values({
             role: normedRole,
@@ -295,6 +305,9 @@ export class SalaryService {
             companyType: input.companyType,
             companySize: input.companySize,
             status,
+            // Day-level only (5.4, D6): an exact ms would let a request-log line be joined to this row.
+            createdAt: day,
+            updatedAt: day,
         });
 
         if (cooldownKey) {

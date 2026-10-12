@@ -39,7 +39,7 @@ export function describeMarketData(marketData: unknown): string {
 
     if (isReal) {
         return [
-            `Market Data (VERIFIED — from real submissions for ${md.roleUsed ?? 'this role'} in ${md.locationUsed ?? 'this city'}):`,
+            `Market Data (CROWDSOURCED, unverified — from real submissions for ${md.roleUsed ?? 'this role'} in ${md.locationUsed ?? 'this city'}):`,
             `  25th percentile: ${range.p25}`,
             `  Median:          ${range.p50}`,
             `  75th percentile: ${range.p75}`,

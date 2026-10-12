@@ -9,7 +9,7 @@ import { redactSelection } from '@/providers/ai/request-override.js';
 import { config } from '@/config/index.js';
 import { AnalysisResult } from '@/modules/analysis/analysis.types.js';
 import { SalaryService, type Benchmark } from '@/modules/salary/salary.service.js';
-import { toSalaryComparison, pickBenchmarkCity } from '@/modules/salary/benchmark-comparison.js';
+import { toSalaryComparison, pickBenchmarkCity, AI_ESTIMATE_DISCLAIMER } from '@/modules/salary/benchmark-comparison.js';
 import { detectRedFlags, mergeRedFlags } from '@/modules/analysis/redflag.rules.js';
 import { formatUsage } from '@/providers/ai/usage.js';
 import { calculateTakeHome, annualBasicFrom } from '@/modules/takehome/takehome.calculator.js';
@@ -319,7 +319,7 @@ export const analysisWorker = new Worker(
                 result.salaryComparison.dataSource = 'ai_estimated';
                 if (!result.salaryComparison.disclaimer) {
                     result.salaryComparison.disclaimer =
-                        'Estimated from general market knowledge — not benchmarked against verified submissions.';
+                        AI_ESTIMATE_DISCLAIMER;
                 }
             }
 

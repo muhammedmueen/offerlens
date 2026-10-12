@@ -107,7 +107,9 @@ export const RATE_LIMITS = {
     negotiate: { max: 10, window: '1 hour' },
     compare: { max: 20, window: '1 hour' },
     corrections: { max: 20, window: '1 hour' },
-    benefits: { max: 20, window: '1 hour' },
+    // Pure calculation, no AI call. 20 -> 60 in 5.4 (owner-approved): the drawer's open-time fetch
+    // plus each "Recalculate" costs one request.
+    benefits: { max: 60, window: '1 hour' },
     global: { max: 100, window: '1 minute' },
 } as const;
 
