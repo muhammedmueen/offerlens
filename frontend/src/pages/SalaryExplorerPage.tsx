@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Search, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { RATE_LIMITED_TEXT, isRateLimited } from "@/lib/quota";
 
 // Both mirror NOT NULL enum columns on salary_submissions. Free text here becomes a
 // constraint violation on insert.
@@ -102,7 +103,11 @@ const SalaryExplorerPage = () => {
           </div>
         )}
 
-        {searched && !isLoading && !hasStats && (
+        {isRateLimited(error) && (
+          <p role="alert" className="text-center py-12 text-muted-foreground">{RATE_LIMITED_TEXT}</p>
+        )}
+
+        {searched && !isLoading && !hasStats && !isRateLimited(error) && (
           <div className="text-center py-12">
             <p className="text-muted-foreground">
               {data?.message ?? "No data for this combination yet."}

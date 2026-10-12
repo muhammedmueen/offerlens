@@ -80,6 +80,13 @@ export const CAREER_PATH_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
 // Daily analysis and feature quotas are NOT here: they live in config/plans.ts and are
 // enforced by quota_counters. These are per-window request rate limits only.
+//
+// Only entries applied with `routeLimit('<name>')` are enforced; everything else shares the
+// `global` bucket. Wired: offerExtractText, offerExtractFile, accountExport, authSignup, authLogin,
+// negotiate, compare, benefits, salaryStats. NOT wired (no route uses them, so they do nothing):
+// offerPolling, analysisGet, offerDelete, reportGet, metadata, featureRequestCreate,
+// featureRequestVote, corrections. Wiring offerPolling would be a mistake as written: 60/min
+// leaves little room over a 1 s poll loop (those routes ride the 100/min global instead).
 export const RATE_LIMITS = {
     // Both call paid third-party APIs (Gemini and Cloud Vision) and are reachable without
     // an account, so they are the cheapest way to run up someone else's bill. Tight (C2).

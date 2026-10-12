@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import PageShell from "@/components/layout/PageShell";
 import { Loader2 } from "lucide-react";
+import { RATE_LIMITED_AUTH_TEXT, isRateLimited } from "@/lib/quota";
 
 const SignupPage = () => {
   const { signup, loginWithGoogle } = useAuth();
@@ -25,7 +26,7 @@ const SignupPage = () => {
         await loginWithGoogle(tokenResponse.access_token);
         navigate("/dashboard", { replace: true });
       } catch (err) {
-        setError("Google signup failed.");
+        setError(isRateLimited(err) ? RATE_LIMITED_AUTH_TEXT : "Google signup failed.");
         setLoading(false);
       }
     },
@@ -42,8 +43,8 @@ const SignupPage = () => {
     try {
       await signup(email, password, name || undefined);
       navigate("/dashboard", { replace: true });
-    } catch {
-      setError("Signup failed. Please try again.");
+    } catch (err) {
+      setError(isRateLimited(err) ? RATE_LIMITED_AUTH_TEXT : "Signup failed. Please try again.");
     } finally {
       setLoading(false);
     }
