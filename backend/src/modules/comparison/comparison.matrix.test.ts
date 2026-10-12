@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-    buildComparison, commonComponentKeys, comparableScore, type ComparisonEntry,
+    buildComparison, commonComponentKeys, comparableScore, salaryBasisKey, type ComparisonEntry,
 } from './comparison.matrix.js';
 import { COMPONENT_WEIGHTS, type ScoreComponent, type ScoreComponentKey } from '@/modules/analysis/score.rubric.js';
 
@@ -305,5 +305,75 @@ describe('pre-task-10 rows', () => {
         expect(overall.winnerId).toBe('a');
         expect(overall.note).toContain('not built from the same components');
         expect(result.offers[0].comparableScore).toBeNull();
+    });
+});
+
+describe('salary basis (Phase 5): differing source or scope is not like-for-like', () => {
+    /** An entry whose salary component carries a basis (or none, for a pre-Phase-5 row). */
+    const withBasis = (
+        id: string,
+        basis: ScoreComponent['basis'],
+        values: Partial<Record<ScoreComponentKey, number | null>> = FULL,
+    ) => {
+        const e = entry(id, values);
+        return { ...e, components: e.components!.map((c) => (c.key === 'salary' && basis ? { ...c, basis } : c)) };
+    };
+    const CITY = { source: 'crowdsourced', scope: 'role_city' } as const;
+    const NATIONAL = { source: 'public_survey', scope: 'role_national' } as const;
+    const BRACKET = { source: 'public_survey', scope: 'role_experience_national' } as const;
+
+    it('excludes salary, declares no winner and says why when the bases differ', () => {
+        const a = withBasis('a', CITY, { ...FULL, salary: 90 });
+        const b = withBasis('b', NATIONAL, { ...FULL, salary: 20 });
+        const result = buildComparison([a, b]);
+
+        expect(result.basis.components).not.toContain('salary');
+        expect(result.basis.excluded).toContain('salary');
+
+        const salaryRow = result.rows.find((r) => r.metric === 'Salary vs market')!;
+        expect(salaryRow.values).toEqual(['90 / 100', '20 / 100']);
+        expect(salaryRow.winnerId).toBeNull();
+        expect(salaryRow.note).toContain('Benchmarked against different data');
+
+        const overall = result.rows.find((r) => r.metric.startsWith('Overall'))!;
+        expect(overall.note).toContain('Salary vs market is excluded because these offers were benchmarked against different data.');
+        expect(overall.note).not.toContain('has no data for');
+
+        // The comparable score ignores salary: identical other components, wildly different salary.
+        expect(result.offers[0].comparableScore).toBe(result.offers[1].comparableScore);
+        expect(comparableScore(a, result.basis.components)).toBe(comparableScore(b, result.basis.components));
+    });
+
+    it('keeps both notes when salary is excluded for a mismatch and another component for no data', () => {
+        const a = withBasis('a', CITY, FULL);
+        const b = withBasis('b', NATIONAL, { ...FULL, growth: null });
+        const note = buildComparison([a, b]).rows.find((r) => r.metric.startsWith('Overall'))!.note!;
+        expect(note).toContain('Excludes growth signals, which at least one of these offers has no data for.');
+        expect(note).toContain('Salary vs market is excluded because');
+    });
+
+    it('treats a legacy component with no basis as crowdsourced role_city', () => {
+        const legacy = withBasis('a', undefined);
+        const explicit = withBasis('b', CITY);
+        expect(salaryBasisKey(legacy)).toBe('crowdsourced:role_city');
+        expect(commonComponentKeys([legacy, explicit])).toContain('salary');
+        const row = buildComparison([legacy, explicit]).rows.find((r) => r.metric === 'Salary vs market')!;
+        expect(row.note).toBeUndefined();
+    });
+
+    it('legacy against a survey basis is a mismatch', () => {
+        expect(commonComponentKeys([withBasis('a', undefined), withBasis('b', NATIONAL)])).not.toContain('salary');
+    });
+
+    it('keeps two survey results with the same scope comparable', () => {
+        const a = withBasis('a', BRACKET, { ...FULL, salary: 80 });
+        const b = withBasis('b', BRACKET, { ...FULL, salary: 40 });
+        expect(commonComponentKeys([a, b])).toContain('salary');
+        const row = buildComparison([a, b]).rows.find((r) => r.metric === 'Salary vs market')!;
+        expect(row.winnerId).toBe('a');
+    });
+
+    it('same source but different scope is not comparable', () => {
+        expect(commonComponentKeys([withBasis('a', NATIONAL), withBasis('b', BRACKET)])).not.toContain('salary');
     });
 });

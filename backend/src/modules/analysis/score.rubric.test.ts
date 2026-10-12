@@ -34,6 +34,7 @@ const baseInput = (over: Partial<ScoreInput> = {}): ScoreInput => ({
     } as never,
     benefits: [benefit('Medical Insurance', 'cover of 5,00,000')] as never,
     offerPercentile: 60,
+    salarySource: 'crowdsourced',
     ...over,
 });
 
@@ -69,14 +70,39 @@ describe('scoreRedFlags', () => {
 describe('scoreSalary', () => {
     it('uses the percentile directly', () => {
         // A 0-100 market position needs no transformation to become a 0-100 sub-score.
-        expect(scoreSalary(72).value).toBe(72);
+        expect(scoreSalary(72, 'crowdsourced').value).toBe(72);
+    });
+
+    it('keeps the crowdsourced wording and records its basis', () => {
+        const r = scoreSalary(72, 'crowdsourced', 'role_city');
+        expect(r.note).toContain('verified submissions');
+        expect(r.basis).toEqual({ source: 'crowdsourced', scope: 'role_city' });
+    });
+
+    it('scores a public-survey percentile the same way but never says "verified submissions"', () => {
+        const r = scoreSalary(60, 'public_survey', 'role_experience_national');
+        expect(r.value).toBe(60);
+        expect(r.note).toContain('Stack Overflow Developer Survey 2025');
+        expect(r.note).not.toMatch(/verified|submission/i);
+        expect(r.note).not.toContain('all experience levels');
+        expect(r.basis).toEqual({ source: 'public_survey', scope: 'role_experience_national' });
+    });
+
+    it('says "across all experience levels" for the role-only survey scope', () => {
+        expect(scoreSalary(60, 'public_survey', 'role_national').note).toMatch(/across all experience levels$/);
+    });
+
+    it('sets no basis when nothing was scored, and the null note names neither source', () => {
+        const r = scoreSalary(null, 'public_survey');
+        expect(r.basis).toBeUndefined();
+        expect(r.note).toBe('No salary benchmark with enough data for this role and city, so salary is not scored.');
     });
 
     it('returns null when there is no verified data, rather than a zero', () => {
         // The old formula moved the score up to 20 points on a percentile the model invented,
         // which is worse than not scoring salary at all — it looks like evidence.
-        expect(scoreSalary(null).value).toBeNull();
-        expect(scoreSalary(Number.NaN).value).toBeNull();
+        expect(scoreSalary(null, 'crowdsourced').value).toBeNull();
+        expect(scoreSalary(Number.NaN, 'crowdsourced').value).toBeNull();
     });
 });
 
@@ -210,6 +236,7 @@ describe('calculateScore — weighting', () => {
             } as never,
             benefits: [] as never,
             offerPercentile: 0,
+            salarySource: 'crowdsourced',
         });
 
         expect(worst.score).toBe(0);
@@ -228,6 +255,7 @@ describe('calculateScore — weighting', () => {
             } as never,
             benefits: [] as never,
             offerPercentile: 0,
+            salarySource: 'crowdsourced',
         });
 
         expect(hostileButClear.score).toBeGreaterThan(0);
@@ -274,6 +302,27 @@ describe('calculateScore — redistribution', () => {
         const applied = result.components.reduce((sum, c) => sum + c.weight, 0);
         expect(applied).toBeGreaterThanOrEqual(99);
         expect(applied).toBeLessThanOrEqual(101);
+    });
+
+    it('weights a public-survey percentile at salary\'s full 30% through the same path', () => {
+        const survey = calculateScore(baseInput({
+            offerPercentile: 60, salarySource: 'public_survey', salaryScope: 'role_experience_national',
+        }));
+        const salary = survey.components.find((c) => c.key === 'salary')!;
+        expect(salary.weight).toBe(COMPONENT_WEIGHTS.salary);
+        expect(salary.weight).toBe(30);
+        expect(salary.value).toBe(60);
+        expect(salary.basis).toEqual({ source: 'public_survey', scope: 'role_experience_national' });
+        expect(survey.method).toBe('standard');
+
+        // Same score as the crowdsourced path for the same percentile: one rubric, two labels.
+        expect(survey.score).toBe(calculateScore(baseInput({ offerPercentile: 60 })).score);
+    });
+
+    it('carries no basis on an unscored salary component or on other components', () => {
+        const result = calculateScore(baseInput({ offerPercentile: null }));
+        expect(result.components.find((c) => c.key === 'salary')).not.toHaveProperty('basis');
+        expect(result.components.filter((c) => 'basis' in c)).toHaveLength(0);
     });
 
     it('marks the method fallback and carries the roadmap note', () => {
@@ -323,6 +372,7 @@ describe('the interim formula it replaces', () => {
             } as never,
             benefits: [] as never,
             offerPercentile: null,
+            salarySource: 'crowdsourced',
         });
 
         // No flags is genuinely good, so this is not zero — but nothing else is present.

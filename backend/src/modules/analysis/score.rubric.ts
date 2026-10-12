@@ -1,5 +1,6 @@
 import type { AnalysisResult, RedFlag } from './analysis.types.js';
 import type { BenefitsChecklist } from '@/modules/benefits/benefits.checklist.js';
+import type { BenchmarkScope, BenchmarkSource } from '@/modules/salary/salary.service.js';
 
 /**
  * Weighted scoring rubric (Phase 2 task 10, decision 7).
@@ -12,7 +13,7 @@ import type { BenefitsChecklist } from '@/modules/benefits/benefits.checklist.js
  * Five components, each scored 0-100 on its own terms and then weighted:
  *
  *   30  red flags      the most trustworthy signal now that clause detection is deterministic
- *   30  salary         only when benchmarked against real submissions
+ *   30  salary         only when benchmarked against crowdsourced submissions or the public survey
  *   20  benefits       from the standard-benefits checklist
  *   10  growth         learning budget and equity, the only growth signals a letter carries
  *   10  transparency   how much the employer committed to in writing
@@ -58,6 +59,12 @@ export const FLAG_PENALTIES: Record<RedFlag['severity'], number> = {
     low: 5,
 };
 
+/** What a salary percentile was measured against. Two offers are only comparable on equal bases. */
+export interface SalaryBasis {
+    source: BenchmarkSource;
+    scope: BenchmarkScope;
+}
+
 export interface ScoreComponent {
     key: ScoreComponentKey;
     label: string;
@@ -67,6 +74,8 @@ export interface ScoreComponent {
     weight: number;
     /** Why it scored what it did, so a score can be explained rather than just asserted. */
     note: string;
+    /** Salary component only, and only when scored. Absent on rows stored before Phase 5. */
+    basis?: SalaryBasis;
 }
 
 export interface ScoreResult {
@@ -89,8 +98,11 @@ export interface ScoreInput {
     benefitsChecklist: BenefitsChecklist | null;
     extractedData: AnalysisResult['extractedData'] | null | undefined;
     benefits: AnalysisResult['benefits'];
-    /** Percentile from REAL submissions, or null when the benchmark was AI-estimated. */
+    /** Percentile from crowdsourced submissions or the public survey, or null (AI-estimated / no CTC). */
     offerPercentile: number | null;
+    /** What `offerPercentile` was measured against. Ignored when the percentile is null. */
+    salarySource: SalaryBasis['source'];
+    salaryScope?: SalaryBasis['scope'];
 }
 
 const clamp = (n: number) => Math.max(0, Math.min(100, n));
@@ -122,17 +134,31 @@ export function scoreRedFlags(flags: RedFlag[]): { value: number; note: string }
  * formula moved the score by up to 20 points on an invented percentile, which is worse than
  * not scoring salary at all — it looks like evidence.
  */
-export function scoreSalary(offerPercentile: number | null): { value: number | null; note: string } {
+export function scoreSalary(
+    offerPercentile: number | null,
+    // No default: a caller that forgets it fails `tsc` instead of labelling a survey percentile
+    // "verified submissions".
+    source: SalaryBasis['source'],
+    scope?: SalaryBasis['scope'],
+): { value: number | null; note: string; basis?: SalaryBasis } {
     if (offerPercentile === null || !Number.isFinite(offerPercentile)) {
         return {
             value: null,
-            note: 'No verified salary submissions for this role and city, so salary is not scored.',
+            note: 'No salary benchmark with enough data for this role and city, so salary is not scored.',
         };
     }
 
+    const rank = Math.round(offerPercentile);
+    const basis: SalaryBasis = { source, scope: scope ?? (source === 'crowdsourced' ? 'role_city' : 'role_national') };
+
     return {
         value: clamp(offerPercentile),
-        note: `Offer sits at roughly the ${Math.round(offerPercentile)}th percentile of verified submissions.`,
+        basis,
+        note: source === 'public_survey'
+            ? `Offer sits at roughly the ${rank}th percentile of Stack Overflow Developer Survey 2025 respondents `
+                + 'in India (national, not specific to your city)'
+                + (basis.scope === 'role_national' ? ' across all experience levels' : '')
+            : `Offer sits at roughly the ${rank}th percentile of verified submissions.`,
     };
 }
 
@@ -276,12 +302,12 @@ export function labelFor(score: number): string {
 
 export function calculateScore(input: ScoreInput): ScoreResult {
     const redFlags = scoreRedFlags(input.redFlags);
-    const salary = scoreSalary(input.offerPercentile);
+    const salary = scoreSalary(input.offerPercentile, input.salarySource, input.salaryScope);
     const benefits = scoreBenefits(input.benefitsChecklist);
     const growth = scoreGrowth(input.extractedData, input.benefitsChecklist);
     const transparency = scoreTransparency(input.extractedData, input.benefits, input.redFlags);
 
-    const raw: Array<{ key: ScoreComponentKey; label: string; value: number | null; note: string }> = [
+    const raw: Array<{ key: ScoreComponentKey; label: string; value: number | null; note: string; basis?: SalaryBasis }> = [
         { key: 'redFlags', label: 'Red flags', ...redFlags },
         { key: 'salary', label: 'Salary vs market', ...salary },
         { key: 'benefits', label: 'Benefits', ...benefits },
@@ -303,6 +329,7 @@ export function calculateScore(input: ScoreInput): ScoreResult {
         value: c.value,
         weight: c.value === null ? 0 : Math.round(COMPONENT_WEIGHTS[c.key] * scale),
         note: c.note,
+        ...(c.basis && { basis: c.basis }),
     }));
 
     // Computed from exact weights rather than the rounded display ones, so the parts always sum

@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { SalaryService } from './salary.service.js';
 import { submitSalarySchema, getSalaryStatsSchema } from './salary.schema.js';
+import { routeLimit } from '@/middleware/rate-limiter.js';
 
 export async function salaryRoutes(fastify: FastifyInstance) {
     const salaryService = new SalaryService();
@@ -37,6 +38,7 @@ export async function salaryRoutes(fastify: FastifyInstance) {
 
     // GET /salaries/stats — Aggregate statistics for a role + city
     fastify.get('/salaries/stats', {
+        ...routeLimit('salaryStats'),
         schema: getSalaryStatsSchema,
         handler: async (req, reply) => {
             const { role, city } = req.query as { role: string; city: string };

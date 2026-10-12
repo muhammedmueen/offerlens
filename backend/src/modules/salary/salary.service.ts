@@ -1,39 +1,59 @@
 import { db } from '@/db/index.js';
 import { salarySubmissions } from '@/db/schema/salary-submissions.js';
+import { salaryReferenceRows } from '@/db/schema/salary-reference-rows.js';
 import { createHash } from 'node:crypto';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, inArray, isNull, gte, lt } from 'drizzle-orm';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 import { cached, cacheDelete, getRedis } from '@/shared/cache.js';
+import { ACTIVE_REFERENCE_SOURCES } from './reference-source.js';
+import { matchRole, canonicalCity, isIndianMetro, bracketFromLabel, type ExperienceBracket } from './role-matching.js';
+import { MIN_SAMPLE_SIZE, recencyWeight, summarise, weightedPercentileRank, type WeightedValue } from './salary.stats.js';
 
 /**
- * Minimum approved submissions before a role+city combination is reported as real data.
- *
- * The plan proposes raising this to 10 for noise resistance (Phase 4). Left at 5 for now
- * so the change is one number in one place rather than scattered comparisons.
+ * Minimum rows (after outlier rejection) before a benchmark is reported. Defined once in
+ * `salary.stats.ts` (10, per Stage 2a of the plan) and re-exported so existing imports keep working.
  */
-export const MIN_SAMPLE_SIZE = 5;
+export { MIN_SAMPLE_SIZE };
+
+export type BenchmarkSource = 'crowdsourced' | 'public_survey';
+export type BenchmarkScope = 'role_city' | 'role_experience_national' | 'role_national';
+
+export interface Benchmark {
+    source: BenchmarkSource;
+    scope: BenchmarkScope;
+    marketRange: { p25: number; p50: number; p75: number; p90: number };
+    /** Null when the letter states no CTC. */
+    offerPercentile: number | null;
+    /** Tier 1: the lowercase crowd key. Tiers 2-3: the seed label in title case. */
+    roleUsed: string;
+    /** Survey families pooled for a public_survey result; [] otherwise. */
+    referenceFamilies: readonly string[];
+    /** The matcher's confidence; 1 for an exact stored-string hit on an unmatched role. Never 0. */
+    roleMatchConfidence: number;
+    /** Canonical city for crowdsourced; 'India (national)' for the survey. */
+    locationUsed: string;
+    sampleSize: number;
+    /** Seed bracket label for tier 2 (display name only); null otherwise. */
+    experienceBracket: string | null;
+    /** Years actually queried, inclusive; max null = open end. Null for tier 1 and tier 3. */
+    experienceYearsRange: { min: number; max: number | null } | null;
+}
+
+export interface BenchmarkContext {
+    /** The upload form's experience label. */
+    experienceLevel?: string | null;
+    /** extractedData.compensation.currency */
+    currency?: string | null;
+}
 
 /**
- * Where `value` sits within `sorted`, as a 0-100 percentile rank.
- *
- * Uses the midpoint convention: values equal to the offer count as half below. That
- * avoids reporting the 0th percentile for an offer that exactly matches the lowest
- * submission, which reads as far more damning than the data supports.
- *
- * Pure and exported so it can be tested without a database.
+ * Where `value` sits within `sorted`, as a 0-100 percentile rank (midpoint convention: values equal
+ * to the offer count as half below, so matching the lowest submission is not the 0th percentile).
+ * Delegates to the weighted version with weights of 1. Pure, tested without a database.
  */
 export function percentileRank(sorted: number[], value: number): number {
-    if (sorted.length === 0) return 50;
-
-    let below = 0;
-    let equal = 0;
-    for (const v of sorted) {
-        if (v < value) below++;
-        else if (v === value) equal++;
-    }
-
-    return Math.round(((below + equal / 2) / sorted.length) * 100);
+    return weightedPercentileRank(sorted.map((v) => ({ value: v, weight: 1 })), value);
 }
 
 interface SalarySubmissionInput {
@@ -61,42 +81,184 @@ export function submitCooldownKey(fingerprint: string): string {
 /** 1 hour, per task 13. Bounds staleness for anything the write-path invalidation misses. */
 export const SALARY_CACHE_TTL_SECONDS = 3600;
 
+// Every variable segment is encoded: role and city can derive from model-supplied text, and a raw
+// ':' or ',' could collide with a neighbouring cell's key. encodeURIComponent escapes both.
+const enc = encodeURIComponent;
+
 /**
- * Versioned so a change to the cached shape does not need a manual flush — bump `v1` and old
- * entries are simply never read again, expiring on their own.
+ * Crowdsourced cell: `Array<[ctc, createdAtMs]>` sorted by ctc. Versioned so a shape change needs
+ * no manual flush. The old `salary:ctcs:v1:*` entries are never read again and expire on their own.
  */
-export function salaryCacheKey(role: string, city: string): string {
-    return `salary:ctcs:v1:${role}:${city}`;
+export function crowdCacheKey(roleKey: string, cityKey: string): string {
+    return `salary:crowd:v2:${enc(roleKey)}:${enc(cityKey)}`;
 }
+
+/** Reference cell: `Array<[ctc, weight]>` sorted by ctc, non-empty only. */
+export function refCacheKey(source: string, families: readonly string[], bracket: ExperienceBracket | null): string {
+    return `salary:ref:v1:${enc(source)}:${families.map(enc).join(',')}:${bracket ? enc(bracket.label) : 'all'}`;
+}
+
+const NATIONAL = 'India (national)';
 
 export class SalaryService {
     /**
-     * Approved CTCs for a role+city, sorted ascending, cached for an hour.
+     * Approved crowdsourced `[ctc, createdAtMs]` pairs for a role+city, cached for an hour.
      *
-     * The sorted array is the right cache unit rather than either method's output.
-     * `getStats` and `getBenchmark` both ran this same query and then computed different things
-     * from it — and `getBenchmark`'s percentile depends on the caller's own CTC, so caching its
-     * result would have needed the offer amount in the key and produced a near-zero hit rate.
-     * One entry now serves both methods and every caller.
-     *
-     * Honest about the size of the win: with a table this small the saved query is trivial. What
-     * it actually buys is that `GET /salaries/stats` is public and rate-limited at 30/min, so it
-     * was a cheap way to make a stranger hit the database, and that the path is ready for the
-     * seeded dataset in Phase 4 without revisiting.
+     * Selects `ctc` and `created_at` only: nothing that could identify a submitter is read (4.6).
+     * The cached unit is the raw pairs, not a summary, because the offer percentile depends on the
+     * caller's own CTC and recency weights change daily; both are applied after the cache read.
      */
-    private async approvedCtcs(normedRole: string, normedCity: string): Promise<number[]> {
-        return cached(salaryCacheKey(normedRole, normedCity), SALARY_CACHE_TTL_SECONDS, async () => {
-            const rows = await db.query.salarySubmissions.findMany({
-                where: and(
-                    eq(salarySubmissions.role, normedRole),
-                    eq(salarySubmissions.city, normedCity),
+    private async crowdRows(roleKey: string, cityKey: string): Promise<Array<[number, number]>> {
+        // ponytail: the key holds caller-supplied role/city (<= 120 chars each) and an empty cell is
+        // cached, so a caller can create many tiny keys that live 3600 s. Bounded by the 30/min
+        // route limit. Upgrade path: skip the write for an empty array when the role is unmatched.
+        return cached(crowdCacheKey(roleKey, cityKey), SALARY_CACHE_TTL_SECONDS, async () => {
+            const rows = await db
+                .select({ ctc: salarySubmissions.ctc, createdAt: salarySubmissions.createdAt })
+                .from(salarySubmissions)
+                .where(and(
+                    eq(salarySubmissions.role, roleKey),
+                    eq(salarySubmissions.city, cityKey),
                     eq(salarySubmissions.status, 'approved'),
-                ),
-            });
+                ));
 
-            // Sorted here so it is sorted in the cache too, and every reader gets it for free.
-            return rows.map((r) => r.ctc).sort((a, b) => a - b);
+            return rows
+                .map((r): [number, number] => [r.ctc, r.createdAt.getTime()])
+                .sort((a, b) => a[0] - b[0]);
         });
+    }
+
+    /**
+     * National reference `[ctc, weight]` pairs for the given families (and bracket, half-open).
+     *
+     * An empty result is returned as null from the compute so it is NEVER cached: `cached()` skips
+     * only null/undefined, and a cached `[]` would hide a `db:load-reference` run for an hour.
+     */
+    private async refRows(families: readonly string[], bracket: ExperienceBracket | null): Promise<Array<[number, number]>> {
+        const source = ACTIVE_REFERENCE_SOURCES[0];
+        const rows = await cached<Array<[number, number]> | null>(
+            refCacheKey(source, families, bracket),
+            SALARY_CACHE_TTL_SECONDS,
+            async () => {
+                const found = await db
+                    .select({ ctc: salaryReferenceRows.ctc, weight: salaryReferenceRows.weight })
+                    .from(salaryReferenceRows)
+                    .where(and(
+                        eq(salaryReferenceRows.source, source),
+                        inArray(salaryReferenceRows.role, [...families]),
+                        isNull(salaryReferenceRows.city),
+                        bracket ? gte(salaryReferenceRows.experienceYears, bracket.minYears) : undefined,
+                        bracket ? lt(salaryReferenceRows.experienceYears, bracket.maxYears) : undefined,
+                    ));
+                return found.length
+                    ? found.map((r): [number, number] => [r.ctc, r.weight]).sort((a, b) => a[0] - b[0])
+                    : null;
+            },
+        );
+        return rows ?? [];
+    }
+
+    /**
+     * The ordered lookup shared by `getBenchmark` and `getStats`:
+     *   1. crowdsourced, role + city, n >= 10 (after outlier rejection, recency-weighted)
+     *   2. reference, role family + experience bracket, national, n >= 10
+     *   3. reference, role family only, national, n >= 10
+     *   4. null (the caller keeps the AI estimate)
+     * Each tier summarises ITS OWN rows. Crowdsourced and reference rows are never pooled.
+     */
+    private async lookup(
+        role: string,
+        city: string,
+        offerCtc: number | null,
+        ctx: BenchmarkContext,
+    ): Promise<{ benchmark: Benchmark | null; crowdCount: number }> {
+        if (!role.trim() || !city.trim()) return { benchmark: null, crowdCount: 0 };
+
+        // Tier 0. Every stored distribution is INR, so a USD or GBP offer must not be ranked
+        // against either. Known limit: the extraction schema defaults a missing currency to INR.
+        if (ctx.currency && ctx.currency.trim().toUpperCase() !== 'INR') {
+            return { benchmark: null, crowdCount: 0 };
+        }
+
+        const match = matchRole(role);
+        const cityKey = canonicalCity(city) ?? city.slice(0, 120).toLowerCase().trim();
+
+        // Tier 1.
+        const crowd = await this.crowdRows(match.crowdKey, cityKey);
+        const now = Date.now();
+        const crowdSummary = summarise(
+            crowd.map(([value, createdAt]): WeightedValue => ({ value, weight: recencyWeight(createdAt, now) })),
+            offerCtc,
+            { rejectOutliers: true },
+        );
+        if (crowdSummary) {
+            return {
+                crowdCount: crowd.length,
+                benchmark: {
+                    source: 'crowdsourced',
+                    scope: 'role_city',
+                    ...crowdSummary,
+                    roleUsed: match.crowdKey,
+                    referenceFamilies: [],
+                    // An unmatched role hit its exact stored string, which is a full match, not 0.
+                    roleMatchConfidence: match.canonical === null ? 1 : match.confidence,
+                    locationUsed: cityKey,
+                    experienceBracket: null,
+                    experienceYearsRange: null,
+                },
+            };
+        }
+
+        // Tiers 2 and 3: major Indian metros and roles with reference data only.
+        if (match.referenceFamilies.length === 0 || !isIndianMetro(city)) {
+            return { benchmark: null, crowdCount: crowd.length };
+        }
+
+        try {
+            const families = match.referenceFamilies;
+            const bracket = bracketFromLabel(ctx.experienceLevel);
+            const base = {
+                source: 'public_survey' as const,
+                roleUsed: match.canonical!, // non-null: families are only set when a label matched
+                referenceFamilies: families,
+                roleMatchConfidence: match.confidence,
+                locationUsed: NATIONAL,
+            };
+            const toWeighted = (rows: Array<[number, number]>) =>
+                rows.map(([value, weight]): WeightedValue => ({ value, weight }));
+
+            if (bracket) {
+                const s = summarise(toWeighted(await this.refRows(families, bracket)), offerCtc, { rejectOutliers: false });
+                if (s) {
+                    return {
+                        crowdCount: crowd.length,
+                        benchmark: {
+                            ...base, ...s,
+                            scope: 'role_experience_national',
+                            experienceBracket: bracket.label,
+                            // Half-open in the query, so the inclusive top is maxYears - 1; 99 = open end.
+                            experienceYearsRange: { min: bracket.minYears, max: bracket.maxYears >= 99 ? null : bracket.maxYears - 1 },
+                        },
+                    };
+                }
+            }
+
+            // ponytail: tier 3 ranks the offer against ALL experience levels, and the SO India
+            // sample skews junior, so senior offers read high. Disclaimed as "all experience
+            // levels"; the upgrade path is to show the range without scoring this scope.
+            const s = summarise(toWeighted(await this.refRows(families, null)), offerCtc, { rejectOutliers: false });
+            if (s) {
+                return {
+                    crowdCount: crowd.length,
+                    benchmark: { ...base, ...s, scope: 'role_national', experienceBracket: null, experienceYearsRange: null },
+                };
+            }
+        } catch (err) {
+            // Degrade to "not enough data" / the AI estimate rather than failing a request.
+            console.warn(`[Salary] reference lookup failed: ${(err as Error).message}`);
+        }
+
+        return { benchmark: null, crowdCount: crowd.length };
     }
 
     async submit(input: SalarySubmissionInput) {
@@ -114,8 +276,12 @@ export class SalaryService {
         // Automatic validation heuristics
         const status = this.validate(input) ? 'approved' : 'rejected';
 
-        const normedRole = input.role.toLowerCase().trim();
-        const normedCity = input.city.toLowerCase().trim();
+        // Stored under the same keys the lookup reads, so "SDE-2" / "Bengaluru, Karnataka" reach
+        // rows stored as "software engineer" / "bangalore".
+        // ponytail: rows stored before this change under a raw non-canonical variant (for example
+        // "sde-2") are unreachable. The table is nearly empty; a one-off UPDATE fixes it if needed.
+        const normedRole = matchRole(input.role).crowdKey;
+        const normedCity = canonicalCity(input.city) ?? input.city.toLowerCase().trim();
 
         // Explicit fields, not `...input`: a spread is how an identifier would creep back in.
         await db.insert(salarySubmissions).values({
@@ -133,72 +299,53 @@ export class SalaryService {
         }
 
         // Invalidate on write rather than waiting out the hour. It matters most at exactly the
-        // moment a role+city crosses MIN_SAMPLE_SIZE: without this, the submission that finally
-        // made the data usable would be ignored for up to an hour, which is the one case where
-        // staleness is actively confusing. Rejected submissions change nothing, so skip those.
+        // moment a role+city crosses MIN_SAMPLE_SIZE. Rejected submissions change nothing.
         if (status === 'approved') {
-            await cacheDelete(salaryCacheKey(normedRole, normedCity));
+            await cacheDelete(crowdCacheKey(normedRole, normedCity));
         }
     }
 
+    /**
+     * Salary Explorer. `GET /salaries/stats` is public and unauthenticated by design; it is limited
+     * to 30/min per guest/IP by the route (`RATE_LIMITS.salaryStats`).
+     *
+     * Without an experience level this can reach tiers 1 and 3 only. In the not-enough case `count`
+     * is the number of approved crowdsourced rows (never a survey count).
+     */
     async getStats(role: string, city: string) {
-        const normedRole = role.toLowerCase().trim();
-        const normedCity = city.toLowerCase().trim();
+        const { benchmark, crowdCount } = await this.lookup(role, city, null, {});
 
-        const ctcs = await this.approvedCtcs(normedRole, normedCity);
-
-        if (ctcs.length < MIN_SAMPLE_SIZE) {
+        if (!benchmark) {
             return {
-                count: ctcs.length,
+                count: crowdCount,
+                dataSource: null,
                 message: 'Not enough data for this role/city combination.',
                 data: null,
             };
         }
 
         return {
-            count: ctcs.length,
-            role: normedRole,
-            city: normedCity,
-            p25: this.percentile(ctcs, 25),
-            p50: this.percentile(ctcs, 50),
-            p75: this.percentile(ctcs, 75),
-            p90: this.percentile(ctcs, 90),
+            count: benchmark.sampleSize,
+            dataSource: benchmark.source,
+            scope: benchmark.scope,
+            role: benchmark.roleUsed,
+            city: benchmark.locationUsed,
+            locationUsed: benchmark.locationUsed,
+            ...benchmark.marketRange,
         };
     }
 
     /**
-     * Benchmark for the analysis pipeline (Phase 1 task 2).
-     *
-     * Separate from `getStats`, which serves the Salary Explorer endpoint. This one
-     * returns a shape ready to drop into `salaryComparison`, or **null** when there is
-     * not enough data — the caller then keeps the AI estimate.
-     *
-     * `getStats()` has existed and worked since the beginning and was never called by
-     * the analysis worker, so every salary benchmark a user has ever seen was invented
-     * by the AI while real submissions sat unread.
+     * Benchmark for the analysis pipeline: a shape ready for `toSalaryComparison`, or **null** when
+     * no tier has enough data, in which case the caller keeps the AI estimate.
      */
-    async getBenchmark(role: string, city: string, offerCtc: number | null) {
-        const normedRole = role.toLowerCase().trim();
-        const normedCity = city.toLowerCase().trim();
-
-        const ctcs = await this.approvedCtcs(normedRole, normedCity);
-
-        // Same floor as getStats. Percentiles from three submissions are noise wearing
-        // the costume of authority, which is the failure mode this plan exists to remove.
-        if (ctcs.length < MIN_SAMPLE_SIZE) return null;
-
-        return {
-            marketRange: {
-                p25: Math.round(this.percentile(ctcs, 25)),
-                p50: Math.round(this.percentile(ctcs, 50)),
-                p75: Math.round(this.percentile(ctcs, 75)),
-                p90: Math.round(this.percentile(ctcs, 90)),
-            },
-            offerPercentile: offerCtc === null ? null : percentileRank(ctcs, offerCtc),
-            roleUsed: normedRole,
-            locationUsed: normedCity,
-            sampleSize: ctcs.length,
-        };
+    async getBenchmark(
+        role: string,
+        city: string,
+        offerCtc: number | null,
+        ctx: BenchmarkContext = {},
+    ): Promise<Benchmark | null> {
+        return (await this.lookup(role, city, offerCtc, ctx)).benchmark;
     }
 
     private validate(input: SalarySubmissionInput): boolean {
@@ -207,14 +354,5 @@ export class SalaryService {
         if (input.experienceYears > 40) return false;
         if (input.ctc > 200000000) return false; // > 20 Cr
         return true;
-    }
-
-    private percentile(arr: number[], p: number): number {
-        const index = (p / 100) * (arr.length - 1);
-        const lower = Math.floor(index);
-        const upper = Math.ceil(index);
-        const weight = index - lower;
-        if (upper === lower) return arr[index];
-        return arr[lower] * (1 - weight) + arr[upper] * weight;
     }
 }

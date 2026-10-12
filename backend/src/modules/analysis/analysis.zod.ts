@@ -32,7 +32,13 @@ export const SEVERITIES = ['high', 'medium', 'low'] as const;
 export const PRIORITIES = ['high', 'medium', 'low'] as const;
 export const EMPLOYMENT_TYPES = ['full-time', 'part-time', 'contract', 'intern'] as const;
 export const PAY_PERIODS = ['monthly', 'annual'] as const;
-export const DATA_SOURCES = ['ai_estimated', 'crowdsourced'] as const;
+/** Stored-type and read-side vocabulary. 'public_survey' is set only by the worker's benchmark path. */
+export const DATA_SOURCES = ['ai_estimated', 'crowdsourced', 'public_survey'] as const;
+/**
+ * What the MODEL may say. Byte-identical to the pre-Phase-5 list so PROMPT_FINGERPRINT (which hashes the
+ * response schema) is unchanged and the model can never claim the new source.
+ */
+export const MODEL_DATA_SOURCES = ['ai_estimated', 'crowdsourced'] as const;
 
 /** Accept null, undefined, or the empty string as "absent". Models use all three. */
 const nullableString = z.preprocess(
@@ -137,8 +143,8 @@ export const salaryComparisonSchema = z.object({
     roleMatchConfidence: nullableNumber.transform((v) => v ?? 0),
     locationUsed: z.string().catch('unknown'),
     // The model must always say 'ai_estimated'. Only Phase 1 task 2, reading the
-    // crowdsourced table, is allowed to set 'crowdsourced'.
-    dataSource: z.enum(DATA_SOURCES).catch('ai_estimated'),
+    // crowdsourced table, is allowed to set 'crowdsourced'; the worker sets 'public_survey'.
+    dataSource: z.enum(MODEL_DATA_SOURCES).catch('ai_estimated'),
     disclaimer: nullableString,
 });
 
@@ -331,7 +337,7 @@ export const GEMINI_RESPONSE_SCHEMA: Schema = {
                 roleMatchConfidence: num('0-1 confidence that roleUsed matches the actual role.'),
                 locationUsed: str('The market you benchmarked against.'),
                 dataSource: {
-                    type: SchemaType.STRING, format: 'enum', enum: [...DATA_SOURCES],
+                    type: SchemaType.STRING, format: 'enum', enum: [...MODEL_DATA_SOURCES],
                     description: 'Always "ai_estimated". You have no access to real submission data.',
                 } as Schema,
                 disclaimer: str('State plainly that this is an estimate, and any caveat.'),

@@ -3,6 +3,8 @@ import type { TakeHomeResult } from '@/modules/takehome/takehome.calculator.js';
 import type { BenefitsChecklist } from '@/modules/benefits/benefits.checklist.js';
 import type { ScoreComponent } from './score.rubric.js';
 import type { ConfidenceReport } from './confidence.js';
+import type { DATA_SOURCES } from './analysis.zod.js';
+import type { BenchmarkScope } from '@/modules/salary/salary.service.js';
 
 export interface AnalysisResult {
     extractedData: {
@@ -75,12 +77,17 @@ export interface RedFlag {
 
 export interface SalaryComparison {
     marketRange: { p25: number; p50: number; p75: number; p90: number };
-    offerPercentile: number;
+    /** Null when the letter states no CTC to rank (a benchmark range can still be shown). */
+    offerPercentile: number | null;
     roleUsed: string;
     roleMatchConfidence: number;
     locationUsed: string;
-    dataSource: 'ai_estimated' | 'crowdsourced';
+    dataSource: (typeof DATA_SOURCES)[number];
     disclaimer: string | null;
+    /** Additive, set by the worker for crowdsourced and public_survey benchmarks. */
+    sampleSize?: number;
+    benchmarkScope?: BenchmarkScope;
+    experienceBracket?: string | null;
 }
 
 export interface NegotiationSuggestion {
@@ -142,7 +149,7 @@ export interface AnalysisResponse extends AnalysisResult {
      * Null for analyses produced before task 10, which stored only the number.
      */
     scoreBreakdown: ScoreComponent[] | null;
-    /** Set when a weight was redistributed, e.g. no verified salary data for this role and city. */
+    /** Set when a weight was redistributed, e.g. no salary benchmark with enough data for this role and city. */
     scoreNote: string | null;
 
     /**

@@ -43,6 +43,13 @@ describe('SalaryService.submit anonymity (task 4.6)', () => {
         expect(inserted).toHaveLength(1);
     });
 
+    it('stores the matched role and canonical city (5.2), still with no identifier', async () => {
+        await new SalaryService().submit({ ...base, role: 'SDE-2', city: 'Bengaluru', fingerprint: 'guest-token' });
+        expect(inserted[0]).toMatchObject({ role: 'software engineer', city: 'bangalore' });
+        expect(inserted[0]).not.toHaveProperty('fingerprint');
+        expect(inserted[0]).not.toHaveProperty('userId');
+    });
+
     it('keys the cooldown on a hash, never the raw token', () => {
         expect(submitCooldownKey('guest-token')).not.toContain('guest-token');
     });

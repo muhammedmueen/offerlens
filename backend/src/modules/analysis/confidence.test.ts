@@ -181,6 +181,15 @@ describe('provenance and derivation', () => {
         expect(estimated.fields.salaryComparison.reason).toContain('Do not quote it as market data');
     });
 
+    it('rates a public-survey benchmark medium, with a reason that is not "verified submissions"', () => {
+        const survey = assessConfidence(input({ salaryComparison: { dataSource: 'public_survey' } as never }));
+        expect(survey.fields.salaryComparison.level).toBe('medium');
+        expect(survey.fields.salaryComparison.reason).toContain('public survey');
+        expect(survey.fields.salaryComparison.reason).not.toMatch(/verified/i);
+        expect(assessConfidence(input({ salaryComparison: { dataSource: 'something_new' } as never }))
+            .fields.salaryComparison.level).toBe('low');
+    });
+
     it('rates an exact take-home high and a ranged one medium', () => {
         const exact = assessConfidence(input({ takeHome: { isExact: true } as never }));
         expect(exact.fields.takeHome.level).toBe('high');

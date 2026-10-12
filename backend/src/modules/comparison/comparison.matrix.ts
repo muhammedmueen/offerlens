@@ -5,10 +5,14 @@ import { COMPONENT_WEIGHTS, type ScoreComponentKey, type ScoreComponent } from '
  *
  * ── WHY THIS IS NOT JUST A SORT ON `score` ───────────────────────────────────
  * The rubric redistributes the weight of any component it cannot score, so two stored scores are
- * not necessarily measured on the same basis. An offer with verified salary submissions is scored
- * across five components; one without is scored across four, with salary's 30% spread over the
- * rest. Ranking those two numbers against each other compares different things and presents the
- * result as if it were a like-for-like verdict.
+ * not necessarily measured on the same basis. An offer with a salary benchmark of some kind
+ * (crowdsourced or public survey) is scored across five components; one without is scored across
+ * four, with salary's 30% spread over the rest. Ranking those two numbers against each other
+ * compares different things and presents the result as if it were a like-for-like verdict.
+ *
+ * The same goes for two salary scores measured against different data: a city-level percentile of
+ * crowdsourced submissions and an India-wide public-survey percentile are not the same quantity,
+ * so salary only counts toward the common basis when every offer's salary basis matches.
  *
  * Task 15 made this more likely rather than less: the benefits checklist can now be absent too,
  * which takes benefits and growth with it.
@@ -114,8 +118,35 @@ function valueOf(entry: ComparisonEntry, key: ScoreComponentKey): number | null 
 export function commonComponentKeys(entries: ComparisonEntry[]): ScoreComponentKey[] {
     if (entries.length === 0 || entries.some((e) => !e.components?.length)) return [];
 
-    return ALL_KEYS.filter((key) => entries.every((e) => valueOf(e, key) !== null));
+    return ALL_KEYS.filter((key) =>
+        entries.every((e) => valueOf(e, key) !== null)
+        && !(key === 'salary' && salaryBasisMismatch(entries)));
 }
+
+/**
+ * What a scored salary component was measured against, as `"${source}:${scope}"`.
+ *
+ * A scored component with no `basis` is a row stored before Phase 5, when the only salary
+ * benchmark was a crowdsourced role + city percentile, so it reads as exactly that.
+ *
+ * ponytail: the role family is not part of the key, so two survey results for different roles
+ * compare as the same basis. Offers in one comparison are usually for similar roles; the upgrade
+ * path is to add the family to `basis`.
+ */
+export function salaryBasisKey(entry: ComparisonEntry): string | null {
+    const salary = entry.components?.find((c) => c.key === 'salary');
+    if (typeof salary?.value !== 'number') return null;
+    return salary.basis ? `${salary.basis.source}:${salary.basis.scope}` : 'crowdsourced:role_city';
+}
+
+/** True when every offer has a salary score but they were measured against different data. */
+export function salaryBasisMismatch(entries: ComparisonEntry[]): boolean {
+    const keys = entries.map(salaryBasisKey);
+    return keys.length > 0 && keys.every((k) => k !== null) && new Set(keys).size > 1;
+}
+
+const BASIS_MISMATCH_NOTE = 'Benchmarked against different data (for example city-level submissions against an '
+    + 'India-wide public survey), so these percentiles are not directly comparable. Excluded from the overall.';
 
 /** Weighted score over `keys` only, renormalised so those weights sum to 100. */
 export function comparableScore(
@@ -171,6 +202,9 @@ function winnerBy(
 export function buildComparison(entries: ComparisonEntry[], now = new Date()): ComparisonResult {
     const keys = commonComponentKeys(entries);
     const excluded = ALL_KEYS.filter((k) => !keys.includes(k));
+    const mismatch = keys.length > 0 && excluded.includes('salary') && salaryBasisMismatch(entries);
+    // Excluded for lack of data, as opposed to excluded for a basis mismatch.
+    const noData = excluded.filter((k) => !(k === 'salary' && mismatch));
 
     const comparable = new Map(entries.map((e) => [e.id, comparableScore(e, keys)]));
     const diverges = entries.some((e) => {
@@ -187,8 +221,13 @@ export function buildComparison(entries: ComparisonEntry[], now = new Date()): C
             values: entries.map((e) => `${comparable.get(e.id)} / 100`),
             winnerId: winnerBy(entries, (e) => comparable.get(e.id) ?? null),
             ...(excluded.length > 0 && {
-                note: `Excludes ${excluded.map((k) => COMPONENT_LABELS[k].toLowerCase()).join(', ')}, `
-                    + 'which at least one of these offers has no data for.',
+                note: [
+                    noData.length > 0
+                        && `Excludes ${noData.map((k) => COMPONENT_LABELS[k].toLowerCase()).join(', ')}, `
+                            + 'which at least one of these offers has no data for.',
+                    mismatch
+                        && 'Salary vs market is excluded because these offers were benchmarked against different data.',
+                ].filter(Boolean).join(' '),
             }),
         });
     } else {
@@ -207,6 +246,7 @@ export function buildComparison(entries: ComparisonEntry[], now = new Date()): C
     // information, and hiding the row would make the overall row's note unexplainable.
     for (const key of ALL_KEYS) {
         const comparableHere = entries.every((e) => valueOf(e, key) !== null);
+        const differentBasis = key === 'salary' && mismatch;
 
         rows.push({
             metric: COMPONENT_LABELS[key],
@@ -214,10 +254,13 @@ export function buildComparison(entries: ComparisonEntry[], now = new Date()): C
                 const value = valueOf(e, key);
                 return value === null ? 'No data' : `${value} / 100`;
             }),
-            winnerId: comparableHere ? winnerBy(entries, (e) => valueOf(e, key)) : null,
-            ...(!comparableHere && keys.length > 0 && {
-                note: 'Not scored for every offer, so it is excluded from the overall.',
-            }),
+            // Values stay visible, but no winner is declared across different data.
+            winnerId: comparableHere && !differentBasis ? winnerBy(entries, (e) => valueOf(e, key)) : null,
+            ...(differentBasis
+                ? { note: BASIS_MISMATCH_NOTE }
+                : !comparableHere && keys.length > 0 && {
+                    note: 'Not scored for every offer, so it is excluded from the overall.',
+                }),
         });
     }
 

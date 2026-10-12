@@ -8,7 +8,8 @@ import { createAiProvider, describeSelection, type AiProviderSelection } from '@
 import { redactSelection } from '@/providers/ai/request-override.js';
 import { config } from '@/config/index.js';
 import { AnalysisResult } from '@/modules/analysis/analysis.types.js';
-import { SalaryService } from '@/modules/salary/salary.service.js';
+import { SalaryService, type Benchmark } from '@/modules/salary/salary.service.js';
+import { toSalaryComparison, pickBenchmarkCity } from '@/modules/salary/benchmark-comparison.js';
 import { detectRedFlags, mergeRedFlags } from '@/modules/analysis/redflag.rules.js';
 import { formatUsage } from '@/providers/ai/usage.js';
 import { calculateTakeHome, annualBasicFrom } from '@/modules/takehome/takehome.calculator.js';
@@ -276,33 +277,35 @@ export const analysisWorker = new Worker(
                     : '[Analysis] Benefits checklist unavailable — benefits and growth will not be scored',
             );
 
-            // ── Task 2: replace the AI's guessed benchmark with real submissions ──
+            // ── Task 2: replace the AI's guessed benchmark with real data ──
             //
             // Prefer what the letter says over what the user typed on the upload form:
-            // the letter is evidence, the form is a claim. Fall back to the form when
-            // extraction found nothing.
+            // the letter is evidence, the form is a claim. The form city is used only when the
+            // letter gives no usable place (empty, or a generic token like "Remote"); a real
+            // non-metro city in the letter is NOT swapped for the form city.
+            //
+            // Lookup order lives in SalaryService: crowdsourced (role + city), then the public
+            // survey (role + experience, then role only), else the AI estimate stays.
             const benchRole = result.extractedData?.role || context?.role || null;
-            const benchCity = result.extractedData?.location || context?.city || null;
+            const benchCity = pickBenchmarkCity(result.extractedData?.location, context?.city);
             const offerCtc = result.extractedData?.compensation?.totalCTC ?? null;
 
             let usedRealSalaryData = false;
+            let benchmark: Benchmark | null = null;
 
             if (benchRole && benchCity) {
                 try {
-                    const benchmark = await salaryService.getBenchmark(benchRole, benchCity, offerCtc);
+                    benchmark = await salaryService.getBenchmark(benchRole, benchCity, offerCtc, {
+                        experienceLevel: context?.experienceLevel ?? null,
+                        currency: result.extractedData?.compensation?.currency ?? null,
+                    });
                     if (benchmark) {
-                        result.salaryComparison = {
-                            marketRange: benchmark.marketRange,
-                            offerPercentile: benchmark.offerPercentile ?? result.salaryComparison.offerPercentile,
-                            roleUsed: benchmark.roleUsed,
-                            roleMatchConfidence: 1, // Exact role+city match, not a fuzzy one.
-                            locationUsed: benchmark.locationUsed,
-                            dataSource: 'crowdsourced',
-                            disclaimer: `Based on ${benchmark.sampleSize} verified submission`
-                                + `${benchmark.sampleSize === 1 ? '' : 's'} for this role and city.`,
-                        };
+                        // The model's own percentile is NOT a fallback: a null here (no CTC in the
+                        // letter) stays null, so the rubric redistributes instead of scoring an
+                        // invented number.
+                        result.salaryComparison = toSalaryComparison(benchmark);
                         usedRealSalaryData = true;
-                        console.log(`[Analysis] Using crowdsourced salary data (n=${benchmark.sampleSize}) for ${benchRole} / ${benchCity}`);
+                        console.log(`[Analysis] Using ${benchmark.source} salary data (${benchmark.scope}, n=${benchmark.sampleSize}) for ${benchRole} / ${benchCity}`);
                     }
                 } catch (err) {
                     // A benchmark lookup failure must not lose the whole analysis. Keep the
@@ -357,8 +360,9 @@ export const analysisWorker = new Worker(
             // result was unexplainable — a 55 gave no way to say which part was weak.
             //
             // 30 flags / 30 salary / 20 benefits / 10 growth / 10 transparency, per decision 7.
-            // The percentile is passed as null unless it came from real submissions, which makes
-            // the rubric redistribute salary's weight instead of scoring an invented number.
+            // The percentile is passed as null unless it came from real data (crowdsourced or the
+            // public survey, at salary's full 30% weight either way), which makes the rubric
+            // redistribute salary's weight instead of scoring an invented number.
             const scoring = calculateScore({
                 redFlags: mergedRedFlags,
                 benefitsChecklist,
@@ -367,6 +371,10 @@ export const analysisWorker = new Worker(
                 offerPercentile: usedRealSalaryData
                     ? result.salaryComparison.offerPercentile
                     : null,
+                // ponytail: with no benchmark the percentile is null and `scoreSalary` ignores the
+                // source, so 'crowdsourced' here is an inert placeholder, not a claim.
+                salarySource: benchmark?.source ?? 'crowdsourced',
+                salaryScope: benchmark?.scope,
             });
 
             const { score, label, method: scoringMethod } = scoring;

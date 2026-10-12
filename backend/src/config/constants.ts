@@ -91,6 +91,8 @@ export const RATE_LIMITS = {
     accountExport: { max: 5, window: '1 hour' },
     reportGet: { max: 10, window: '1 minute' },
     metadata: { max: 30, window: '1 minute' },
+    // Public, unauthenticated Salary Explorer read; a cold call can now run up to 3 indexed queries.
+    salaryStats: { max: 30, window: '1 minute' },
     featureRequestCreate: { max: 5, window: '1 hour' },
     featureRequestVote: { max: 30, window: '1 minute' },
     authSignup: { max: 5, window: '1 hour' },

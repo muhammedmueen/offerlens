@@ -33,6 +33,34 @@ describe('describeMarketData — verified submissions', () => {
     });
 });
 
+const SURVEY = {
+    dataSource: 'public_survey',
+    marketRange: { p25: 1_800_000, p50: 2_300_000, p75: 2_900_000, p90: 3_500_000 },
+    offerPercentile: 48,
+    roleUsed: 'Backend Engineer',
+    locationUsed: 'India (national)',
+    disclaimer: 'Modelled from public surveys, not offers in your city. India-wide benchmark.',
+};
+
+describe('describeMarketData — public survey', () => {
+    it('names the survey, permits citing it, and is never called VERIFIED', () => {
+        const out = describeMarketData(SURVEY);
+        expect(out).toContain('PUBLIC SURVEY');
+        expect(out).toContain('Stack Overflow Developer Survey 2025');
+        expect(out).toContain('You MAY cite');
+        expect(out).toContain('Do NOT describe them as offers, submissions');
+        expect(out).not.toMatch(/VERIFIED/i);
+        expect(out).toContain('2300000');
+        expect(out).toContain('48th percentile');
+    });
+
+    it('omits the percentile line when the percentile is null, never printing "?th"', () => {
+        const out = describeMarketData({ ...SURVEY, offerPercentile: null });
+        expect(out).not.toContain('percentile of survey respondents');
+        expect(out).not.toContain('?th');
+    });
+});
+
 describe('describeMarketData — AI estimate', () => {
     it('forbids presenting the numbers as market data', () => {
         // The point of task 6. This output becomes an email a candidate may send to an
@@ -61,9 +89,9 @@ describe('describeMarketData — absent', () => {
 describe('describeMarketData — provenance is never lost', () => {
     it('every branch states where the numbers came from', () => {
         // A branch that renders bare numbers with no provenance is the bug this guards.
-        for (const input of [REAL, ESTIMATED, null]) {
+        for (const input of [REAL, ESTIMATED, SURVEY, null]) {
             const out = describeMarketData(input);
-            expect(out).toMatch(/VERIFIED|AI ESTIMATE|NONE AVAILABLE/);
+            expect(out).toMatch(/VERIFIED|AI ESTIMATE|PUBLIC SURVEY|NONE AVAILABLE/);
         }
     });
 

@@ -19,7 +19,7 @@ export function describeMarketData(marketData: unknown): string {
     const md = marketData as {
         dataSource?: string;
         marketRange?: { p25?: number; p50?: number; p75?: number; p90?: number };
-        offerPercentile?: number;
+        offerPercentile?: number | null;
         disclaimer?: string | null;
         roleUsed?: string;
         locationUsed?: string;
@@ -49,6 +49,24 @@ export function describeMarketData(marketData: unknown): string {
             'You MAY cite these figures in the email as market data, because they come from',
             'real submissions. Reference the percentile position directly — it is the',
             'strongest argument available.',
+        ].filter(Boolean).join('\n            ');
+    }
+
+    // Real survey data, but modelled and national: it must never read as offers or submissions,
+    // so this branch never uses the word VERIFIED.
+    if (md.dataSource === 'public_survey') {
+        return [
+            'Market Data (PUBLIC SURVEY, India-wide, not specific to this city or to real offers):',
+            `  25th percentile: ${range.p25}`,
+            `  Median:          ${range.p50}`,
+            `  75th percentile: ${range.p75}`,
+            `  90th percentile: ${range.p90}`,
+            typeof md.offerPercentile === 'number'
+                ? `  This offer sits at roughly the ${md.offerPercentile}th percentile of survey respondents.`
+                : '',
+            md.disclaimer ? `  Provenance: ${md.disclaimer}` : '',
+            'You MAY cite these figures as "the Stack Overflow Developer Survey 2025 (India)".',
+            'Do NOT describe them as offers, submissions or data for this city.',
         ].filter(Boolean).join('\n            ');
     }
 
