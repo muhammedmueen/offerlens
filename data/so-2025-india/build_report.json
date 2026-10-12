@@ -1,0 +1,220 @@
+{
+  "script_version": "1.0.0",
+  "source": "so_survey_2025",
+  "source_version": "2025-07-29",
+  "input": {
+    "rows_total": 49191,
+    "size_bytes": 140893245,
+    "sha256": "2d1f65308877282edfb4470520eabbc08cb499118432a3dcec6a66c086aa2baa"
+  },
+  "constants": {
+    "country": "India",
+    "currency_code": "INR",
+    "employment": "Employed",
+    "work_exp_range": [
+      0,
+      50
+    ],
+    "ctc_min": 100000,
+    "ctc_max": 50000000,
+    "outlier_sigma": 3,
+    "sigma_floor": 0.05,
+    "low_tail_ctc": 300000,
+    "devtype_to_role": {
+      "developer, full-stack": "Full Stack Engineer",
+      "developer, back-end": "Backend Engineer",
+      "developer, front-end": "Frontend Engineer",
+      "developer, mobile": "Mobile Engineer",
+      "data engineer": "Data Engineer",
+      "data scientist": "Data Scientist",
+      "ai/ml engineer": "Data Scientist",
+      "applied scientist": "Data Scientist",
+      "engineering manager": "Engineering Manager",
+      "devops engineer or professional": "DevOps Engineer",
+      "cloud infrastructure engineer": "DevOps Engineer"
+    },
+    "brackets_half_open": [
+      {
+        "label": "Fresher (0-1 yrs)",
+        "min": 0,
+        "max": 1
+      },
+      {
+        "label": "Junior (1-3 yrs)",
+        "min": 1,
+        "max": 3
+      },
+      {
+        "label": "Mid-Level (3-5 yrs)",
+        "min": 3,
+        "max": 5
+      },
+      {
+        "label": "Senior (5-8 yrs)",
+        "min": 5,
+        "max": 8
+      },
+      {
+        "label": "Staff/Lead (8-12 yrs)",
+        "min": 8,
+        "max": 12
+      },
+      {
+        "label": "Principal/Director (12+ yrs)",
+        "min": 12,
+        "max": 99
+      }
+    ]
+  },
+  "stages": {
+    "india": 2547,
+    "inr": 2463,
+    "employed": 1659,
+    "dropped_unparseable_comp_or_exp": 715,
+    "comp_and_exp_ok": 944,
+    "mapped_to_family": 743,
+    "dropped_outside_hard_bounds": 78,
+    "within_hard_bounds": 665,
+    "dropped_unmapped_devtype": 201,
+    "dropped_log_trim": 3,
+    "kept": 662
+  },
+  "india_employment_values": {
+    "Employed": 1698,
+    "Student": 453,
+    "Independent contractor, freelancer, or self-employed": 238,
+    "Not employed": 126,
+    "Retired": 7,
+    "I prefer not to say": 25
+  },
+  "roles": {
+    "Backend Engineer": {
+      "count": 184,
+      "p25": 893750,
+      "p50": 2050000,
+      "p75": 4040000,
+      "p90": 6410000,
+      "share_below_300000": 0.0489,
+      "by_bracket": {
+        "Fresher (0-1 yrs)": 0,
+        "Junior (1-3 yrs)": 37,
+        "Mid-Level (3-5 yrs)": 39,
+        "Senior (5-8 yrs)": 33,
+        "Staff/Lead (8-12 yrs)": 43,
+        "Principal/Director (12+ yrs)": 32
+      }
+    },
+    "Data Engineer": {
+      "count": 25,
+      "p25": 800000,
+      "p50": 2400000,
+      "p75": 3200000,
+      "p90": 5740000,
+      "share_below_300000": 0.0,
+      "by_bracket": {
+        "Fresher (0-1 yrs)": 0,
+        "Junior (1-3 yrs)": 6,
+        "Mid-Level (3-5 yrs)": 5,
+        "Senior (5-8 yrs)": 2,
+        "Staff/Lead (8-12 yrs)": 7,
+        "Principal/Director (12+ yrs)": 5
+      }
+    },
+    "Data Scientist": {
+      "count": 31,
+      "p25": 732000,
+      "p50": 1500000,
+      "p75": 2500000,
+      "p90": 3350000,
+      "share_below_300000": 0.0,
+      "by_bracket": {
+        "Fresher (0-1 yrs)": 0,
+        "Junior (1-3 yrs)": 10,
+        "Mid-Level (3-5 yrs)": 9,
+        "Senior (5-8 yrs)": 7,
+        "Staff/Lead (8-12 yrs)": 2,
+        "Principal/Director (12+ yrs)": 3
+      }
+    },
+    "DevOps Engineer": {
+      "count": 27,
+      "p25": 1150000,
+      "p50": 2100000,
+      "p75": 4075000,
+      "p90": 5240000,
+      "share_below_300000": 0.0,
+      "by_bracket": {
+        "Fresher (0-1 yrs)": 0,
+        "Junior (1-3 yrs)": 3,
+        "Mid-Level (3-5 yrs)": 8,
+        "Senior (5-8 yrs)": 5,
+        "Staff/Lead (8-12 yrs)": 5,
+        "Principal/Director (12+ yrs)": 6
+      }
+    },
+    "Engineering Manager": {
+      "count": 22,
+      "p25": 3775000,
+      "p50": 4700000,
+      "p75": 6375000,
+      "p90": 7400000,
+      "share_below_300000": 0.0,
+      "by_bracket": {
+        "Fresher (0-1 yrs)": 0,
+        "Junior (1-3 yrs)": 0,
+        "Mid-Level (3-5 yrs)": 0,
+        "Senior (5-8 yrs)": 2,
+        "Staff/Lead (8-12 yrs)": 6,
+        "Principal/Director (12+ yrs)": 14
+      }
+    },
+    "Frontend Engineer": {
+      "count": 62,
+      "p25": 562500,
+      "p50": 1075000,
+      "p75": 2500000,
+      "p90": 4300000,
+      "share_below_300000": 0.0806,
+      "by_bracket": {
+        "Fresher (0-1 yrs)": 0,
+        "Junior (1-3 yrs)": 19,
+        "Mid-Level (3-5 yrs)": 12,
+        "Senior (5-8 yrs)": 10,
+        "Staff/Lead (8-12 yrs)": 13,
+        "Principal/Director (12+ yrs)": 8
+      }
+    },
+    "Full Stack Engineer": {
+      "count": 269,
+      "p25": 600000,
+      "p50": 1260000,
+      "p75": 2525000,
+      "p90": 4300000,
+      "share_below_300000": 0.0595,
+      "by_bracket": {
+        "Fresher (0-1 yrs)": 0,
+        "Junior (1-3 yrs)": 60,
+        "Mid-Level (3-5 yrs)": 70,
+        "Senior (5-8 yrs)": 54,
+        "Staff/Lead (8-12 yrs)": 51,
+        "Principal/Director (12+ yrs)": 34
+      }
+    },
+    "Mobile Engineer": {
+      "count": 42,
+      "p25": 606000,
+      "p50": 900000,
+      "p75": 2150000,
+      "p90": 3920000,
+      "share_below_300000": 0.0238,
+      "by_bracket": {
+        "Fresher (0-1 yrs)": 0,
+        "Junior (1-3 yrs)": 7,
+        "Mid-Level (3-5 yrs)": 13,
+        "Senior (5-8 yrs)": 10,
+        "Staff/Lead (8-12 yrs)": 8,
+        "Principal/Director (12+ yrs)": 4
+      }
+    }
+  }
+}

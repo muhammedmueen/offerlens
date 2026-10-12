@@ -1,0 +1,663 @@
+source_row_id,role,experience_years,ctc
+134,Full Stack Engineer,4,1730000
+268,Backend Engineer,13,6800000
+299,Full Stack Engineer,1,1000000
+364,Data Engineer,3,800000
+419,Full Stack Engineer,12,10000000
+741,Full Stack Engineer,6,800000
+776,Backend Engineer,10,3500000
+902,Backend Engineer,2,615000
+931,Frontend Engineer,1,420000
+969,Full Stack Engineer,3,1200000
+1061,Full Stack Engineer,4,444000
+1113,Full Stack Engineer,5,1050000
+1247,Full Stack Engineer,6,2500000
+1319,Full Stack Engineer,4,864000
+1343,Engineering Manager,13,6000000
+1403,Engineering Manager,34,2500000
+1456,Full Stack Engineer,12,3500000
+1491,Engineering Manager,7,4500000
+1583,Backend Engineer,10,1300000
+1606,Full Stack Engineer,14,2530000
+1636,Data Engineer,8,3000000
+1707,Backend Engineer,6,1300000
+1861,Backend Engineer,11,3400000
+1875,Backend Engineer,1,650000
+2053,Backend Engineer,4,820000
+2121,Full Stack Engineer,7,1400000
+3066,Backend Engineer,4,1500000
+3181,Backend Engineer,10,10000000
+3340,Frontend Engineer,10,600000
+3344,Backend Engineer,3,2400000
+3411,Full Stack Engineer,6,10000000
+3436,Data Scientist,6,900000
+3445,Full Stack Engineer,11,10000000
+3479,Backend Engineer,7,2900000
+3488,Backend Engineer,7,3400000
+3491,Mobile Engineer,8,624000
+3508,DevOps Engineer,4,1320000
+3520,Frontend Engineer,13,4300000
+3523,Frontend Engineer,15,3200000
+3531,Full Stack Engineer,10,3000000
+3539,Data Scientist,4,700000
+3561,Full Stack Engineer,1,600000
+3594,Mobile Engineer,25,154200
+3596,Full Stack Engineer,10,2100000
+3620,Frontend Engineer,10,6500000
+3641,Mobile Engineer,3,1000000
+3644,Backend Engineer,9,2300000
+3648,Full Stack Engineer,3,2300000
+3651,Full Stack Engineer,5,1200000
+3701,Backend Engineer,12,1700000
+3712,Mobile Engineer,10,900000
+3758,Engineering Manager,9,3700000
+3788,Backend Engineer,6,500000
+3797,Full Stack Engineer,8,2640000
+4015,Full Stack Engineer,8,1200000
+4056,Frontend Engineer,1,600000
+4077,Data Engineer,11,2700000
+4087,Backend Engineer,3,2100000
+4134,Backend Engineer,3,1300000
+4311,Engineering Manager,13,4500000
+4324,Backend Engineer,6,653000
+4346,Backend Engineer,1,400000
+4360,Full Stack Engineer,14,2700000
+4384,Backend Engineer,9,1200000
+4393,Backend Engineer,8,4000000
+4528,Backend Engineer,3,500000
+4608,Backend Engineer,2,450000
+4617,Full Stack Engineer,7,1200000
+4653,Full Stack Engineer,12,5000000
+4690,Full Stack Engineer,4,1100000
+4716,Backend Engineer,9,6000000
+4720,Mobile Engineer,7,1700000
+5014,Full Stack Engineer,14,9000000
+5140,Backend Engineer,10,2700000
+5301,Full Stack Engineer,2,1120000
+5460,Full Stack Engineer,5,6000000
+5475,Full Stack Engineer,4,200000
+5627,Full Stack Engineer,12,6000000
+5664,Mobile Engineer,4,1200000
+5863,Full Stack Engineer,3,1100000
+5881,Full Stack Engineer,2,144000
+5903,Full Stack Engineer,11,500000
+5912,Mobile Engineer,3,400000
+5943,Backend Engineer,13,1500000
+5951,Full Stack Engineer,4,300000
+5952,Full Stack Engineer,4,2350000
+5967,DevOps Engineer,5,3750000
+5988,Full Stack Engineer,6,650000
+6009,Frontend Engineer,8,1800000
+6047,DevOps Engineer,3,5000000
+6148,Full Stack Engineer,14,2000000
+6206,Backend Engineer,6,2561000
+6257,Full Stack Engineer,13,2800000
+6311,Backend Engineer,20,5300000
+6341,Backend Engineer,8,2500000
+6358,Backend Engineer,3,3000000
+6392,Backend Engineer,4,1800000
+6549,Backend Engineer,3,858000
+6673,Backend Engineer,5,8900000
+6765,Data Scientist,16,3200000
+6863,Full Stack Engineer,12,4300000
+6876,Full Stack Engineer,5,600000
+6911,Frontend Engineer,2,360000
+6916,Full Stack Engineer,8,1400000
+6965,Data Engineer,15,2000000
+6966,Data Engineer,1,450000
+7709,Mobile Engineer,2,800000
+7874,Full Stack Engineer,2,600000
+7876,Mobile Engineer,6,2500000
+8078,Backend Engineer,13,7800000
+8274,Full Stack Engineer,15,115000
+8460,Data Engineer,5,2400000
+8461,Backend Engineer,7,900000
+8492,Data Scientist,6,3000000
+8519,Mobile Engineer,3,3200000
+9322,Full Stack Engineer,3,1750000
+9343,Frontend Engineer,6,2200000
+9522,Full Stack Engineer,8,2200000
+9587,Full Stack Engineer,1,400000
+9710,Backend Engineer,4,1300000
+9848,Full Stack Engineer,6,1400000
+9884,Full Stack Engineer,4,1200000
+9891,Full Stack Engineer,10,4100000
+9995,Backend Engineer,3,1730000
+10024,Full Stack Engineer,7,2200000
+10073,Full Stack Engineer,11,800000
+10085,Full Stack Engineer,4,1800000
+10149,Frontend Engineer,9,1150000
+10207,Full Stack Engineer,3,1000000
+10249,Full Stack Engineer,5,1800000
+10316,Frontend Engineer,1,500000
+10321,DevOps Engineer,18,5600000
+10327,Backend Engineer,20,4500000
+10336,Full Stack Engineer,10,840000
+10551,Frontend Engineer,10,6500000
+10564,Data Engineer,12,4550000
+10583,Full Stack Engineer,4,1600000
+10669,Backend Engineer,9,6500000
+10740,Frontend Engineer,14,2500000
+10748,Full Stack Engineer,9,3200000
+11060,Full Stack Engineer,8,2600000
+11069,Full Stack Engineer,2,300000
+11090,Backend Engineer,3,450000
+11300,Full Stack Engineer,1,1100000
+11457,Backend Engineer,2,950000
+11614,Full Stack Engineer,3,1000000
+11626,Backend Engineer,8,2400000
+11840,Full Stack Engineer,6,240000
+11857,Full Stack Engineer,2,600000
+12318,Backend Engineer,8,1900000
+12416,Backend Engineer,17,6000000
+12435,Backend Engineer,10,900000
+12446,Data Engineer,5,1200000
+12486,Frontend Engineer,2,300000
+12589,Backend Engineer,9,1526900
+12682,Backend Engineer,24,3600000
+12720,Full Stack Engineer,3,700000
+12758,Backend Engineer,3,5000000
+12793,Mobile Engineer,12,3000000
+12839,Full Stack Engineer,4,1650000
+12846,Mobile Engineer,7,700000
+12885,Backend Engineer,10,4000000
+12913,Full Stack Engineer,4,324000
+12915,Mobile Engineer,3,1500000
+12933,Full Stack Engineer,10,1300000
+12939,Backend Engineer,5,5800000
+12942,Full Stack Engineer,2,2500000
+12966,Full Stack Engineer,2,800000
+13010,Mobile Engineer,10,1050000
+13050,Full Stack Engineer,1,500000
+13116,Full Stack Engineer,1,2200000
+13156,Full Stack Engineer,4,1000000
+13389,Backend Engineer,11,2900000
+13391,Full Stack Engineer,13,3000000
+13516,Mobile Engineer,14,4000000
+13558,Full Stack Engineer,4,3000000
+13631,Engineering Manager,11,6500000
+13749,Backend Engineer,2,321000
+14262,Mobile Engineer,3,600000
+14268,Backend Engineer,2,6000000
+14273,Backend Engineer,15,100000
+14290,Frontend Engineer,6,1200000
+14299,Frontend Engineer,12,1500000
+14322,Full Stack Engineer,8,1111000
+14324,Mobile Engineer,6,1200000
+14325,Data Scientist,4,1500000
+14347,Full Stack Engineer,12,4500000
+14397,Frontend Engineer,6,1550000
+14482,Full Stack Engineer,3,420000
+14626,Backend Engineer,10,3000000
+14683,Full Stack Engineer,8,2000000
+15099,DevOps Engineer,13,2600000
+15154,Backend Engineer,19,3000000
+15187,Full Stack Engineer,1,220000
+15239,Full Stack Engineer,8,1020000
+15296,Backend Engineer,13,1500000
+15330,Backend Engineer,3,2400000
+15405,Frontend Engineer,6,2500000
+15413,Backend Engineer,3,3000000
+15487,Full Stack Engineer,7,3680618
+15870,Frontend Engineer,6,2200000
+15929,Backend Engineer,7,4000000
+15934,Full Stack Engineer,5,1800000
+15935,Data Engineer,2,700000
+15957,Full Stack Engineer,4,600000
+15961,Data Scientist,2,1900000
+15996,Backend Engineer,8,3400000
+16062,Backend Engineer,13,120000
+16131,Mobile Engineer,5,3000000
+16376,Backend Engineer,13,4500000
+16391,Frontend Engineer,2,700000
+16399,Full Stack Engineer,10,3500000
+16441,Full Stack Engineer,2,4600000
+16452,Full Stack Engineer,1,144000
+16503,Backend Engineer,5,800000
+16544,Backend Engineer,9,7000000
+16610,Full Stack Engineer,3,2000000
+16629,Backend Engineer,14,6700000
+16679,Full Stack Engineer,2,480000
+16767,Full Stack Engineer,4,840000
+16964,Full Stack Engineer,2,432000
+17126,Frontend Engineer,8,12000000
+17153,Engineering Manager,21,5535343
+17562,Backend Engineer,22,7000000
+17584,DevOps Engineer,4,450000
+17609,Full Stack Engineer,8,1600000
+17653,Full Stack Engineer,3,600000
+17876,Full Stack Engineer,17,4300000
+17902,Mobile Engineer,2,462000
+17917,Backend Engineer,5,3075000
+17926,Frontend Engineer,7,3300000
+18054,Frontend Engineer,2,1200000
+18121,Full Stack Engineer,5,1200000
+18274,Backend Engineer,3,900000
+18340,Full Stack Engineer,2,650000
+18386,Backend Engineer,1,900000
+18614,Backend Engineer,5,7500000
+18698,Data Scientist,3,650000
+18878,DevOps Engineer,7,1067000
+19186,Full Stack Engineer,10,600000
+19269,Data Engineer,1,700000
+19344,Engineering Manager,19,3500000
+19348,Full Stack Engineer,1,360000
+19402,Backend Engineer,3,500000
+19466,Mobile Engineer,4,800000
+19485,Backend Engineer,7,5800000
+19618,Data Engineer,16,6800000
+19674,Full Stack Engineer,2,450000
+19798,Backend Engineer,20,5000000
+19824,Full Stack Engineer,7,180000
+19874,Backend Engineer,4,2200000
+20023,Backend Engineer,8,100000
+20042,Frontend Engineer,10,450000
+20048,Backend Engineer,1,300000
+20120,Full Stack Engineer,4,900000
+20151,Backend Engineer,2,730000
+20155,Full Stack Engineer,3,900000
+20195,Full Stack Engineer,8,2500000
+20209,Backend Engineer,9,2100000
+20246,Full Stack Engineer,10,1300000
+20286,Full Stack Engineer,1,250000
+20333,Full Stack Engineer,5,1000000
+20390,Mobile Engineer,3,4000000
+20397,Frontend Engineer,3,240000
+20538,Engineering Manager,11,3200000
+20754,Full Stack Engineer,10,2500000
+20782,Full Stack Engineer,7,1500000
+20956,Full Stack Engineer,20,5000000
+21055,Mobile Engineer,9,2350000
+21072,Full Stack Engineer,7,3300000
+21116,Backend Engineer,3,1500000
+21530,Full Stack Engineer,2,754000
+21584,Data Scientist,4,850000
+21589,Full Stack Engineer,10,3200000
+21612,Frontend Engineer,12,3500000
+21664,Frontend Engineer,2,700000
+21666,DevOps Engineer,4,416000
+21673,Backend Engineer,2,500000
+21792,Engineering Manager,8,2500000
+21903,Backend Engineer,16,3200000
+21978,Full Stack Engineer,3,600000
+22010,Mobile Engineer,14,4600000
+22039,Backend Engineer,8,3500000
+22078,Backend Engineer,10,2200000
+22119,Full Stack Engineer,2,400000
+22415,Backend Engineer,2,590000
+22427,DevOps Engineer,2,1800000
+22589,Backend Engineer,1,13200000
+22814,Backend Engineer,15,2000000
+23227,Backend Engineer,1,800000
+23417,Full Stack Engineer,4,1800000
+23481,Backend Engineer,8,3400000
+23484,Full Stack Engineer,4,1000000
+23516,Backend Engineer,6,1400000
+23613,Data Scientist,3,5000000
+24104,Full Stack Engineer,6,3300000
+24152,Backend Engineer,4,660000
+24453,Full Stack Engineer,3,1200000
+24712,Data Engineer,14,5000000
+24998,Full Stack Engineer,16,4000000
+25044,Frontend Engineer,2,200000
+25046,Frontend Engineer,2,1276000
+25054,Backend Engineer,2,1200000
+25099,Full Stack Engineer,3,3600000
+25178,Data Scientist,19,9000000
+25214,Full Stack Engineer,2,500000
+25244,Frontend Engineer,3,900000
+25283,Full Stack Engineer,4,500000
+25289,Full Stack Engineer,4,800000
+25318,Data Engineer,2,1400000
+25322,DevOps Engineer,3,300000
+25332,Full Stack Engineer,4,1350000
+25335,Mobile Engineer,3,516000
+25431,Frontend Engineer,8,4400000
+25521,Full Stack Engineer,5,1860000
+25524,Full Stack Engineer,5,2500000
+25606,Frontend Engineer,2,350000
+25623,Data Scientist,1,600000
+25656,Full Stack Engineer,6,27500000
+25675,Backend Engineer,2,2600000
+25708,Full Stack Engineer,1,1133159
+25745,Backend Engineer,17,4300000
+25793,Backend Engineer,9,2200000
+25805,Backend Engineer,3,1200000
+25838,Backend Engineer,10,1700000
+25856,Full Stack Engineer,4,2400000
+25916,Backend Engineer,2,276000
+26017,Backend Engineer,3,760000
+26060,DevOps Engineer,15,3400000
+26076,Frontend Engineer,1,900000
+26103,Backend Engineer,4,900000
+26138,Full Stack Engineer,3,384000
+26413,Backend Engineer,3,33000000
+26570,Data Engineer,10,6750000
+26631,Frontend Engineer,3,880000
+26637,Frontend Engineer,4,550000
+26662,Full Stack Engineer,12,1600000
+26851,Data Scientist,2,1600000
+26864,Full Stack Engineer,6,1425000
+26871,Backend Engineer,13,4800000
+26892,Full Stack Engineer,11,3800000
+26920,Full Stack Engineer,8,3400000
+26940,Full Stack Engineer,3,300000
+26945,Full Stack Engineer,5,1760000
+27065,Full Stack Engineer,6,1750000
+27109,Full Stack Engineer,4,15000000
+27111,Full Stack Engineer,13,3000000
+27115,Engineering Manager,9,1600000
+27127,Backend Engineer,12,1700000
+27135,Full Stack Engineer,5,1100000
+27213,Full Stack Engineer,10,4500000
+27224,Full Stack Engineer,14,5000000
+27241,Backend Engineer,3,2000000
+27302,DevOps Engineer,2,340000
+27317,Mobile Engineer,4,2300000
+27354,Full Stack Engineer,8,1800000
+27451,Backend Engineer,6,950000
+27491,Backend Engineer,10,5500000
+27595,Full Stack Engineer,4,600000
+27895,Data Scientist,3,370000
+27905,Backend Engineer,2,180000
+27919,DevOps Engineer,3,580000
+28039,Frontend Engineer,3,1150000
+28045,Backend Engineer,5,1500000
+28081,Full Stack Engineer,2,800000
+28140,Engineering Manager,10,4000000
+28182,Full Stack Engineer,3,624000
+28199,Full Stack Engineer,7,2500000
+28334,Full Stack Engineer,6,1300000
+28371,Full Stack Engineer,1,400000
+28459,Full Stack Engineer,2,400000
+28560,Backend Engineer,10,4558000
+28642,Backend Engineer,11,5500000
+28760,DevOps Engineer,18,4673441
+28805,Full Stack Engineer,13,2600000
+29131,Frontend Engineer,4,360000
+29201,Backend Engineer,12,3240000
+29214,Backend Engineer,14,2100000
+29241,Full Stack Engineer,6,2000000
+29259,Backend Engineer,10,10000000
+29272,Data Scientist,1,2100000
+29278,Engineering Manager,18,4900000
+29283,Backend Engineer,25,240000
+29292,Full Stack Engineer,12,4500000
+29301,Frontend Engineer,14,2500000
+29311,Data Scientist,5,3350000
+29439,Backend Engineer,9,4200000
+29443,Frontend Engineer,2,300000
+29459,Full Stack Engineer,1,1200000
+29653,Backend Engineer,3,650000
+29716,Data Engineer,10,1600000
+29738,Full Stack Engineer,7,5000000
+29822,Frontend Engineer,6,612000
+29932,Full Stack Engineer,5,144000
+30144,Frontend Engineer,11,4000000
+30260,Backend Engineer,1,1400000
+30344,Full Stack Engineer,10,8000000
+30465,Backend Engineer,1,1200000
+30713,Data Scientist,2,900000
+30737,Full Stack Engineer,18,1200000
+30775,Frontend Engineer,2,1000000
+30791,Engineering Manager,27,4000000
+30821,Backend Engineer,4,2650000
+30827,Mobile Engineer,7,500000
+30844,Full Stack Engineer,11,6000000
+30865,Mobile Engineer,11,1200000
+30913,Full Stack Engineer,2,600000
+30942,Full Stack Engineer,10,800000
+31088,Full Stack Engineer,8,630000
+31151,Full Stack Engineer,3,450000
+31366,Full Stack Engineer,2,300000
+31385,Full Stack Engineer,8,2100000
+31434,Backend Engineer,2,520000
+31458,Frontend Engineer,13,2500000
+31596,Data Scientist,5,3000000
+31672,Frontend Engineer,1,400000
+31678,Data Engineer,3,1500000
+31816,DevOps Engineer,9,1700000
+31851,Full Stack Engineer,14,5500000
+31855,Full Stack Engineer,1,300000
+31910,Backend Engineer,2,875000
+32177,Mobile Engineer,5,900000
+32201,Full Stack Engineer,15,4000000
+32311,Frontend Engineer,8,3300000
+32326,Frontend Engineer,3,500000
+32331,Data Scientist,11,6000000
+32342,Full Stack Engineer,7,1200000
+32400,Data Scientist,5,2900000
+32478,Full Stack Engineer,4,700000
+32521,Data Scientist,5,1680000
+32522,Backend Engineer,7,5950000
+32523,Full Stack Engineer,1,600000
+32643,Frontend Engineer,1,600000
+32674,Full Stack Engineer,12,1272000
+32787,Full Stack Engineer,3,840000
+32840,Engineering Manager,18,5500000
+33045,Frontend Engineer,7,4000000
+33229,Full Stack Engineer,3,1250000
+33239,Data Scientist,1,400000
+33287,Full Stack Engineer,2,1200000
+33391,Mobile Engineer,10,1500000
+33425,Backend Engineer,4,1800000
+33429,Backend Engineer,15,4160000
+33433,Frontend Engineer,7,3000000
+33465,Full Stack Engineer,3,600000
+33474,DevOps Engineer,14,2630000
+33642,Backend Engineer,2,400000
+33709,Backend Engineer,7,1100000
+33764,Full Stack Engineer,5,1700000
+33774,Full Stack Engineer,7,1400000
+33776,Engineering Manager,18,4000000
+33864,Full Stack Engineer,9,8000000
+34162,Data Engineer,10,5500000
+34166,Full Stack Engineer,4,450000
+34216,Full Stack Engineer,5,2200000
+34227,Full Stack Engineer,13,1310000
+34258,Backend Engineer,10,5000000
+34307,Full Stack Engineer,2,700000
+34314,Backend Engineer,2,700000
+34376,Mobile Engineer,1,800000
+34450,Frontend Engineer,7,150000
+34558,Full Stack Engineer,4,1000000
+34565,Backend Engineer,1,540000
+34604,Full Stack Engineer,4,720000
+34695,Backend Engineer,2,900000
+34710,Full Stack Engineer,9,1350000
+34909,Full Stack Engineer,2,400000
+35077,Frontend Engineer,1,120000
+35125,Backend Engineer,6,7900000
+35438,Full Stack Engineer,8,2600000
+35553,Full Stack Engineer,10,100000
+35603,Full Stack Engineer,7,5000000
+35713,Backend Engineer,6,2200000
+35759,Full Stack Engineer,4,700000
+35762,Full Stack Engineer,19,1200000
+35774,Backend Engineer,3,400000
+35778,Mobile Engineer,1,360000
+35821,Full Stack Engineer,2,1182000
+35891,Mobile Engineer,4,650000
+35974,Full Stack Engineer,6,1400000
+35986,Backend Engineer,17,3600000
+36002,Full Stack Engineer,1,400000
+36050,Backend Engineer,7,3700000
+36102,Full Stack Engineer,10,2530000
+36156,Backend Engineer,1,250000
+36200,Full Stack Engineer,15,14000000
+36278,Backend Engineer,5,2500000
+36325,Full Stack Engineer,10,2000000
+36438,Data Scientist,3,1500000
+36443,Backend Engineer,20,2600000
+36545,Backend Engineer,2,700000
+36558,Mobile Engineer,11,5000000
+36743,Backend Engineer,4,700000
+36797,Data Scientist,2,400000
+36841,Full Stack Engineer,10,1300000
+36849,Backend Engineer,1,480000
+36853,Backend Engineer,10,16000000
+36953,Full Stack Engineer,3,500000
+37014,Backend Engineer,5,800000
+37029,Backend Engineer,6,2200000
+37105,Full Stack Engineer,1,240000
+37151,Backend Engineer,1,1600000
+37287,Full Stack Engineer,22,5100000
+37324,Full Stack Engineer,1,500000
+37364,DevOps Engineer,6,2100000
+37388,Backend Engineer,12,2300000
+37500,Frontend Engineer,11,4300000
+37503,Backend Engineer,1,3100000
+37511,Backend Engineer,6,1000000
+37569,Data Scientist,1,1000000
+37689,Full Stack Engineer,2,900000
+37831,Full Stack Engineer,4,740000
+37869,DevOps Engineer,3,3000000
+37903,Mobile Engineer,5,600000
+37921,Full Stack Engineer,1,480000
+37925,Backend Engineer,3,1000000
+38069,Backend Engineer,2,1500000
+38087,Full Stack Engineer,2,600000
+38112,Full Stack Engineer,1,420000
+38134,Data Engineer,14,2800000
+38169,Full Stack Engineer,6,1700000
+38186,Engineering Manager,13,6500000
+38195,Full Stack Engineer,11,1350000
+38245,Full Stack Engineer,5,1500000
+38289,Full Stack Engineer,6,1800000
+38294,Data Scientist,5,1600000
+38516,Full Stack Engineer,6,2200000
+38603,Backend Engineer,6,1000000
+38643,Full Stack Engineer,1,2600000
+38786,DevOps Engineer,10,5700000
+38794,Mobile Engineer,8,4000000
+39036,Backend Engineer,3,240000
+39389,Full Stack Engineer,2,300000
+39412,Backend Engineer,22,5700000
+39431,DevOps Engineer,7,4900000
+39442,Backend Engineer,9,500000
+39484,Backend Engineer,10,4200000
+39719,Full Stack Engineer,1,1800000
+39825,Full Stack Engineer,15,3000000
+39835,Mobile Engineer,4,800000
+39893,Full Stack Engineer,4,500000
+39915,Data Engineer,9,5900000
+39936,Full Stack Engineer,3,800000
+40111,Frontend Engineer,10,2400000
+40175,Backend Engineer,4,1500000
+40438,Data Engineer,4,800000
+40545,Mobile Engineer,4,1000000
+40570,Backend Engineer,4,920000
+40599,Full Stack Engineer,3,550000
+40649,Full Stack Engineer,3,1450000
+40673,Backend Engineer,8,4500000
+40763,Full Stack Engineer,5,9000000
+40830,Full Stack Engineer,1,1750000
+41388,Engineering Manager,15,9000000
+41390,Engineering Manager,12,10200000
+41428,Backend Engineer,2,1300000
+41444,Mobile Engineer,2,400000
+41483,Backend Engineer,1,340000
+41501,Full Stack Engineer,10,3500000
+41567,Backend Engineer,4,2456300
+41577,Full Stack Engineer,7,1260000
+41718,Full Stack Engineer,2,470000
+41728,Full Stack Engineer,5,4000000
+41743,Frontend Engineer,4,614000
+41756,Full Stack Engineer,1,400000
+41859,Engineering Manager,13,6500000
+41873,Backend Engineer,3,900000
+41956,DevOps Engineer,1,1100000
+41961,Full Stack Engineer,10,980000
+42163,Full Stack Engineer,4,1400000
+42393,Mobile Engineer,2,600000
+42473,Data Engineer,11,3000000
+42511,Backend Engineer,4,800000
+42518,Mobile Engineer,6,900000
+42638,Full Stack Engineer,3,100000
+42710,Full Stack Engineer,4,180000
+42744,Backend Engineer,9,3700000
+42753,Frontend Engineer,3,1200000
+42864,Full Stack Engineer,4,700000
+42910,Frontend Engineer,1,700000
+42974,Full Stack Engineer,4,720000
+43010,Frontend Engineer,1,120000
+43082,Backend Engineer,1,240000
+43090,Data Engineer,1,3200000
+43135,Full Stack Engineer,4,3500000
+43153,DevOps Engineer,5,1400000
+43197,Full Stack Engineer,8,4500000
+43207,Full Stack Engineer,7,3100000
+43240,Backend Engineer,7,3600000
+43246,Data Engineer,4,2900000
+43428,Full Stack Engineer,3,3500000
+43441,Full Stack Engineer,11,3825000
+43454,Backend Engineer,4,2000000
+43464,Full Stack Engineer,7,5500000
+43470,Engineering Manager,7,5000000
+43509,Data Scientist,2,330000
+43510,Frontend Engineer,11,5000000
+43578,Full Stack Engineer,16,3900000
+43728,Full Stack Engineer,10,400000
+43835,Full Stack Engineer,5,1600000
+44011,DevOps Engineer,4,1800000
+44105,Full Stack Engineer,11,2200000
+44502,Full Stack Engineer,2,1950000
+44530,Full Stack Engineer,5,2525000
+44532,Frontend Engineer,4,900000
+44569,Data Scientist,3,764000
+44640,DevOps Engineer,9,4150000
+44691,Backend Engineer,10,1900000
+44878,Backend Engineer,8,4600000
+44902,Backend Engineer,2,700000
+45001,Backend Engineer,3,6000000
+45190,Full Stack Engineer,2,240000
+45680,Full Stack Engineer,9,3000000
+45694,Backend Engineer,18,2500000
+45794,Data Scientist,4,1600000
+45917,Backend Engineer,12,7700000
+45919,Full Stack Engineer,15,1100000
+45977,Data Scientist,10,1200000
+46014,Full Stack Engineer,12,2800000
+46052,Full Stack Engineer,9,2750000
+46059,Full Stack Engineer,1,160000
+46060,Full Stack Engineer,3,800000
+46085,Backend Engineer,5,1500000
+46091,Data Scientist,14,1000000
+46158,Backend Engineer,8,7000000
+46161,Frontend Engineer,12,5900000
+46234,Full Stack Engineer,2,2000000
+46370,Backend Engineer,10,5000000
+46375,Backend Engineer,8,18000000
+46423,Backend Engineer,5,9000000
+46457,Data Scientist,1,500000
+46468,DevOps Engineer,8,1200000
+46469,Full Stack Engineer,2,350000
+46554,Full Stack Engineer,9,600000
+46769,Mobile Engineer,1,380000
+46852,Full Stack Engineer,2,1000000
+46969,Full Stack Engineer,5,900000
+47034,Data Engineer,3,450000
+47166,Engineering Manager,17,7500000
+47263,Full Stack Engineer,1,450000
+47332,Full Stack Engineer,5,1600000
+47516,Backend Engineer,6,580000
+47662,Frontend Engineer,3,600000
+47751,Full Stack Engineer,3,600000
+47852,Full Stack Engineer,3,3000000
+47903,Full Stack Engineer,1,300000
+48092,Mobile Engineer,7,650000
+48318,Backend Engineer,12,6500000
+48362,DevOps Engineer,11,4000000
+48466,DevOps Engineer,14,8100000
+48530,Full Stack Engineer,3,700000
+48564,Frontend Engineer,3,600000
+48590,Full Stack Engineer,2,250000
+48616,Full Stack Engineer,15,800000
+48712,Backend Engineer,1,400000
+48713,Backend Engineer,7,6200000
+48856,Full Stack Engineer,6,1700000
+48952,Backend Engineer,6,4800000
+49011,Full Stack Engineer,4,1323000
+49046,Full Stack Engineer,4,1120000
+49142,Data Engineer,1,750000
+49156,Full Stack Engineer,8,2900000

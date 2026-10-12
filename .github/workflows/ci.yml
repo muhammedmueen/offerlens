@@ -90,6 +90,12 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/offerlens_test
 
+      # Proves the committed data/so-2025-india CSV passes the loader validation and the table CHECKs.
+      - name: Load salary reference rows
+        run: npm run db:load-reference
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/offerlens_test
+
   frontend:
     name: Frontend — typecheck, lint, build
     runs-on: ubuntu-latest

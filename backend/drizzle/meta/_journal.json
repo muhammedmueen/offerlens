@@ -43,6 +43,13 @@
       "when": 1791715325755,
       "tag": "0005_anonymise_salary_submissions",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791797561443,
+      "tag": "0006_salary_reference_rows",
+      "breakpoints": true
     }
   ]
 }
