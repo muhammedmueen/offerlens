@@ -75,6 +75,12 @@ Error:
 - `role`: Job role (required)
 - `city`: City location (required)
 
+Rate limit: 30/min. With enough data the response holds `count`, `dataSource` (`crowdsourced` or
+`public_survey`), `scope` (`role_city`, `role_experience_national`, `role_national`), `role`, `city`,
+`locationUsed`, `p25`, `p50`, `p75`, `p90`. Otherwise `dataSource` is `null`, `data` is `null` and `count`
+is the number of crowdsourced submissions so far. `public_survey` is a modelled, India-wide benchmark from
+the Stack Overflow Developer Survey 2025 (ODbL), not offers in the requested city.
+
 ## 5. Forum (`/forum`)
 
 | Method | Endpoint | Description | Auth Required |

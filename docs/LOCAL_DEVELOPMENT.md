@@ -116,6 +116,7 @@ cd backend
 npm install
 npm run db:migrate     # build the schema
 npm run db:seed        # roles, cities, experience levels
+npm run db:load-reference  # Stack Overflow 2025 India salary rows (data/so-2025-india); safe to re-run
 ```
 
 > [!WARNING]
@@ -372,11 +373,13 @@ being a black box.
 **"How this score was reached"** — five rows, each with its own 0-100 mark, the weight
 applied, and a reason.
 
-- The weights should read 30 / 30 / 20 / 20 / 10 only when salary was scored. With no
-  verified submissions for the role and city, salary shows **"not scored"** at 0%, the others
-  scale up to 43 / 29 / 14 / 14, and the header carries *"Score based on limited market
-  data"*. Both are correct; which you get depends on whether the table has ≥5 rows for that
-  role and city.
+- The weights should read 30 / 30 / 20 / 20 / 10 only when salary was scored. Salary is scored
+  from crowdsourced submissions (10 or more for the role and city) or, for an Indian metro and a
+  developer-type role, from the Stack Overflow survey (`public_survey`, medium confidence, labelled
+  "modelled from public surveys, not offers in your city"). With neither, salary shows **"not
+  scored"** at 0%, the others scale up to 43 / 29 / 14 / 14, and the header carries *"Score based
+  on limited market data"*. Both are correct; which you get depends on the role, the city and
+  whether `db:load-reference` has been run.
 - The parts should sum to the score. If they don't, something is wrong — that is asserted in
   tests, so it should not happen.
 
@@ -511,8 +514,8 @@ Things you may notice that are understood and tracked:
 
 | Behaviour | Why |
 |---|---|
-| Salary benchmarks say "estimated, not enough submissions" | Correct. Real crowdsourced data needs Phase 4 seeding |
-| Score says "Score based on limited market data" | Follows from the above. With no verified submissions for the role and city, salary is not scored and its 30 points are redistributed across the other four components — see "How this score was reached" on the results page |
+| Salary benchmarks say "estimated, not enough submissions" | Correct for an uncovered role or city, or if `npm run db:load-reference` was not run. Covered metros and developer roles get the India-wide survey benchmark instead |
+| Score says "Score based on limited market data" | Follows from the above. With no benchmark that has enough data (10 crowdsourced rows or a survey cell), salary is not scored and its 30 points are redistributed across the other four components — see "How this score was reached" on the results page |
 | Scores moved after task 10 | Expected. The old formula started every offer at 70 and nudged; the rubric builds the score from five weighted components instead. Flag-heavy offers score lower, and featureless ones no longer start at "good" |
 | An analysis completed but a whole section is missing | Task 15. The deterministic stages after the AI call — benefits checklist, take-home — now degrade to absent rather than failing the analysis, so a bug in one of them no longer throws away a paid-for AI call. Look for `[Stage] "..." threw and was skipped` in the worker or API log; every occurrence is a bug, not an expected condition. Red flags and the score are deliberately **not** degradable: a score missing its 30-point flag component would be wrong rather than partial |
 | A degraded analysis scored *higher* than you expected | Known consequence of the above. Unscored components are removed and their weight redistributed, not scored as zero — so the components that would have pulled the score down disappear with them. Measured: a letter with the checklist forced to fail scored 90/"excellent" off red flags and transparency alone. "How this score was reached" names what was not scored, and the weights shown are the ones actually applied |
@@ -558,7 +561,7 @@ Things you may notice that are understood and tracked:
 | CORS error in the browser console | `CORS_ORIGIN` doesn't match the frontend origin exactly, scheme and port included |
 | Guest features behave oddly across tabs | Expected — identity is a per-browser cookie |
 | `db:push` hangs | Use `db:migrate`. See §4 |
-| Salary stats look stale after you submit | They shouldn't — an approved submission invalidates the cache for that role and city. If it persists, check Redis is reachable: `docker exec offerlens-redis redis-cli --scan --pattern "salary:*"`. Cache failures are deliberately silent and fall back to the database, so a broken Redis shows up as slowness, not errors |
+| Salary stats look stale after you submit | They shouldn't — an approved submission invalidates the cache for that role and city. If it persists, check Redis is reachable: `docker exec offerlens-redis redis-cli --scan --pattern "salary:*"`. Cache failures are deliberately silent and fall back to the database, so a broken Redis shows up as slowness, not errors. Survey results are cached under `salary:ref:v1:*` and are not invalidated by a submission or by reloading the data: after `db:load-reference`, list them with `docker exec offerlens-redis redis-cli --scan --pattern "salary:ref:v1:*"` and `DEL` each key, or wait out the 1-hour TTL |
 | `ECONNRESET` mid-test | `tsx watch` restarted from a stray keystroke. See §6 |
 | Analysis fails with a rate-limit message | Gemini free-tier quota. Wait, set a different key, or switch provider with `AI_PROVIDER` |
 | Log says "using MockAiProvider" | No key for the selected `AI_PROVIDER`. Responses are canned sample data |
@@ -573,7 +576,7 @@ Things you may notice that are understood and tracked:
 cd backend
 docker compose down -v      # deletes all data
 docker compose up -d
-npm run db:migrate && npm run db:seed
+npm run db:migrate && npm run db:seed && npm run db:load-reference
 ```
 
 ---

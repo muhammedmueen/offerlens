@@ -54,6 +54,15 @@ docker-compose up -d
    npm run db:seed
    \`\`\`
 
+   **Salary reference data** (Stack Overflow Developer Survey 2025, India, ODbL):
+   \`\`\`bash
+   npm run db:load-reference
+   \`\`\`
+   **Pre-deploy gate:** do not load this into a deployed database until the repository is public
+   and the dataset link shown beside every survey benchmark resolves, and until the service-account
+   key found in git history (follow-up F1 in the plan) has been resolved. The attribution and the
+   published `data/so-2025-india/` file are the licence obligations.
+
 4. **Start Development Server**:
    \`\`\`bash
    npm run dev

@@ -345,14 +345,29 @@ Stored in `analyses.salary_comparison`:
 ```typescript
 {
   marketRange: { p25: number; p50: number; p75: number; p90: number };
-  offerPercentile: number;      // 0-100
+  offerPercentile: number | null; // 0-100; null when the letter states no CTC
   roleUsed: string;             // "Software Engineer"
   roleMatchConfidence: number;  // 0.0-1.0
-  locationUsed: string;         // "Bangalore, India"
-  dataSource: "ai_estimated" | "crowdsourced";
+  locationUsed: string;         // "Bangalore, India", or "India (national)" for public_survey
+  dataSource: "ai_estimated" | "crowdsourced" | "public_survey";
   disclaimer: string | null;    // "City-level data unavailable..."
+  // Optional, set when a real benchmark was used:
+  sampleSize?: number;
+  benchmarkScope?: "role_city" | "role_experience_national" | "role_national";
+  experienceBracket?: string;
 }
 ```
+
+`public_survey` is modelled from the Stack Overflow Developer Survey 2025 (India, ODbL) and is read
+from `salary_reference_rows`, a separate table from `salary_submissions`. The two are never pooled.
+Each row there holds `source`, `source_version`, `source_row_id`, `licence`, `collected_at`, `role`
+(a seed label), `city` (NULL = national), `experience_years`, `ctc` (annual INR), nullable
+`company_type` / `company_size`, `weight` and `created_at`; unique on
+`(source, source_version, source_row_id)`, indexed on `(source, role, experience_years)`. It has no
+user, guest or fingerprint column. Loaded by `npm run db:load-reference`.
+
+In `scoreBreakdown.components`, the salary component may carry
+`basis: { source, scope }`. Comparisons rank salary only when two offers share a basis.
 
 ### Negotiation Suggestions (JSONB)
 

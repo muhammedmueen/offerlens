@@ -13,6 +13,26 @@
 > weighted rubric that shows its arithmetic, and every downstream feature reads real values. 443
 > backend tests. What remains is turning it into a business — see Tiers 1 and 2.
 
+> [!IMPORTANT]
+> **Project status (decided 2026-10-11): personal / portfolio project, deployed to validate the
+> idea — not a SaaS.** Plans and pricing in the UI are **display only**, there to show the thing
+> was built; no money changes hands. This reframes several assumptions baked into the phases below:
+>
+> - **"Commercial use" licence worries relax.** The product is non-commercial for now, so a source
+>   that is *free for non-commercial use* is usable. This is what revives **PLFS** (see 5.1).
+> - **Phase 6 payment work (6.1) is parked indefinitely** — there is nothing to charge for. The
+>   fake plans/pricing stay as display.
+> - **Phase 7 (admin / superadmin / dashboards) stays deferred** — it already was, until real-user
+>   triggers fire. `psql` covers the one operator.
+> - **The validation bet:** ship it, see if users engage and give good feedback, and *then* decide
+>   whether to pursue SaaS.
+>
+> **If this ever flips to SaaS, the non-commercial relaxation reverses.** Specifically: PLFS (if
+> non-commercial-only) must be removed or re-licensed; payment work (6.1) and admin ops (Phase 7)
+> re-enter scope; and the ODbL attribution + separate-table discipline (already required below for
+> the share-alike reason) must have been kept from day one. Keeping seeded data in its own table
+> makes "pull PLFS out later" a table drop, not surgery.
+
 ---
 
 ## Verified State (2026-09-09)
@@ -437,7 +457,7 @@ graph TD
 - **Fuzzy role matching**: synonym map (`"SDE" ≈ "Software Engineer" ≈ "Software Developer"`)
 - **Experience-level filtering**: filter salary submissions by experience bracket, not just role+city
 - **Redis caching**: `salary:{role}:{city}` key, 1-hour TTL
-- **Minimum sample size**: `n ≥ 10` (raised from 5 for noise resistance)
+- **Minimum sample size**: `n ≥ 10` (raised from 5 for noise resistance). *Code now matches: `MIN_SAMPLE_SIZE` is 10 since Phase 5 Phase A.*
 - Add `dataSource` + `sampleSize` + `dataRecency` fields for UI transparency
 - Seed DB with public salary data for bootstrapping
 
@@ -710,8 +730,8 @@ than a theme list plus a separate priority list.
 | Phase | Scope | Gate |
 |---|---|---|
 | **4 — Launch Blockers** | Usage ledger, plan limits, three untrue privacy promises, one smoke spec | 4.1–4.8 ✅ done. Phase 4 is complete |
-| **5 — Salary Data** | Seed benchmarks, then fuzzy matching, outlier rejection, contribution prompt | All of it behind 5.1: which dataset, and does its licence allow commercial use |
-| **6 — Revenue & Compliance** | Payments, retention policy, correction loop, scanned-PDF OCR | Pricing; and 6.4 needs Cloud Vision billing |
+| **5 — Salary Data** | Seed benchmarks, then fuzzy matching, outlier rejection, contribution prompt | 5.1 Phase A ✅, 5.2 ✅, 5.3 ✅ (see "Phase 5 Phase A outcome"). Open: 5.1 Phase B (PLFS city factors), 5.4, 5.5 |
+| **6 — Revenue & Compliance** | ~~Payments~~ (parked), retention policy, correction loop, scanned-PDF OCR | 6.1 parked (non-commercial); 6.4 needs Cloud Vision billing |
 | **7 — Operations** | Admin auth hardening, superadmin, dashboards | One of the Phase 7 triggers firing |
 
 **4.1 through 4.8 are done** (see the Phase 4 outcome sections). Cost history lives in
@@ -779,8 +799,8 @@ forward references to numbers that were going to move.
 | **2** | Rule engine, tax calculator, rubric, confidence, cache | ✅ Done, 6 tasks |
 | **3** | Pipeline refactor, reliability, comparison, OCR | ✅ **Closed.** Rounds 1-5 shipped 7 tasks plus half of 21c; 3 items dropped and the rest promoted into Phases 4-6 |
 | **4** | **Launch blockers** — usage ledger, plan limits, privacy promises, smoke spec | ✅ Done, 8 tasks (4.1–4.8). The results-page Compare finding was fixed in the follow-up |
-| **5** | Salary data — seeding, matching, integrity | ⬜ All behind 5.1, a dataset licence decision |
-| **6** | Revenue & compliance — payments, retention, corrections, scanned PDFs | ⬜ Not urgent while there are no users |
+| **5** | Salary data — seeding, matching, integrity | 🟡 Phase A built: 5.1 Phase A, 5.2, 5.3 done. Phase B (PLFS), 5.4, 5.5 open |
+| **6** | Revenue & compliance — ~~payments~~, retention, corrections, scanned PDFs | ⬜ 6.1 parked (non-commercial); rest not urgent while there are no users |
 | **7** | Operations — admin auth, superadmin, dashboards | ⏸ Deliberately deferred until a trigger fires |
 
 Phases -1 through 3 made the analysis correct and the pipeline survivable. **Phases 4 through 7 are
@@ -1289,9 +1309,11 @@ crosses the sample threshold, which is the one case where staleness is actively 
 
 > [!NOTE]
 > **Honest about the size of this one.** With 17 rows the saved query is trivial, and the code says
-> so rather than dressing it up. What it buys: `GET /salaries/stats` is public and rate-limited at
-> 30/min, so it was a cheap way for a stranger to make the database work — and the path is ready
-> for the Phase 4 seeded dataset without revisiting.
+> so rather than dressing it up. What it buys: `GET /salaries/stats` is public, so it was a cheap
+> way for a stranger to make the database work — and the path is ready for the Phase 4 seeded
+> dataset without revisiting. *(Correction: this said "rate-limited at 30/min", which was not true
+> at the time — only the global 100/min applied. The 30/min per-route limit was added in Phase 5
+> Phase A, task B0.)*
 
 Verified live: cache flushed → first read created the key with `ttl 3599` → second read served the
 same answer → a submission invalidated it.
@@ -2777,15 +2799,16 @@ untracked work. Small ones can ride along with 4.5–4.8.
 
 | # | Task | Impact |
 |---|------|--------|
-| 5.1 | **Seed the salary DB from public datasets** | Bootstrap benchmarks — **the gate for everything below** |
-| 5.2 | Fuzzy role matching (synonym map) | Better matches against real submissions |
-| 5.3 | Poisoning protection — 3σ outlier rejection, recency weighting | Data integrity |
+| 5.1 | **Seed the salary DB from public datasets** | Bootstrap benchmarks — **the gate for everything below**. ✅ **Phase A done** (Stack Overflow, national). ⬜ Phase B (PLFS city factors) open |
+| 5.2 | ✅ Fuzzy role matching (synonym map) | Better matches against real submissions — see the Phase A outcome |
+| 5.3 | ✅ Poisoning protection — 3σ outlier rejection, recency weighting | Data integrity — see the Phase A outcome |
 | 5.4 | Post-analysis contribution prompt | Grows the crowdsourced set |
 | 5.5 | Career path salary progression | The half of the old task 20 that needs benchmarks |
 
 > [!NOTE]
-> **5.1 is blocked on a product decision, not on engineering:** which public salary dataset, and
-> whether its licence permits commercial use.
+> **5.1 was blocked on a product decision, not on engineering:** which public salary dataset, and
+> whether its licence permits commercial use. **Decided 2026-10-11** — see "5.1 decision &
+> approach" below. The gate is now open for a Stack-Overflow-only Phase A.
 >
 > Everything else here waits behind it — 5.2 has nothing to match and 5.3 has nothing to reject
 > while the table is empty. The consequence is visible on **every** analysis: the rubric
@@ -2794,20 +2817,343 @@ untracked work. Small ones can ride along with 4.5–4.8.
 >
 > This single decision unblocks roughly a third of the remaining plan.
 
+#### 5.1 decision & approach (2026-10-11)
+
+Full research: `.agents/tasks/salary-dataset-5.1-research.md`. Findings in one line: **no open
+dataset is both commercially licensed and good at Indian tech offers by role × city × experience.**
+The two usable sources each hold half of what the benchmark needs.
+
+| Source | Gives | Missing | Licence / cost |
+|---|---|---|---|
+| **Stack Overflow Developer Survey 2025** (India, INR) | role × experience, individual rows | **city** | ODbL 1.0 — free for any use (incl. commercial); obliges attribution + publishing the derived file |
+| **PLFS unit-level** (MoSPI) | **city** (district) | role granularity, experience, CTC (reports monthly cash pay) | Reportedly **free for non-commercial use** under MoSPI's 2026 guidelines — not verified at source. **Likely free for this project** (non-commercial, see Project status), fee-based only if it later goes SaaS |
+
+> [!NOTE]
+> **Reframed 2026-10-11 for the non-commercial project status.** The original research treated this
+> as a commercial product, which made PLFS a cost risk and the reason to defer it. As a personal /
+> portfolio project (see Project status at the top), PLFS is **free for non-commercial use** and so
+> moves from "deferred, cost risk" to **"pursue — likely free."** It still needs written MoSPI
+> confirmation, but the odds are now good rather than a billing unknown. The SaaS caveat still
+> applies: if the project ever charges money, PLFS must be removed or re-licensed.
+
+**Scope decision:** limit the seed to **major Indian metros only** and **common tech roles only**
+(~8 role families: full-stack, backend, frontend, mobile, data engineer, data scientist/ML,
+DevOps, engineering manager). Thin cells outside this set stay on the AI estimate.
+
+**Cost decision:** both sources are free for this project. Stack Overflow is free for any use;
+PLFS is free for non-commercial use, which covers a portfolio deployment. Neither blocks launch.
+The ODbL "publish the derived file" obligation is low-friction here — a public GitHub repo with the
+cleaned data suits a portfolio project and costs nothing.
+
+**Combine-the-two approach (small-area estimation).** Each source is used only for what it is good
+at, and never pooled into one percentile:
+
+1. **Role × experience from Stack Overflow.** Clean India INR rows (employed only, log-salary
+   outlier trim), map DevType → the ~8 role families, fit log(CTC) by role × experience bracket;
+   sparse cells borrow strength from the shared experience curve (partial pooling) while keeping
+   their own spread for p25–p90.
+2. **City factor from PLFS (Phase B only).** For urban regular-salaried software workers
+   (NCO 251/252), compute a weighted median per metro ÷ national median; shrink each factor toward
+   1.0 by sample size. Using PLFS only as a *ratio* cancels most of its CTC-vs-cash and
+   coarse-occupation problems.
+3. **Combine.** `cell_quantile = SO_quantile × city_factor` → role × city × experience →
+   p25/p50/p75/p90, each cell tagged with an effective sample size and the method used.
+
+**A model is used only for label mapping** (DevType / NCO → role families — the start of 5.2),
+**never to produce salary numbers.** All statistics run **offline** in a one-shot Python script
+(pandas + statsmodels) that writes a versioned CSV; nothing runs at request time.
+
+> [!IMPORTANT]
+> **Known ceiling (`ponytail:`):** the combination assumes the city effect is one multiplier across
+> all roles and experience levels. Acceptable for a reference benchmark; crowdsourced data corrects
+> it as it grows. Output is **modelled, not observed** — it must carry its own `dataSource`
+> (`modelled_estimate` / `public_survey`), low–medium confidence, and an explicit "modelled from
+> public surveys, not offers in your city" disclaimer. It is **not** `crowdsourced` and must not
+> reuse the worker's "verified submissions" wording.
+
+**Storage & licence guardrails (non-negotiable):**
+
+- Seeded/modelled rows live in a **separate table** (e.g. `salary_reference_rows`), never in
+  `salary_submissions`, and are **never pooled** into the same percentile as crowdsourced rows.
+  ODbL share-alike would otherwise have a credible reading that crowdsourced submissions become
+  "additional Contents" of a derivative DB and must be published — breaking the Phase 4 privacy
+  promises.
+- Lookup order: crowdsourced (role + city, n ≥ 10) → reference table (role + experience, national;
+  then role-only, national) → AI estimate.
+- Resolve the `MIN_SAMPLE_SIZE` 5-vs-10 discrepancy (code says 5, Stage 2a says 10) **before**
+  seeding — with a seed in place, 5 is too low to defend. **Decision pending** (owner Q4 below).
+- Attribution notice beside every displayed benchmark; publish the cleaned SO-derived file (or the
+  cleaning script) publicly under ODbL. This is free — it is an obligation, not a payment.
+
+**Phasing:**
+
+- **Phase A (now, free, unblocked):** offline pipeline + `salary_reference_rows` (city nullable) +
+  Stack Overflow national values for common roles + lookup wiring + `public_survey`/`modelled`
+  dataSource + disclaimer + attribution. ~4–6 dev-days. Pairs naturally with **5.4** (grow the
+  crowdsourced set — the real long-term fix for city-level data OfferLens owns and keeps private).
+- **Phase B (pursue, gated on MoSPI):** add PLFS city factors, fill metro cells. Now worth doing
+  rather than deferring, since the cost blocker likely does not apply to a non-commercial project —
+  this is what gives the benchmark real Indian city granularity. Still needs **written MoSPI
+  confirmation** that non-commercial use + redistribution of the derived aggregates is permitted.
+  Table and lookup do not change. ~1 week + licence lead time.
+
+**Open owner decisions still outstanding:**
+
+1. ~~Willing to publish the cleaned SO-derived file publicly under ODbL?~~ **Resolved** — yes,
+   trivially; a public repo suits a portfolio project.
+2. ~~Should the national/modelled benchmark **feed the score**, or be shown for reference only?~~
+   **Resolved 2026-10-11 — feed it (Option A).** A modelled percentile reaches `scoreSalary()` at
+   salary's full 30% weight, same rubric path as crowdsourced data, but tagged
+   `public_survey`/`modelled` so the UI shows the "modelled from public surveys, not offers in your
+   city" disclaimer and confidence is **medium**, not high. Rationale: a score that stays mute on
+   pay undersells the product for validation, and the disclaimer keeps it honest. Build impact is a
+   single branch — the only difference from reference-only is that the modelled percentile is passed
+   to the rubric instead of left `null`. (Real crowdsourced data always feeds the score at full
+   weight once 5.4 lands; this decision is only about the modelled path.)
+3. Should someone contact MoSPI about **non-commercial** use + redistribution of PLFS (Phase B)?
+   *(Now likely free, so worth asking.)*
+4. ~~Raise `MIN_SAMPLE_SIZE` to 10 before, or with, the seed?~~ **Resolved in Phase A — raised to 10.**
+
+> Not legal advice. Confirm ODbL obligations (and MoSPI terms, for Phase B) before shipping — and
+> re-confirm all of it against *commercial* terms if the project ever becomes SaaS.
+
+#### Phase 5 Phase A outcome — public-survey salary benchmark (5.1 Phase A, 5.2, 5.3)
+
+**Status:** 5.1 Phase A ✅, 5.2 ✅, 5.3 ✅, `MIN_SAMPLE_SIZE` 5 → 10 ✅. **Still open:** 5.1 Phase B
+(PLFS city factors), 5.4, 5.5. Design and plan: `.agents/tasks/phase5a-design.md`,
+`.agents/tasks/phase5a-plan.md`. Nothing here is committed yet at the time of writing.
+
+##### What shipped
+
+- **A new table, not new rows.** `salary_reference_rows` (migration `0006_salary_reference_rows`,
+  expand-only) holds 662 cleaned Stack Overflow Developer Survey 2025 India rows. Reference rows are
+  never inserted into `salary_submissions` and are never pooled with crowdsourced rows in one
+  percentile, array, cache key or computation.
+- **Lookup order** (`SalaryService`): crowdsourced (role + city, n ≥ 10) → survey (role family +
+  experience bracket, national, n ≥ 10) → survey (role family only, national, n ≥ 10) → AI estimate.
+  The survey tiers are gated on an Indian-metro city, an INR offer and a role that maps to one of the
+  eight reference families; otherwise the lookup falls through to the AI estimate.
+- **`dataSource: 'public_survey'`** reaches the rubric through the same `offerPercentile` argument as
+  crowdsourced data, at salary's full 30% weight (decision 2, option A). Confidence is **medium**. The
+  stored disclaimer starts "Modelled from public surveys, not offers in your city." and never says
+  "verified" or "submissions". The model cannot claim it (`MODEL_DATA_SOURCES`; the prompt fingerprint
+  is unchanged).
+- **5.2 role matching:** exact seed label → synonym table → keyword rules, with a non-tech guard
+  (`Mobile Sales Executive` is not a Mobile Engineer). City aliases map to the six seeded metros
+  (`Bengaluru, Karnataka` → `bangalore`). Experience comes from the upload form's `experienceLevel`.
+- **5.3 outlier rejection and recency:** crowdsourced values only, at request time, in log space with a
+  robust sigma (median/MAD, floor 0.05), weighted by `1 / (1 + 0.1 × months)`. Survey rows are trimmed
+  offline by the same rule and keep weight 1.
+- **Frontend:** a `BenchmarkNotice` on the Results page and the Salary Explorer. The survey branch has a
+  visible text label ("Public survey, India-wide"; the icon is `aria-hidden`), the stored disclaimer, `n
+  = X respondents`, and the ODbL attribution with real links to the survey and to
+  `https://opendatacommons.org/licenses/odbl/1-0/`, plus a link to the derived dataset. Crowdsourced and
+  AI-estimated wording is unchanged. The Explorer's "N submissions so far, a few more" sentence now
+  shows only below 10.
+- **Attribution beside every survey benchmark** (Results, Salary Explorer, PDF). The two copies of the
+  legal text (`reference-source.ts`, `attribution.ts`) are held together by a drift test.
+- **Other docs updated:** `LOCAL_DEVELOPMENT.md` (setup, reset, score and troubleshooting rows),
+  `DEPLOYMENT.md` (`db:load-reference` and the pre-deploy gate), `API_DOCUMENTATION.md` and `api-spec.md`
+  (`GET /salaries/stats` fields and the 30/min limit, `dataSource` values), `database-design.md`
+  (`salary_reference_rows`, the widened `salaryComparison` JSON and the score `basis`).
+  `backend/API_DOCUMENTATION.md` does not describe the salary endpoints, so it is unchanged.
+- **Published dataset:** `data/so-2025-india/` (`reference_rows.csv`, `build_reference.py` and its
+  tests, `build_report.json`, `README.md`) under ODbL 1.0; the repo's MIT `LICENSE` covers code only.
+- **Comparison:** two offers whose salary scores come from different sources or scopes are no longer
+  ranked as like-for-like; the "Salary vs market" row shows no winner and says why.
+
+##### Deviations from the plan (all recorded in the design, none silent)
+
+1. **Robust 3σ, not a literal mean/σ test.** With sample σ the largest possible z-score at n = 10 is
+   2.85, so a literal 3σ test cannot reject anything below n = 11. Median/MAD in log space, with a floor.
+2. **Generic titles pool four developer families** (full-stack, back-end, front-end, mobile) inside the
+   one survey source, because "Software Engineer" / "SDE-2" has no survey equivalent. This is not pooling
+   across sources. The disclaimer names the family or the four-family group.
+3. **City and currency gate.** A letter that names a non-metro city, or an offer that is not in INR, never
+   receives a national INR benchmark. The city resolver prefers a real city in the letter over the form.
+4. **Null-percentile fix.** When the letter states no CTC, the old worker fell back to the model's invented
+   percentile and scored it. The benchmark's null is now kept and salary is redistributed.
+5. **`GET /salaries/stats` now has a per-route limit of 30/min** (`salaryStats`). Earlier docs claimed
+   30/min; only the global 100/min applied.
+6. **The disclaimer prints the range that was actually queried** (`1-2 years of experience`), not the seed
+   label, because brackets are half-open (`min <= years < max`). Fresher means 0 years only.
+
+##### Commands
+
+```
+cd backend
+npm run db:migrate          # applies 0006 (never db:push)
+npm run db:load-reference   # idempotent: deletes this source+version, reinserts in one transaction
+```
+
+Rollback (dev database; confirm first on a shared one): `DROP TABLE salary_reference_rows;` **and**
+`DELETE FROM drizzle.__drizzle_migrations WHERE created_at = 1791797561443;` (the `when` of entry 0006 in
+`backend/drizzle/meta/_journal.json`). Without the second statement a later `db:migrate` treats 0006 as
+applied and never recreates the table. Stale cached results: delete `salary:ref:v1:*` keys in Redis.
+
+##### Data coverage (from `data/so-2025-india/build_report.json`)
+
+49,191 survey rows → 2,547 India → 2,463 INR → 1,659 employed → 944 with usable pay and experience → 743
+in a role family → 665 within 1,00,000–5,00,00,000 → **662 kept** (3 removed by the trim). Rows per role:
+Full Stack 269, Backend 184, Frontend 62, Mobile 42, Data Scientist 31, DevOps 27, Data Engineer 25,
+Engineering Manager 22. Cells with n ≥ 10: Backend and Full Stack in five brackets, Frontend in four,
+Mobile in two (Mid, Senior), Data Scientist in one (Junior), Engineering Manager in one (Principal).
+Data Engineer and DevOps get the role-wide benchmark only. **No kept row has 0 years of experience, so a
+Fresher offer is always benchmarked against the whole role.**
+
+##### Verified live
+
+Docker Postgres 16 + Redis 7, real data, real Gemini key.
+
+- `npm run db:migrate` applied; `npm run db:load-reference` loaded 662 rows (counts per role as above).
+  *(Recorded by the backend coder; I did not re-run them.)*
+- `SalaryService` against the real DB and Redis: Backend Engineer / Bengaluru with `Mid-Level (3-5 yrs)`
+  → tier 2, n = 39. "SDE-2" Mid → four-family pool, n = 134. Product Manager, Jaipur and a USD offer →
+  null. *(Backend coder, throwaway script, deleted.)*
+- **A full end-to-end analysis through the API and workers** (the first Playwright run, which got as far
+  as the results page): the stored analysis has `dataSource: 'public_survey'`, disclaimer "Modelled from
+  public surveys, not offers in your city. India-wide benchmark from the Stack Overflow Developer Survey
+  2025 (n = 184, Backend Engineer respondents, all cities, all experience levels).", `offerPercentile` 62,
+  a salary component at **weight 30**, value 62, `basis` `public_survey` / `role_national`, and
+  `scoring_method` `standard` (no redistribution). This was tier 3 because the spec picks the first
+  experience option, and Fresher has no rows.
+- Frontend, run by me in `frontend/`: `npx tsc --noEmit -p tsconfig.app.json` → clean; `npm run lint` → 0
+  errors (18 warnings, none from the new files); `npm test` (`vitest run`) → 4 files, **20 passed** (18
+  before, plus 2 for `BenchmarkNotice`); `npm run build` → succeeds. Gzip: `ResultsPage` 16.48 kB,
+  `SalaryExplorerPage` 2.40 kB (the added component is a few hundred bytes; I did not record a "before"
+  build, so the delta is not measured).
+- Backend, run by me: `npx vitest run src/modules/salary/reference-source.test.ts` → 5 passed (the
+  attribution drift test). Recorded by the backend coder: `npx tsc --noEmit` clean, `npx eslint src`
+  clean, `npx vitest run --maxWorkers=3` → 692 passed, 3 skipped (baseline 582 + 3).
+- **Playwright smoke spec: did NOT pass.** `cd frontend && npx playwright test` was run four times
+  against the full stack (API, workers, Vite) with the real Gemini key, and failed each time on a wait
+  for live Gemini output, not on an assertion about the benchmark: runs 1 and 3 got through sign-up,
+  analysis and the results page (the "Red Flags" heading and a non-placeholder `h1` were found) and then
+  timed out at the 90 s wait for the Negotiation Script's Copy button (the ledger shows that call
+  eventually failing with `provider_error` in run 1, and succeeding about 91 s after the click in run 3);
+  run 2 and run 4 timed out at the 150 s wait for the analysis to finish (the ledger shows
+  `provider_503` on the first model in the same window, and a worker that was still busy). I did not
+  isolate the cause beyond the ledger; slow or failing Gemini calls are the likeliest explanation, but
+  that is a guess, and the earlier 4.8 runs (2.0 min) were at a time when Gemini was faster. So the
+  Phase 4 smoke result is **not re-confirmed** on this change. The four `e2e-*@example.com` users it
+  created were deleted afterwards. **Superseded by the review-fix pass below, which re-ran it green.**
+
+##### Verified live (review-fix pass, frontend; API :8000, workers, Vite :8080, real Gemini key)
+
+- **Playwright smoke spec: PASSED.** `cd frontend && npx playwright test` → `1 passed` (35.1 s, spec
+  total 37.8 s) against the full stack with this change in the tree. The four earlier failures were all at
+  Gemini-dependent waits; this run's Gemini calls returned in time, which fits the provider-latency
+  explanation recorded above (it does not prove it: I did not capture a ledger for the green run). The
+  one `e2e-*@example.com` user it created was deleted afterwards. The spec still does not assert on the
+  benchmark notice.
+- Frontend after the pass: `npx tsc --noEmit -p tsconfig.app.json` → clean; `npm run lint` → 0 errors,
+  18 warnings (unchanged); `npx vitest run` → 4 files, 20 passed.
+- **Bundle delta (clean `git archive HEAD` build vs working tree, `npm run build`, gzip):**
+  `SalaryExplorerPage` 2.26 → 2.40 kB (+0.14), `ResultsPage` 16.52 → 16.48 (−0.04), entry chunk
+  178.09 → 178.09. Well inside the 1 kB design budget.
+- **Lighthouse on `/salaries`** (Lighthouse 12, installed Chrome, headed window at 412 px wide, default
+  mobile emulation and throttling, `vite preview` of each build; the headless modes returned `NO_FCP` on
+  this machine). Accessibility: **0.94 for both HEAD and this change**. The only failing audit is
+  `button-name` (an icon button with no accessible name), which exists at HEAD and is not in the new
+  code; it sits **below the design's 95 floor, so it is an open item**, not something this change
+  introduced. Performance score, HEAD: 0.84, 0.80, 0.86, 0.85; this change: 0.79, 0.67, 0.84. Runs differ
+  by up to 0.19 on the same build (the first run after starting the preview server is the slowest, and
+  the machine was also running Postgres, Redis and Chrome), so the floor (baseline minus 3, or 85,
+  whichever is lower, which is 81) **cannot be called pass or fail from these runs**. The code change
+  (+0.14 kB, one `aside` of text and links) gives no mechanism for a regression of that size; the
+  one run taken after the server had warmed up scored 0.84 against HEAD's 0.85. CLS 0 on every run.
+  Run on a quiet machine before relying on the number.
+- **Not measured:** Lighthouse on a results page (it needs a signed-in session with a stored analysis, and
+  Lighthouse starts a clean profile). Contrast was calculated by hand from the theme tokens (about 5:1
+  light, 4.7:1 or better dark), not measured with a tool.
+
+##### Verified live (review-fix pass, backend; Docker Postgres 16 + Redis 7, API on :8000, workers, real Gemini key)
+
+- `npm run db:migrate` → "migrations applied successfully" (0006 already present, so a no-op);
+  `salary_reference_rows` holds 662 rows.
+- Fix for review finding 5: `tester` and `testing` added to the QA rule in `role-matching.ts`
+  ("Software Tester", "Senior Software Testing Engineer", "Manual Tester" → `QA Engineer`, no reference
+  families; "Software Engineer" unchanged); one test added in `role-matching.test.ts`.
+- Backend after the fix: `npx tsc --noEmit` clean; `npm run lint:eslint` clean; `npm test` → 56 files
+  passed, 1 skipped; **698 passed, 3 skipped**.
+- `node test-security.mjs` → **20 passed, 0 failed** (analysis COMPLETED in ~27 s).
+- `node test-m3.mjs` → **19 passed, 0 failed, 0 known-blocked** (stats median from 29 submissions).
+- `node test-m2.mjs` → **32 passed, 0 failed, 0 known-blocked** (no `OFFER_NOT_READY`, so no re-run needed).
+- `npm run eval -- --runs 3 --save` (`eval/results/2026-10-12T11-32-45-235Z.json`): structured **94.4%**
+  (range 92.9 to 95.2), nuanced **85.6%** (83.7 to 86.6); last saved baseline
+  (`2026-09-20T11-22-20-544Z.json`, 3 runs): structured 93.5%, nuanced 83.7%. Both targets pass; no
+  regression. (A single un-saved run earlier read nuanced 74.4% and a second 80.1%; the harness itself
+  warns single runs swing about 5 points, so only the 3-run figure is used.)
+- `GET /salaries/stats` live: `Backend Engineer` / Pune → `dataSource: "public_survey"`,
+  `scope: "role_national"`, `count` 184, p25 887500, p50 2050000, p75 4080000, p90 6500000; `SDE-2` /
+  Bangalore → `Software Engineer`, count 557 (four-family pool); `Wizard` / Pune → `count` 0,
+  `dataSource` null.
+- **The 31-call 429 on `salaryStats` did NOT reproduce.** See open item 5: the global and per-route
+  limiters are not applied at all at HEAD.
+
+##### Not verified
+
+- **Only reasoned, not run:** Lighthouse on a results page; a tool-measured 4.5:1 contrast in both
+  themes (the survey notice uses `text-foreground` at `text-sm`, not the muted colour, and the links are
+  underlined and carry a `focus-visible` ring; `/salaries` Lighthouse accessibility is 0.94, same as
+  HEAD, see the review-fix pass above); keyboard walk through the new links.
+- **The Results page and Salary Explorer rendering with real survey data in a browser.** The component is
+  unit-tested with jsdom and the data shape is confirmed in the database, but I did not screenshot it. The
+  Playwright spec does not assert on the benchmark notice.
+- **The PDF** containing the attribution text (the report builder is unit-tested; a real PDF download of
+  a survey-sourced result was not checked: the analyses in the regression scripts resolved to the
+  crowdsourced tier). The 31-call 429 on `salaryStats` (see open item 5).
+- **Crowdsourced precedence** at n = 10 versus 9 with real rows is covered by `salary.lookup.test.ts`
+  (mocked database), not by live inserts.
+- The attribution text rendered inside a deployed instance: `DATASET_URL` points at a GitHub path that
+  resolves only once the repo is public and pushed.
+
+##### Open items
+
+1. **Tier-3 skew risk.** The role-wide benchmark pools all experience levels, so a senior offer is
+   compared with a population that includes juniors, and a Fresher offer (no 0-year rows) always lands
+   here. The note says "across all experience levels", but the percentile can still mislead at the
+   extremes. Phase B or partial pooling is the fix.
+2. **Low-tail share.** Kept rows below 3,00,000 a year: Frontend 8.06%, Full Stack 5.95%, Backend 4.89%,
+   Mobile 2.38%, others 0%. Frontend and Full Stack are above 5%; some of these may be monthly pay typed
+   into the annual field, some may be real fresher pay. The 1,00,000 floor was **not** raised; the owner
+   decides.
+3. **Percentile wording.** The score note reads "62th percentile" (ordinal suffix); cosmetic, pre-existing
+   pattern.
+4. **Pre-deploy gate.** Do not load the reference data into a deployed database until the repo is public
+   and `DATASET_URL` resolves, and the service-account key found in git history (follow-up F1) is resolved.
+5. **Rate limiters are inert at HEAD (pre-existing, found during the review-fix pass; owner decision
+   pending).** `registerRateLimiter` in `middleware/rate-limiter.ts` is registered with
+   `app.register(...)` but is not wrapped in `fastify-plugin`, so `@fastify/rate-limit` lives in a child
+   scope and never sees the real routes. Evidence: no `x-ratelimit-*` header on any response; with the
+   plugin wrapped in `fp()` the headers appear (`x-ratelimit-limit: 100`) and 32 calls to
+   `/salaries/stats` with one cookie jar return 30 x 200 then 429, 429. That means `RATE_LIMITS.global`
+   (100/min), `authLogin` (10 per 15 min) and the other per-route limits are dead config today, and the
+   `salaryStats: 30/min` limit added in B0 is too. The one-line fix turns all of them on at once, which
+   changes behaviour app-wide, so it was tried, reverted, and not applied.
+6. **Lighthouse accessibility on `/salaries` is 0.94 at HEAD and after this change** (design floor 95):
+   one icon `button` with no accessible name, not in the new code. Not fixed here; a one-line `aria-label`
+   once the button is identified.
+7. **Not done, by design:** Phase B (PLFS city factors), 5.4 (contribution prompt), 5.5 (career-path
+   salary progression), a route limit on `POST /salaries`, `company_type` / `company_size` on reference rows.
+
 ---
 
 ### Phase 6: Revenue & Compliance
 
 | # | Task | Impact | Blocked on |
 |---|------|--------|-----------|
-| 6.1 | Payment integration | Revenue | Settled pricing. A different size of job from the rest of this phase |
+| 6.1 | Payment integration | Revenue | **Parked indefinitely** — see Project status. Nothing to charge for; plans/pricing are display only. Re-enters scope only if the project goes SaaS |
 | 6.2 | PII redaction + retention policy | Compliance at scale | Needs 4.1 first — billing records currently live in the row being deleted |
 | 6.3 | User correction loop → improve extraction rules | Self-improving extraction | Correction volume that does not exist yet |
 | 6.4 | Scanned-PDF OCR via `files:annotate` | Photographed letters work | Cloud Vision billing. No bucket needed — see the Phase 3 round 5 outcome |
 
-Phase 4 stops the bleeding; this phase turns metering into money and makes the data handling
-defensible at volume. None of it is urgent while there are no users, and **6.4 is the only item here
-a user would notice**.
+> [!NOTE]
+> **Reframed 2026-10-11:** this phase was written as "turn metering into money." Under the
+> non-commercial project status, **6.1 (payments) is parked** — there is no revenue to integrate.
+> 6.4 is the only item here a user would notice, and it is gated on Cloud Vision billing (a cost the
+> owner would pay, unrelated to charging users). 6.2 and 6.3 remain real but un-urgent while there
+> are no users. If the project ever becomes SaaS, 6.1 and the "defensible at volume" framing return.
 
 ---
 

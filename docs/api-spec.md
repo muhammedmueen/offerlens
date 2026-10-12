@@ -302,7 +302,7 @@ Get full analysis results. Only available when `status = COMPLETED`.
       "roleUsed": "Senior Software Engineer",
       "roleMatchConfidence": 0.95,
       "locationUsed": "Bangalore, India",
-      "dataSource": "ai_estimated",
+      "dataSource": "ai_estimated",   // or "crowdsourced" | "public_survey" (modelled, India-wide; ODbL attribution required)
       "disclaimer": null
     },
 
@@ -588,6 +588,7 @@ Vote on a feature request. One vote per fingerprint.
 | `DELETE /offers/:id` | 10 | IP | 1 minute |
 | `GET /offers/:id/report` | 10 | IP | 1 minute |
 | `GET /metadata/*` | 30 | IP | 1 minute |
+| `GET /salaries/stats` | 30 | IP | 1 minute |
 | `POST /feature-requests` | 5 | fingerprint | 1 hour |
 | `POST /feature-requests/:id/vote` | 30 | IP | 1 minute |
 | Global fallback | 100 | IP | 1 minute |
