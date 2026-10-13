@@ -1,0 +1,7 @@
+city,status,n_respondents,raw_ratio,shrinkage_weight,factor
+bangalore,published,170,1.042,0.850,1.04
+mumbai,published,31,0.625,0.508,0.79
+delhi ncr,published,86,1.354,0.741,1.25
+hyderabad,published,124,0.963,0.805,0.97
+pune,published,87,1.042,0.744,1.03
+chennai,published,90,0.938,0.750,0.95

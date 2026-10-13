@@ -51,3 +51,11 @@ __pycache__/
 
 # Agent working notes (designs, reviews, throwaway live-check scripts); local only
 .agents/
+
+# PLFS restricted microdata (MoSPI Data Access Agreement): never commit
+perv1.*
+perrv.*
+hhv1.*
+hhrv.*
+pfls/
+build_report.counts.json
