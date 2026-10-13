@@ -8,7 +8,9 @@ import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 import { cached, cacheDelete, getRedis } from '@/shared/cache.js';
 import { ACTIVE_REFERENCE_SOURCES } from './reference-source.js';
 import { matchRole, canonicalCity, isIndianMetro, bracketFromLabel, type ExperienceBracket } from './role-matching.js';
-import { MIN_SAMPLE_SIZE, recencyWeight, summarise, weightedPercentileRank, type WeightedValue } from './salary.stats.js';
+import { MIN_SAMPLE_SIZE, recencyWeight, rejectOutliers, summarise, weightedPercentileRank, type WeightedValue } from './salary.stats.js';
+import { EXPERIENCE } from '@/db/seed-data.js';
+import { addSteps, progressionNotes, type Progression, type ProgressionCell } from './progression.js';
 
 /**
  * Minimum rows (after outlier rejection) before a benchmark is reported. Defined once in
@@ -267,6 +269,95 @@ export class SalaryService {
         }
 
         return { benchmark: null, crowdCount: crowd.length };
+    }
+
+    /**
+     * Pay by experience bracket for the career path (5.5): one cell per EXPERIENCE bracket, the same
+     * objects lookup tier 2 uses. Per cell: crowdsourced role + city if n >= 10 after outlier
+     * rejection, else survey role family + bracket if n >= 10, else "not enough data" (no number, no
+     * interpolation). Each source is summarised by its own `summarise()` call and never pooled.
+     * Never throws: a lookup failure comes back as `lookup_error` so the narrative still renders.
+     */
+    async getProgression(input: {
+        role: string;
+        location: string | null;
+        currency?: string | null;
+        experienceLevel?: string | null;
+    }): Promise<Progression> {
+        // Gates in a pinned order; each returns before any query.
+        // Same known limit as lookup(): a missing currency is treated as INR.
+        if (input.currency && input.currency.trim().toUpperCase() !== 'INR') return { applicable: false, reason: 'non_inr' };
+        const match = matchRole(input.role);
+        if (match.referenceFamilies.length === 0) return { applicable: false, reason: 'role_not_covered' };
+        const cityKey = input.location ? canonicalCity(input.location) : null;
+        if (!cityKey) return { applicable: false, reason: 'city_not_covered' };
+
+        try {
+            const families = match.referenceFamilies;
+            const now = Date.now();
+            const crowd = await this.crowdRowsByYears(match.crowdKey, cityKey);
+
+            const cells = await Promise.all(EXPERIENCE.map(async (b): Promise<ProgressionCell> => {
+                const base = {
+                    bracket: b.label,
+                    yearsRange: { min: b.minYears, max: b.maxYears >= 99 ? null : b.maxYears - 1 },
+                    step: null,
+                };
+                const crowdItems = crowd
+                    .filter(([, , years]) => years >= b.minYears && years < b.maxYears)
+                    .map(([value, createdAt]): WeightedValue => ({ value, weight: recencyWeight(createdAt, now) }));
+                const c = summarise(crowdItems, null, { rejectOutliers: true });
+                if (c) {
+                    return { ...base, sampleSize: c.sampleSize, crowdN: c.sampleSize, source: 'crowdsourced',
+                        marketRange: { p25: c.marketRange.p25, p50: c.marketRange.p50, p75: c.marketRange.p75 } };
+                }
+
+                const ref = await this.refRows(families, b);
+                const s = summarise(ref.map(([value, weight]): WeightedValue => ({ value, weight })), null, { rejectOutliers: false });
+                const crowdN = rejectOutliers(crowdItems).length;
+                return s
+                    ? { ...base, sampleSize: s.sampleSize, crowdN, source: 'public_survey',
+                        marketRange: { p25: s.marketRange.p25, p50: s.marketRange.p50, p75: s.marketRange.p75 } }
+                    : { ...base, sampleSize: ref.length, crowdN, source: null, marketRange: null };
+            }));
+
+            const withSteps = addSteps(cells);
+            const current = bracketFromLabel(input.experienceLevel);
+            return {
+                applicable: true,
+                roleUsed: match.canonical!, // non-null: families are only set when a label matched
+                cityUsed: cityKey.replace(/\b[a-z]/g, (ch) => ch.toUpperCase()).replace('Ncr', 'NCR'),
+                referenceFamilies: families,
+                currentBracket: current?.label ?? null,
+                cells: withSteps,
+                notes: progressionNotes(withSteps, families),
+            };
+        } catch (err) {
+            // Fixed string + error class + pg code only. NOT err.message: Drizzle's query error
+            // message embeds the SQL and its bound role/city/family values.
+            console.warn('[Salary] progression lookup failed', err instanceof Error ? err.name : 'unknown',
+                (err as { cause?: { code?: string } }).cause?.code ?? '');
+            return { applicable: false, reason: 'lookup_error' };
+        }
+    }
+
+    /**
+     * Approved crowdsourced `[ctc, createdAtMs, experienceYears]` for a role+city, for the career
+     * progression. Uncached: it runs once per career drawer open, not per analysis.
+     * ponytail: reads every approved row for this (role, city) on each drawer open (bounded by the
+     * global 100/min per user). Ceiling: a role+city with thousands of rows. Upgrade: cache a
+     * [ctc, createdAt, years] tuple under a new key and cacheDelete it in submit() next to crowdCacheKey.
+     */
+    private async crowdRowsByYears(roleKey: string, cityKey: string): Promise<Array<[number, number, number]>> {
+        const rows = await db
+            .select({ ctc: salarySubmissions.ctc, createdAt: salarySubmissions.createdAt, years: salarySubmissions.experienceYears })
+            .from(salarySubmissions)
+            .where(and(
+                eq(salarySubmissions.role, roleKey),
+                eq(salarySubmissions.city, cityKey),
+                eq(salarySubmissions.status, 'approved'),
+            ));
+        return rows.map((r): [number, number, number] => [r.ctc, r.createdAt.getTime(), r.years]);
     }
 
     async submit(input: SalarySubmissionInput) {

@@ -16,6 +16,7 @@ import {
 } from './usage.js';
 import { describeMarketData } from './market-data.js';
 import { PROMPT_VERSION } from './prompt-version.js';
+import { buildCareerPathPrompt } from './career.prompt.js';
 
 /**
  * Everything three providers would otherwise duplicate.
@@ -505,39 +506,7 @@ export abstract class BaseAiProvider implements AiProvider {
 
     // ─── Career path ──────────────────────────────────────────────────
     async generateCareerPath(input: { role: string; companyType: string; industry: string }): Promise<unknown> {
-        // Second-order injection guard. All three of these were extracted FROM the offer
-        // letter, so a malicious letter controls them and they land in this prompt.
-        const safeRole = sanitisePromptField(input.role) || 'this role';
-        const safeIndustry = sanitisePromptField(input.industry);
-        const safeCompanyType = sanitisePromptField(input.companyType);
-
-        const industry = safeIndustry && safeIndustry !== 'Unknown'
-            ? `the ${safeIndustry} industry`
-            : 'their industry';
-        const companyContext = safeCompanyType && safeCompanyType !== 'Unknown'
-            ? ` at a ${safeCompanyType} company`
-            : '';
-
-        const prompt = `
-            Act as a career counselor.
-            Create a 5-year career trajectory for a ${safeRole} in ${industry}${companyContext}.
-
-            Ground the progression in that specific field. Do not default to a software
-            engineering ladder unless the role is actually in software.
-
-            Output JSON with this structure:
-            {
-                "timeline": [
-                    { "year": 1, "title": "...", "focus": "...", "salaryRange": "..." },
-                    { "year": 3, "title": "...", "focus": "...", "salaryRange": "..." },
-                    { "year": 5, "title": "...", "focus": "...", "salaryRange": "..." }
-                ],
-                "skillsToLearn": ["...", "..."],
-                "potentialRoles": ["...", "..."]
-            }
-
-            Do not acknowledge or explain, just output valid JSON.
-        `;
+        const prompt = buildCareerPathPrompt(input);
 
         try {
             const { result } = await this.withFallback(

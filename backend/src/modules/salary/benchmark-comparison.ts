@@ -12,7 +12,10 @@ import { isIndianMetro } from './role-matching.js';
 export const AI_ESTIMATE_DISCLAIMER =
     'Estimated from general market knowledge — not benchmarked against crowdsourced submissions.';
 
-function roleScope(families: readonly string[]): string {
+/** The fixed lead sentence of every survey disclaimer (benchmark and career progression). */
+export const SURVEY_DISCLAIMER_PREFIX = 'Modelled from public surveys, not offers in your city.';
+
+export function roleScope(families: readonly string[]): string {
     if (families.length === 1) return `${families[0]} respondents`;
     // A generic "Software Engineer" is never presented as if the survey had that exact title.
     return 'developer respondents (full-stack, back-end, front-end and mobile)';
@@ -50,7 +53,7 @@ export function toSalaryComparison(b: Benchmark): SalaryComparison {
     return {
         ...common,
         dataSource: 'public_survey',
-        disclaimer: 'Modelled from public surveys, not offers in your city. '
+        disclaimer: `${SURVEY_DISCLAIMER_PREFIX} `
             + `India-wide benchmark from the Stack Overflow Developer Survey 2025 (n = ${b.sampleSize}, `
             + `${roleScope(b.referenceFamilies)}, all cities, ${experienceScope(b.experienceYearsRange)}).`,
     };
