@@ -303,6 +303,9 @@ Get full analysis results. Only available when `status = COMPLETED`.
       "roleMatchConfidence": 0.95,
       "locationUsed": "Bangalore, India",
       "dataSource": "ai_estimated",   // or "crowdsourced" (unverified; confidence level medium, badge "Check this", never "Verified") | "public_survey" (modelled, India-wide; ODbL attribution required)
+      // 5.1b, public_survey in a metro: "benchmarkScope" is "role_experience_city_adjusted" | "role_city_adjusted", "locationUsed" is "India (national), adjusted for Mumbai", and an optional
+      // "cityAdjustment": { "source": "plfs_2023_24", "city": "mumbai", "cityLabel": "Mumbai", "factor": 0.79, "plfsSampleSize": 31, "period": "2023-24" } says the survey figures were scaled by that factor.
+      // The disclaimer then states plainly that it is an estimate, not offers in the city. Absent for crowdsourced, AI-estimated and non-metro results; confidence stays medium.
       // Optional, additive. public_survey: "percentileWithheld": "no_experience_rows" => range shown, offerPercentile null, salary unscored (a Fresher offer).
       // crowdsourced: "payBasis": "offered" | "current" | "mixed" and, when "mixed", "payMix": { "offered": 9, "current": 4, "unlabelled": 2 } (sums to sampleSize).
       "disclaimer": null
@@ -415,6 +418,7 @@ Career narrative plus a pay-by-experience table for the offer's role family. Reg
 ```
 `progression` is always present on a 200 and is computed on every request (never cached). It is `{ "applicable": false, "reason": ... }` with no figures when `reason` is `role_not_covered` (outside the eight surveyed software role families), `non_inr`, `city_not_covered` (not one of the six metros) or `lookup_error`.
 Each cell is one experience bracket (the same half-open brackets the offer benchmark uses). `source` is `crowdsourced` (role + city, n >= 10 after outlier rejection), else `public_survey` (role family, India-wide, n >= 10), else `null` with `marketRange: null` (no number is ever filled in). For a `null` cell `sampleSize` is the survey row count and `crowdN` the crowdsourced count. Sources are never pooled. `step` is the change in median from the previous bracket, set only when both cells have numbers from the same source. Amounts are annual INR. Cross-sectional: each row is different people.
+**Changed in 5.1b (additive)**: when the offer's metro has a PLFS 2023-24 city factor, `progression.cityAdjustment` (same shape as `salaryComparison.cityAdjustment`) is set, every `public_survey` cell is the national survey figure x the factor (`sampleSize` is still the survey n; step percentages are unchanged, step amounts scale), the survey note names the city, the factor and the PLFS n, and `crowdsourced` cells are never scaled. With no factor row the field is absent and the response is exactly as before.
 **Changed in 5.5**: `timeline[].salaryRange` is no longer returned (the model no longer authors pay figures). `progression` is new and additive. If the model's prose carries a pay figure (a heuristic scan, not a proof), the narrative is dropped like any unusable result: `error` is set, the lists are empty, `progression` is still returned, and nothing is cached.
 **Errors**: `NOT_FOUND` (404), `OFFER_NOT_READY` (400), `INVALID_INPUT` (400, no role identified), `FEATURE_NOT_IN_PLAN` (403), `QUOTA_EXCEEDED` (429)
 ---

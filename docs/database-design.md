@@ -348,12 +348,13 @@ Stored in `analyses.salary_comparison`:
   offerPercentile: number | null; // 0-100; null when the letter states no CTC
   roleUsed: string;             // "Software Engineer"
   roleMatchConfidence: number;  // 0.0-1.0
-  locationUsed: string;         // "Bangalore, India", or "India (national)" for public_survey
+  locationUsed: string;         // "Bangalore, India", "India (national)" for public_survey, or "India (national), adjusted for Mumbai" (5.1b)
   dataSource: "ai_estimated" | "crowdsourced" | "public_survey";
   disclaimer: string | null;    // "City-level data unavailable..."
   // Optional, set when a real benchmark was used:
   sampleSize?: number;
-  benchmarkScope?: "role_city" | "role_experience_national" | "role_national";
+  benchmarkScope?: "role_city" | "role_experience_national" | "role_national"
+    | "role_experience_city_adjusted" | "role_city_adjusted";   // 5.1b: survey figures x a PLFS city factor
   experienceBracket?: string;
   // 5.6, public_survey only: set when the survey has no respondents in the offer's experience range.
   // The range is shown but offerPercentile is null and salary is left out of the score.
@@ -362,6 +363,8 @@ Stored in `analyses.salary_comparison`:
   // the data points by kind (sums to sampleSize). Absent on analyses stored before 5.7.
   payBasis?: "offered" | "current" | "mixed" | null;
   payMix?: { offered: number; current: number; unlabelled: number } | null;
+  // 5.1b, public_survey only, present when the survey figures were scaled by a PLFS city factor. Absent otherwise.
+  cityAdjustment?: { source: "plfs_2023_24"; city: string; cityLabel: string; factor: number; plfsSampleSize: number; period: "2023-24" };
 }
 ```
 
@@ -372,6 +375,30 @@ Each row there holds `source`, `source_version`, `source_row_id`, `licence`, `co
 `company_type` / `company_size`, `weight` and `created_at`; unique on
 `(source, source_version, source_row_id)`, indexed on `(source, role, experience_years)`. It has no
 user, guest or fingerprint column. Loaded by `npm run db:load-reference`.
+
+#### `city_pay_factors` (5.1b)
+
+Per-city multipliers derived from PLFS 2023-24 (MoSPI Data Access Agreement, non-commercial use only; see `data/plfs-city-factors/README.md`). At most six rows
+per `(source, source_version)`, one per metro, aggregates only: no column could hold a respondent-level value. A city with fewer than 30 sampled persons has no row, and
+no row means "no factor". Kept apart from `salary_reference_rows` (ODbL) and `salary_submissions`, so removing PLFS is a `DROP TABLE`. Created by migration `0008`
+(expand-only; its header carries the rollback); loaded by `npm run db:load-city-factors` from `data/plfs-city-factors/city_factors.csv` and `build_report.json`.
+
+| Column | Type | Notes |
+| :--- | :--- | :--- |
+| `id` | uuid PK | `gen_random_uuid()` |
+| `source`, `source_version` | text | `plfs_2023_24`, `2023-24` |
+| `city` | text | canonical metro key: `bangalore`, `mumbai`, `delhi ncr`, `hyderabad`, `pune`, `chennai` |
+| `n_respondents` | integer | unweighted sampled persons behind the factor, CHECK `>= 30` |
+| `national_n` | integer | national group size, CHECK `>= 30` |
+| `raw_ratio` | double | city weighted median / national weighted median, CHECK 0.5 to 2.0 |
+| `shrinkage_weight` | double | `n / (n + K)` with `K = 30`, CHECK between 0 and 1 (exclusive) |
+| `factor` | double | `exp(shrinkage_weight * ln(raw_ratio))` rounded to 2 dp, CHECK 0.5 to 2.0; the number shown is the number multiplied |
+| `licence` | text | `PLFS-DAA-non-commercial` |
+| `reference_period_end` | timestamptz | end of the survey period (2024-06-30) |
+| `created_at` | timestamptz | default `now()` |
+
+Unique on `(source, source_version, city)`. The salary lookup reads it per request, only on the survey tiers and only after the crowdsourced tiers have failed; any read
+problem or an unusable row means national figures. Behavioural rollback with no deploy: `DELETE FROM city_pay_factors;`.
 
 In `scoreBreakdown.components`, the salary component may carry
 `basis: { source, scope }`. Comparisons rank salary only when two offers share a basis.

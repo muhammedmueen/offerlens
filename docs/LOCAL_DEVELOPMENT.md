@@ -117,7 +117,22 @@ npm install
 npm run db:migrate     # build the schema
 npm run db:seed        # roles, cities, experience levels
 npm run db:load-reference  # Stack Overflow 2025 India salary rows (data/so-2025-india); safe to re-run
+npm run db:load-city-factors  # PLFS 2023-24 city factors (data/plfs-city-factors/city_factors.csv); safe to re-run
 ```
+
+The city factors are already built into data/plfs-city-factors/. Only rebuild them if you have the PLFS microdata, which
+must stay **outside the repository** (the script refuses a path inside it):
+
+```bash
+cd data/plfs-city-factors
+PLFS_DIR=/path/outside/the/repo python build_city_factors.py   # PowerShell: $env:PLFS_DIR='C:\path\outside\repo'
+python -m unittest test_build_city_factors   # fabricated fixtures only; no microdata needed
+```
+
+`PLFS_DIR` is read only by that Python script (not by the backend, not in `.env.example`). It writes two
+aggregate files, `city_factors.csv` and `build_report.json`; never paste, print or commit microdata rows.
+Details are in `data/plfs-city-factors/README.md`. Without the loader step every city simply gets the
+national survey figures.
 
 > [!WARNING]
 > Use `db:migrate`, **not** `db:push`. `drizzle.config.ts` sets `strict: true`, so `push`
@@ -580,7 +595,7 @@ Things you may notice that are understood and tracked:
 cd backend
 docker compose down -v      # deletes all data
 docker compose up -d
-npm run db:migrate && npm run db:seed && npm run db:load-reference
+npm run db:migrate && npm run db:seed && npm run db:load-reference && npm run db:load-city-factors
 ```
 
 ---

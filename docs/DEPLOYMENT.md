@@ -63,6 +63,19 @@ docker-compose up -d
    key found in git history (follow-up F1 in the plan) has been resolved. The attribution and the
    published `data/so-2025-india/` file are the licence obligations.
 
+   **City pay factors** (PLFS 2023-24 aggregates, MoSPI National Data Archive), loaded after `db:migrate`:
+   \`\`\`bash
+   npm run db:load-city-factors
+   \`\`\`
+   **Pre-deploy gate (PLFS):** do not load the factors into a deployed database until the MoSPI e-mail
+   (draft in the plan, section "Phase 5 task 5.1b outcome") has been sent, the owner has recorded the
+   decision on the PLFS README rider (D1), and `data/plfs-city-factors/` is pushed so the dataset link
+   beside each adjusted benchmark resolves. The data is for non-commercial use only: if the project
+   becomes paid, run `DELETE FROM city_pay_factors` and the app serves the unchanged national figures.
+   The loader is safe to skip: with no rows every city gets the national survey figures. The raw PLFS
+   files are never deployed and never enter the repository; the factors are built offline (see
+   `LOCAL_DEVELOPMENT.md`, section 4).
+
 4. **Start Development Server**:
    \`\`\`bash
    npm run dev

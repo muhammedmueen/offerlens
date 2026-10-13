@@ -732,7 +732,7 @@ than a theme list plus a separate priority list.
 | Phase | Scope | Gate |
 |---|---|---|
 | **4 — Launch Blockers** | Usage ledger, plan limits, three untrue privacy promises, one smoke spec | 4.1–4.8 ✅ done. Phase 4 is complete |
-| **5 — Salary Data** | Seed benchmarks, then fuzzy matching, outlier rejection, contribution prompt | 5.1 Phase A ✅, 5.2 ✅, 5.3 ✅, 5.4 ✅, 5.5 ✅, 5.6 ✅, 5.7 ✅, 5.8 ✅, 5.9 ✅ (see "Phase 5 Phase A outcome", "Phase 5 task 5.4 outcome", "Phase 5 task 5.5 outcome" and "Phase 5 closing round outcome"). Open: 5.1 Phase B (PLFS city factors, waiting on the owner's data access) |
+| **5 — Salary Data** | Seed benchmarks, then fuzzy matching, outlier rejection, contribution prompt | 5.1 Phase A ✅, 5.2 ✅, 5.3 ✅, 5.4 ✅, 5.5 ✅, 5.6 ✅, 5.7 ✅, 5.8 ✅, 5.9 ✅ (see "Phase 5 Phase A outcome", "Phase 5 task 5.4 outcome", "Phase 5 task 5.5 outcome" and "Phase 5 closing round outcome"). 5.1b ✅ (PLFS city factors, see "Phase 5 task 5.1b outcome"). D1 (README rider) decided: it fits. Owner action still open: send the MoSPI e-mail |
 | **6 — Revenue & Compliance** | ~~Payments~~ (parked), retention policy, correction loop, scanned-PDF OCR | 6.1 parked (non-commercial); 6.4 needs Cloud Vision billing |
 | **7 — Operations** | Admin auth hardening, superadmin, dashboards | One of the Phase 7 triggers firing |
 
@@ -801,7 +801,7 @@ forward references to numbers that were going to move.
 | **2** | Rule engine, tax calculator, rubric, confidence, cache | ✅ Done, 6 tasks |
 | **3** | Pipeline refactor, reliability, comparison, OCR | ✅ **Closed.** Rounds 1-5 shipped 7 tasks plus half of 21c; 3 items dropped and the rest promoted into Phases 4-6 |
 | **4** | **Launch blockers** — usage ledger, plan limits, privacy promises, smoke spec | ✅ Done, 8 tasks (4.1–4.8). The results-page Compare finding was fixed in the follow-up |
-| **5** | Salary data — seeding, matching, integrity | 🟡 Phase A built: 5.1 Phase A, 5.2, 5.3, 5.4, 5.5 done. Phase B (PLFS) open |
+| **5** | Salary data — seeding, matching, integrity | 🟡 Phase A built: 5.1 Phase A, 5.2 to 5.9 and 5.1b (PLFS city factors) done. D1 decided (fits); owner action open: MoSPI e-mail |
 | **6** | Revenue & compliance — ~~payments~~, retention, corrections, scanned PDFs | ⬜ 6.1 parked (non-commercial); rest not urgent while there are no users |
 | **7** | Operations — admin auth, superadmin, dashboards | ⏸ Deliberately deferred until a trigger fires |
 
@@ -2801,7 +2801,8 @@ untracked work. Small ones can ride along with 4.5–4.8.
 
 | # | Task | Impact |
 |---|------|--------|
-| 5.1 | **Seed the salary DB from public datasets** | Bootstrap benchmarks — **the gate for everything below**. ✅ **Phase A done** (Stack Overflow, national). ⬜ Phase B (PLFS city factors) open |
+| 5.1 | **Seed the salary DB from public datasets** | Bootstrap benchmarks — **the gate for everything below**. ✅ **Phase A done** (Stack Overflow, national). ✅ **Phase B done** as task 5.1b (PLFS city factors); see the Phase 5 task 5.1b outcome |
+| 5.1b | ✅ PLFS city factors for the survey benchmark | Real Indian city granularity for the six metros: survey figures scaled by a shrunk PLFS 2023-24 ratio, labelled an estimate, crowd data never adjusted - see the Phase 5 task 5.1b outcome |
 | 5.2 | ✅ Fuzzy role matching (synonym map) | Better matches against real submissions — see the Phase A outcome |
 | 5.3 | ✅ Poisoning protection — 3σ outlier rejection, recency weighting | Data integrity — see the Phase A outcome |
 | 5.4 | ✅ Post-analysis contribution prompt | Grows the crowdsourced set, opt-in, through the existing `POST /salaries` — see the Phase 5 task 5.4 outcome |
@@ -2897,7 +2898,7 @@ at, and never pooled into one percentile:
   Stack Overflow national values for common roles + lookup wiring + `public_survey`/`modelled`
   dataSource + disclaimer + attribution. ~4–6 dev-days. Pairs naturally with **5.4** (now done, see its outcome section; grows the
   crowdsourced set — the real long-term fix for city-level data OfferLens owns and keeps private).
-- **Phase B (pursue, gated on MoSPI):** add PLFS city factors, fill metro cells. Now worth doing
+- **Phase B (done as task 5.1b; was gated on MoSPI data access):** add PLFS city factors, fill metro cells. Now worth doing
   rather than deferring, since the cost blocker likely does not apply to a non-commercial project —
   this is what gives the benchmark real Indian city granularity. Still needs **written MoSPI
   confirmation** that non-commercial use + redistribution of the derived aggregates is permitted.
@@ -2916,7 +2917,7 @@ at, and never pooled into one percentile:
    single branch — the only difference from reference-only is that the modelled percentile is passed
    to the rubric instead of left `null`. (Real crowdsourced data always feeds the score at full
    weight once 5.4 lands; this decision is only about the modelled path.)
-3. Should someone contact MoSPI about **non-commercial** use + redistribution of PLFS (Phase B)?
+3. ~~Should someone contact MoSPI about **non-commercial** use + redistribution of PLFS (Phase B)?~~ **Partly resolved (5.1b):** access was granted and used; the owner still needs to send the MoSPI copy (draft in the 5.1b outcome), D1 on the README rider is decided (it fits, owner's own reading), and written confirmation on publishing the aggregates has not been obtained.
    *(Now likely free, so worth asking.)*
 4. ~~Raise `MIN_SAMPLE_SIZE` to 10 before, or with, the seed?~~ **Resolved in Phase A — raised to 10.**
 
@@ -3507,7 +3508,7 @@ were deleted by logged id.
    `...routeLimit('salarySubmit')` with `{ max: 10, window: '1 hour' }` (the limiter keys cookie-less clients on IP).
 3. **The login limiter's cookie-minting gap** (from the Rate limiter fix: a client can mint cookies and get a bucket each). **RESOLVED by 5.8** (per-IP and per-email login limits); what remains is in "Task 5.8 outcome".
 4. **Fresher offers are scored against all experience levels** (tier-3 skew; Phase A open item 1). **RESOLVED by 5.6** (range shown, no percentile).
-5. **Phase B (PLFS city factors), Phase 6 and Phase 7.** (Task 5.5 has since landed.)
+5. **Phase B (PLFS city factors), Phase 6 and Phase 7.** (Task 5.5 has since landed, and Phase B landed as task 5.1b.)
 6. **Pre-existing contrast failures** Lighthouse found on the results page: the severity label (2.84:1) and footer/muted text (4.48:1).
 7. **Route-level JS cost** of the shared form (+4.5 kB gzip on a results page) and the footer CLS spike.
 8. G3 (ten consistent fake values pass the floor) and G4/G5 (a rejected row still returns 201; the same person can resubmit after an hour)
@@ -3643,7 +3644,7 @@ with the same wording as the offer benchmark. Crowd cells are close to dormant (
 1. **Fresher** shows "Not enough data (n = 0)" in the table. (The scoring half was **resolved by 5.6**: a Fresher offer is no longer ranked against all experience levels.)
 2. **`pay_basis`** (offered versus current pay, mixed and unlabelled in crowd rows). **Resolved by 5.7.**
 3. **The login limiter's cookie-minting gap.** Resolved by 5.8 (see "Task 5.8 outcome").
-4. **Phase B (PLFS city factors)** stays open.
+4. **Phase B (PLFS city factors)** stayed open here; it has since landed as task 5.1b.
 5. Not done: company-specific career ladders and market-trend skills (no data behind them), and an un-gated progression endpoint
    (at the daily career cap the 429 hides the table too).
 
@@ -3655,7 +3656,7 @@ stale "5.5 open" wording).
 #### Phase 5 closing round: decisions (2026-10-11)
 
 Settled with the owner after 5.5 shipped. It turned the open items from the 5.1, 5.4 and 5.5 reviews into tasks
-5.6 to 5.9, plus the PLFS step. **5.6 to 5.9 are built; see "Phase 5 closing round outcome" below.** The PLFS step (Phase B) is not.
+5.6 to 5.9, plus the PLFS step. **5.6 to 5.9 are built; see "Phase 5 closing round outcome" below.** The PLFS step (Phase B) was not; it has since landed as task 5.1b.
 
 **5.6 Fresher offers (decision: show the range, no percentile).** The survey has no 0-year rows, so a Fresher
 offer is compared with every experience level for the role, which pushes the score down. Instead: show the
@@ -3701,7 +3702,7 @@ of any publication to `nssunit.dsdd@mospi.gov.in`. Consequences for the build:
 - The stated intended use binds the owner. If the project becomes a paid SaaS, the PLFS-derived factors must be
   removed. The intended-use text must stay accurate (it says the plan and pricing screens are mock-ups).
 - Cite "PLFS 2023-24, National Statistics Office, MoSPI" in the data README and the UI note.
-- Phase B is blocked until the owner has the data. It is not part of 5.6 to 5.9.
+- Phase B was blocked until the owner had the data. **It is done** as task 5.1b (see its outcome below); it was never part of 5.6 to 5.9.
 
 #### Phase 5 closing round outcome (tasks 5.6 to 5.9)
 
@@ -3827,7 +3828,7 @@ button, a real phone, other browsers, a screen reader. The crowd cell was a mock
 
 ##### Not done, by decision
 
-- Phase B (PLFS city factors) stays open and waits on the owner's data access; none of 5.6 to 5.9 depends on it.
+- Phase B (PLFS city factors) was open at the time of writing and has since landed as task 5.1b; none of 5.6 to 5.9 depends on it.
 - `confidence.ts` is unchanged: a crowd number is still "medium, self-reported", whatever the pay basis.
 - No "pay_basis" backfill or relabelling of older rows, no per-IP limit on `POST /salaries` (G1 stays as recorded), and the survey is still current pay: an offer compared with the survey tier is offer versus current pay, now stated in every survey disclaimer.
 
@@ -3837,6 +3838,199 @@ button, a real phone, other browsers, a screen reader. The crowd cell was a mock
 `docs/database-design.md` (the `salary_comparison` fields, `unscoredReason` and the `pay_basis` column with its rollback), `docs/DEPLOYMENT.md` (the `trustProxy` pre-deploy requirement), `docs/LOCAL_DEVELOPMENT.md` (the 429 troubleshooting row), and this plan (the Phase 5 and What Happens Next tables, the 5.4 `pay_basis` open item, the Phase A Fresher item, the decisions block).
 
 ---
+#### Phase 5 task 5.1b outcome — PLFS city factors for the survey benchmark
+
+Branch `phase5a-salary-reference-seed`, uncommitted at the time of writing. Design: `.agents/tasks/phase5-5.1b-design.md` (and its review);
+build notes: `.agents/tasks/phase5-5.1b-areaC-note.md`; live evidence: `.agents/tasks/phase5-5.1b-areaDE-note.md` and `live51b*`.
+> [!NOTE]
+> **`.agents/` is gitignored and local only** (any `.agents/` directory). A fresh clone does not have the notes named above, so every
+> figure that matters is in this section. The data directory is `data/plfs-city-factors/` (the design called it `plfs-2023-24-city-factors`).
+
+##### What it does
+
+The Stack Overflow survey benchmark (5.1 Phase A) is national. For the six metros, 5.1b multiplies those survey figures by one
+**city factor** derived from PLFS 2023-24 monthly cash earnings, so a Mumbai offer is ranked against a Mumbai-scaled distribution instead
+of the India-wide one. It is an estimate: **national survey figures scaled by a city factor, not offers or pay data from the city**, and it
+is never shown as verified. PLFS rupees never reach a user; only the ratio does.
+
+- **Offline pipeline** `data/plfs-city-factors/build_city_factors.py` (Python standard library): reads one file, `perv1.csv`, from a folder outside
+  the repo (`PLFS_DIR`, no default; the script refuses a path inside the repo), prints and writes aggregates only.
+- **Table `city_pay_factors`** (migration `0008`, expand-only, rollback block in the file): at most six rows, CHECKs on n >= 30, ratio and
+  factor in [0.5, 2.0]. Loaded by `npm run db:load-city-factors` (validate-before-write, one transaction, idempotent, no Redis).
+- **Lookup** (`SalaryService.lookup`): the factor is read only on the survey tiers, after the crowd tiers have failed, and multiplies the
+  survey values; scopes `role_experience_city_adjusted` / `role_city_adjusted`; `locationUsed` "India (national), adjusted for <City>";
+  additive `cityAdjustment` `{ source, city, cityLabel, factor, plfsSampleSize, period }`. `getStats` (Explorer) passes it through.
+  The factor is read per request, so `salary:ref:v1:*` (raw survey rows) is unchanged and a load or a removal needs no cache flush.
+- **Honesty rules**, unchanged by the factor: crowd rows are never scaled or pooled; a Fresher (or a role with no rows in the bracket) still gets
+  the range but **no percentile**; n >= 10 floors; confidence is **medium**, never high; `source` stays `public_survey`.
+- **Career table (5.5): applies the same factor, and says so.** Two views of the same offer in the same city must not show two medians, so survey
+  cells are scaled (crowd cells never are), the note names the city, factor and PLFS n, and rows read "N survey respondents, India-wide, scaled to
+  <City>". Step percentages are unchanged (the factor cancels); step amounts scale.
+- **Frontend**: `BenchmarkNotice` takes an optional `cityAdjustment` and shows the text label "Public survey, adjusted for <City>", the stored
+  disclaimer, the survey n, "City factor x<f> from PLFS 2023-24 (n = <m>)", the unchanged ODbL paragraph, and the sentence "City adjustment derived
+  from the Periodic Labour Force Survey 2023-24, National Statistics Office, MoSPI." with real links to the PLFS catalogue entry and to the
+  published factors. Results, Salary Explorer and the career drawer pass it. The Explorer's fixed "India-wide benchmark across all cities" sentence is replaced
+  for an adjusted result. The PDF adds the same citation and link under the ODbL lines. New constants `PLFS_URL`, `PLFS_DATASET_URL`,
+  `PLFS_CITATION_TEXT` live in `city-adjustment.ts` and `frontend/src/constants/attribution.ts`; the drift test now covers them.
+- **API**: additive only (see `api-spec.md`, `API_DOCUMENTATION.md`, `database-design.md`).
+
+##### Method
+
+PLFS is used only as a ratio. First-visit person file only (revisit files would double-count). Keep: urban, age 18 to 60, current weekly
+status 31 (regular salaried/wage), current-week occupation NCO-2015 251 or 252 (the group named in the Data Access Agreement application,
+never broadened), earnings from that activity > 0. Weight per person from the PLFS README note (`MULT/100` if `NSS == NSC`, else `MULT/200`,
+divided by the number of quarters; computed as an exact integer). Weighted median of monthly earnings per metro divided by the weighted median of the
+same group nationally; then **shrunk toward 1.0** in log space, `lambda = n/(n+30)`, `factor = exp(lambda * ln(raw ratio))`, published to
+two decimals. A city with fewer than 30 sampled persons is suppressed (no row, no number). Safety gates stop the run on a header or code mismatch,
+an invalid weight, more than 1% unparseable values, an implausible national median or a ratio outside 0.5 to 2.0.
+The metro-to-district grouping is a judgement call (edit `CITY_DISTRICTS` and rebuild to change it).
+
+##### The aggregate table (what is published; `data/plfs-city-factors/city_factors.csv`)
+
+National group: n = 1,028 sampled persons. Counts are unweighted sampled persons; every count is at least 30.
+
+| City | n | Raw ratio (city median / national median) | Shrinkage weight | Factor (shrunk ratio, as shown to users) |
+|---|---|---|---|---|
+| Bangalore | 170 | 1.042 | 0.850 | 1.04 |
+| Mumbai | 31 | 0.625 | 0.508 | 0.79 |
+| Delhi NCR | 86 | 1.354 | 0.741 | 1.25 |
+| Hyderabad | 124 | 0.963 | 0.805 | 0.97 |
+| Pune | 87 | 1.042 | 0.744 | 1.03 |
+| Chennai | 90 | 0.938 | 0.750 | 0.95 |
+
+**Owner decision, 2026-10-11: keep Mumbai's factor as built (0.79), with the "estimate" wording; do not suppress it.** Suppression (or a minimum distinct-sampling-unit rule, design L6) was offered and declined; revisit if a Mumbai result looks wrong in use.
+
+Caveats the numbers carry (also in `build_report.json`): Mumbai rests on n = 31, just over the floor, with fewer than 30 distinct sampling units, so its
+factor is the least certain; Delhi NCR 1.25 is the largest adjustment; the factor depends on the shrinkage constant (K = 15 / 60 give Mumbai 0.73 / 0.85 and
+Delhi NCR 1.29 / 1.20). One multiplier per city is applied to every role and experience level (`ponytail:` ceiling: the true effect differs by role and
+seniority; crowdsourced data corrects it as it grows and is never adjusted). PLFS 2023-24 is July 2023 to June 2024; the Stack Overflow side is mid-2025; the
+ratio is not re-based for that gap.
+
+##### Verified live (Docker Postgres 16 + Redis 7 from `backend/docker-compose.yml`, API :8000, workers, Vite preview :8080, real Gemini key)
+
+- `npm run db:migrate` applied `0008` to the dev database cleanly (the previous migration was `0007`); `npm run db:load-city-factors` loaded the six rows.
+- **Explorer** (`GET /salaries/stats`, Backend Engineer, survey n = 184): national p50 is 20,50,000. Mumbai p50 16,19,500 (= x0.79), Delhi NCR 25,62,500
+  (= x1.25), Bangalore 21,32,000 (= x1.04), each with scope `role_city_adjusted`, label "India (national), adjusted for <City>", the factor, the PLFS n and the new
+  disclaimer. A Jaipur request and a crowd-served request (Senior Software Engineer, Bangalore, n = 36) carry no `cityAdjustment` key at all.
+- **Offer analyses**, same CTC (INR 24,00,000), Backend Engineer, Mid-Level, survey bracket n = 39: Mumbai (x0.79) **92nd percentile**, Delhi NCR (x1.25)
+  **67th**, and the same Mumbai offer with the factor rows removed (national) **79th**. So the percentile moves in the right direction for each factor.
+  Scope `role_experience_city_adjusted`, `public_survey`, confidence medium.
+- **Behavioural rollback proven**: `DELETE FROM city_pay_factors` made the next Mumbai analysis national (`role_experience_national`, p50 13,00,000,
+  percentile 79, no `cityAdjustment`, no PLFS text in the PDF) with no cache flush; the six rows were reloaded afterwards.
+- **Fresher in a factored metro** (Mumbai, 0-1 yrs): range shown (scope `role_city_adjusted`, adjusted disclaimer plus the "not ranked" sentence), **percentile null**,
+  `percentileWithheld: no_experience_rows`.
+- **Non-metro** (Jaipur, Backend Engineer): no survey tier exists for a non-metro city (unchanged since 5.1 Phase A), so the offer is AI-estimated as before
+  5.1b, with no factor, no PLFS text and no ODbL block. Nothing about it changed.
+- **Crowd precedence** (Senior Software Engineer, Bangalore): crowdsourced, `role_city`, n = 36, percentile 49, no `cityAdjustment`, no PLFS text in the PDF.
+- **PDF**: the three adjusted reports (Mumbai Mid-Level, Delhi NCR Mid-Level, Mumbai Fresher) contain the exact PLFS citation sentence, the
+  `microdata.gov.in` link and the ODbL attribution (text extracted with `pdfjs`). The rolled-back national report has the ODbL text and no PLFS text; the Jaipur
+  (AI-estimated) and crowd reports have neither.
+- **Career drawer** (Mumbai Mid-Level): survey medians equal national x0.79 (Mid 13,00,000 -> 10,27,000), five rows read "..., India-wide, scaled to Mumbai", the note
+  names the city, factor and n, and the drawer carries the PLFS citation and ODbL.
+- **Browser** (Chromium via playwright-core, `live51b-ui.mjs`, 21 checks passed): label as text, factor line with the PLFS n, citation sentence, all four
+  links real with `rel="noopener noreferrer"` and keyboard-focusable, Explorer sentence swapped, career rows and link; **text contrast minimum 4.84:1 (light) and
+  5.37:1 (dark)** over the 11 text elements of the notice.
+- **Regression**: `node test-security.mjs` 20/20; `test-m2.mjs` 32 passed, 0 failed; `test-m3.mjs` 19 passed, 0 failed; Playwright smoke 1 passed (48 s).
+  The rate limiter did not trip and no limit was changed.
+- **Static / unit**: backend `tsc --noEmit` and `eslint src` exit 0; backend `vitest` 899 passed, 3 skipped (64 files, 1 skipped); frontend `tsc --noEmit -p
+  tsconfig.app.json` exit 0, `eslint` 0 errors (17 warnings, all pre-existing), `vitest` 12 files, **132 passed** (baseline 129, +3), `vite build` ok; Python
+  `unittest` 36 tests OK, also under `python -O` (one test skipped there).
+- **Phase 0 eval** (`npm run eval -- --runs 3`, 17 of 17 cases, 51 model calls): structured 95.4% (94.1-96.1), nuanced 82.6% (79.1-84.4), red flags F1 83.9%
+  (79.4-86.1), noise floor 5.3%. The previous round was 95.1 / 83.5 / 84.7. The harness does not call the rubric, so it cannot show a score move; the scoring path
+  is touched only through the percentile input.
+
+##### Reasoned, not run
+
+- The full builder run on the real `perv1.csv` happened in the earlier build step (its output is the aggregate above); this step re-ran only the builder's
+  unit tests and its repository-path guard and did not open any microdata file.
+- `PLFS_URL` was fetched in this step and opens the NADA catalogue entry "Periodic Labour Force Survey (PLFS), July 2023-June 2024". `PLFS_DATASET_URL` points at
+  `main/data/plfs-city-factors` on GitHub, which resolves only once that directory is pushed.
+- Not run: a real phone or other browsers, a screen reader, Lighthouse, the 412 px layout of the new notice paragraph, window expiry of the rate limits, a Redis outage.
+- The "stored snapshots" rule is by design, not tested live: analyses created before 5.1b keep their national figures and wording.
+
+##### Hygiene audit (microdata and the repository)
+
+Run over the working tree (785 files, including `data/`, `docs/`, `.agents/` notes, logs and test fixtures; `node_modules` and `.git` excluded):
+
+- **No per-respondent record or value.** No line with 60 or more comma-separated fields exists anywhere (a 139-column microdata row would have 138); no file larger than
+  1 MB of type csv/txt/dat/tsv/xlsx/zip/sav/dta exists outside `node_modules`; the PLFS field names appear only in the design and its review, the builder, its tests, the
+  README and `build_report.json` (aggregate keys such as `acws_among_earners`, with counts), never with a data value next to them. The builder's tests use synthetic sentinel values only.
+- **Raw files absent and ignored.** No file named `perv1`, `perrv`, `hhv1` or `hhrv` (any extension) and no `pfls` or `CSV_data_PLFS*` directory is in the tree; `git ls-files`
+  lists none; `git check-ignore` confirms `.gitignore` covers `perv1.*`, `perrv.*`, `hhv1.*`, `hhrv.*`, `pfls/`, `build_report.counts.json` and `__pycache__/`. The microdata lives in
+  `C:\Users\mueen\pfls`, outside the repo. Note: on a case-sensitive file system the `perv1.*` ignore does not match `PERV1.TXT` (Windows git ignores case); the stem-based
+  `git ls-files` test in the builder's suite is what catches an upper-case name.
+- **Guard works.** With `PLFS_DIR` set to the data directory inside the repo, to the same directory spelled with `..` and a trailing separator, and to an upper-case spelling of a
+  parent inside the repo, the script exits 2 with "PLFS_DIR must be outside the repository" before any file is opened; unset gives exit 1. Unit tests: 36, normal and `-O`.
+
+##### Licence compliance checklist (Data Access Agreement)
+
+| Obligation | Status |
+|---|---|
+| Non-commercial use only | **Holds today.** Plans and pricing are display only. If anything starts charging, run the removal steps below first. |
+| Access limited to the applicant | **Done.** The raw file stays in `C:\Users\mueen\pfls`, outside the repo; audit above found no copy in the tree. |
+| Only the stated purpose | **Done in code**, listed filter by filter in the method above (urban, age 18-60, status 31, NCO 251/252, earnings > 0, survey multipliers, ratio to the national median, shrinkage, n >= 30). **Owner to do:** re-read the submitted form text against this method before sending the e-mail. |
+| README rider: unit-level data should not be used for variables other than the employment and unemployment indicators (decision **D1**) | **DECIDED by the owner, 2026-10-11: the use fits the rider.** Earnings of regular salaried workers is a PLFS indicator at national and state level; the owner's reading, reached after discussing it with another person, is that city-level earnings ratios for the stated occupation group are within the README's wording. This is the owner's own judgement and not a written confirmation from MoSPI; the pipeline's full run was made before this decision was recorded (the design had made D1 a gate on that run), and the outputs were not committed or published in the meantime. If MoSPI ever says no, run the removal steps and the product keeps national figures. |
+| No proprietary use; no law-enforcement use | **Done** (open repository, aggregates published openly; not applicable). |
+| No attempt to identify anyone | **Done.** Aggregates only, floor of 30, `<30` text for small counts, the sampling-unit number is used only for a distinct count; the table has no respondent-level column; no linkage to other data. |
+| Security measures | **Done.** Raw data outside the repo, repo-path guard, one file opened read-only, no network, `.gitignore` entries, stdout/stderr sentinel tests. |
+| Cite the source | **Done and checked live.** README, the Results notice, the Explorer notice, the career drawer and the PDF carry "City adjustment derived from the Periodic Labour Force Survey 2023-24, National Statistics Office, MoSPI." with links. |
+| Send MoSPI a copy of publications (`nssunit.dsdd@mospi.gov.in`) | **OPEN, owner action.** Send before or alongside the first public publication of `city_factors.csv` (nothing has been pushed yet). Draft below. Record the date here when sent. |
+| No claim of MoSPI responsibility | **Done.** README and the UI call the figures an estimate and say they are not offers in the user's city. |
+| Terms for the data directory | **Done.** The README says: aggregates derived under the Data Access Agreement, non-commercial only, not ODbL, not covered by the repo's MIT licence. |
+| Residual risk | MoSPI's written confirmation about publishing the derived aggregates in a public repo has not been obtained. The agreement text supplied does not prohibit publishing aggregates and asks for a copy. Not legal advice. |
+
+##### Draft e-mail to MoSPI (for the owner to send)
+
+To: nssunit.dsdd@mospi.gov.in
+Subject: PLFS 2023-24: aggregate table and project link (software professionals, city factors)
+
+> Dear Sir or Madam,
+>
+> I obtained the PLFS 2023-24 unit-level data through the National Data Archive (request reference: [request reference]) for a non-commercial personal project,
+> OfferLens, which helps job seekers compare offers. As the Data Access Agreement asks, I am sending a copy of what has been derived from the data.
+>
+> The project uses the first-visit person file only, for urban persons aged 18 to 60 who are regular salaried or wage workers (current weekly status 31) in NCO-2015
+> occupation groups 251 and 252. For six metropolitan areas it computes the weighted median monthly cash earnings as a ratio to the national weighted median for the same
+> group, shrinks the ratio toward 1.0 by sample size, and publishes only that factor and the sampled-person count. No unit-level record, identifier or rupee amount is published,
+> and cities with fewer than 30 sampled persons are suppressed.
+>
+> | City | Sampled persons (n) | Raw ratio | Shrinkage weight | Published factor |
+> |---|---|---|---|---|
+> | Bangalore | 170 | 1.042 | 0.850 | 1.04 |
+> | Mumbai | 31 | 0.625 | 0.508 | 0.79 |
+> | Delhi NCR | 86 | 1.354 | 0.741 | 1.25 |
+> | Hyderabad | 124 | 0.963 | 0.805 | 0.97 |
+> | Pune | 87 | 1.042 | 0.744 | 1.03 |
+> | Chennai | 90 | 0.938 | 0.750 | 0.95 |
+>
+> (National group: 1,028 sampled persons.) The files `city_factors.csv` and `build_report.json` are attached. Project link: [PROJECT LINK].
+>
+> The factors are shown beside a salary benchmark as an estimate (national survey figures scaled by a city factor, not pay data from the city), with this citation:
+> "City adjustment derived from the Periodic Labour Force Survey 2023-24, National Statistics Office, MoSPI."
+>
+> The project is non-commercial and will stay so; if that changes, the factors will be removed. Please let me know if any part of this use needs to change.
+>
+> Regards,
+> [Your name]
+
+Before sending: fill the two placeholders, attach the two files from `data/plfs-city-factors/`, and make sure the sentences above still match the form you submitted.
+
+##### Removal if the project turns SaaS
+
+1. `DELETE FROM city_pay_factors;` (no deploy; the Explorer, offers and the career table serve national figures at once; proven live above). 2. Decide about stored analyses whose
+`salary_comparison->>'benchmarkScope'` ends in `city_adjusted` (a data decision). 3. A forward migration `0009` that drops the table. 4. One cleanup commit removing the
+directory, `city-adjustment.ts`, the schema, parser and loader files and the `cityAdjustment` branches (`grep` for `cityAdjustment` and `isCityAdjustedScope` finds every
+site) and the frontend strings. 5. The aggregate CSV stays in git history; whether to purge it is an owner and MoSPI question then. 6. Update the intended-use statement and tell MoSPI.
+
+##### Owner actions still open
+
+D1 (README rider) is **decided: it fits** (owner, 2026-10-11, own reading, see the licence table). Still open: the MoSPI e-mail (the agreement asks for a copy of any publication), re-reading the intended-use text against the method, and (optional) written confirmation on publishing aggregates. Nothing in the code waits on them; a "no" from MoSPI would mean removing the factors.
+
+##### Docs changed
+
+`docs/PLAN-analysis-pipeline.md` (this section, task tables, the PLFS paragraphs), `docs/database-design.md` (`city_pay_factors`, `salaryComparison.cityAdjustment`),
+`docs/api-spec.md` and `docs/API_DOCUMENTATION.md` (new scopes and the optional `cityAdjustment` on `/salaries/stats`, `salaryComparison` and the career `progression`).
+
 ### Phase 6: Revenue & Compliance
 
 | # | Task | Impact | Blocked on |
