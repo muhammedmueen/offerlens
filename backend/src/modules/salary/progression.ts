@@ -1,4 +1,5 @@
 import { SURVEY_DISCLAIMER_PREFIX, roleScope } from './benchmark-comparison.js';
+import type { CityAdjustment } from './city-adjustment.js';
 
 /**
  * Career-path pay progression (Phase 5 task 5.5). Types and pure assembly, no I/O, so it is tested
@@ -37,6 +38,8 @@ export interface Progression {
     currentBracket?: string | null;
     cells?: ProgressionCell[];
     notes?: ProgressionNote[];
+    /** 5.1b: set when the survey cells were scaled to this city by a PLFS factor. Absent otherwise. */
+    cityAdjustment?: CityAdjustment | null;
 }
 
 /**
@@ -61,11 +64,19 @@ export function addSteps(cells: ProgressionCell[]): ProgressionCell[] {
  * the ODbL attribution applies). The crowd note appears only if a cell came from crowd rows. No
  * sample size is ever interpolated: n is per row and lives in the table.
  */
-export function progressionNotes(cells: readonly ProgressionCell[], families: readonly string[]): ProgressionNote[] {
+export function progressionNotes(
+    cells: readonly ProgressionCell[],
+    families: readonly string[],
+    adjustment?: CityAdjustment | null,
+): ProgressionNote[] {
+    const where = adjustment
+        ? `National figures from the Stack Overflow Developer Survey 2025 (${roleScope(families)}), adjusted for ${adjustment.cityLabel} `
+            + `by a factor of ${adjustment.factor.toFixed(2)} from Periodic Labour Force Survey 2023-24 monthly cash earnings `
+            + `(n = ${adjustment.plfsSampleSize}). It is an estimate, not pay data from ${adjustment.cityLabel}.`
+        : `India-wide figures from the Stack Overflow Developer Survey 2025 (${roleScope(families)}, all cities).`;
     const notes: ProgressionNote[] = [{
         source: 'public_survey',
-        disclaimer: `${SURVEY_DISCLAIMER_PREFIX} India-wide figures from the Stack Overflow Developer Survey 2025 `
-            + `(${roleScope(families)}, all cities). Each row compares different people at that level of experience; `
+        disclaimer: `${SURVEY_DISCLAIMER_PREFIX} ${where} Each row compares different people at that level of experience; `
             + 'it is not a forecast of your own raises. The survey skews toward junior respondents, so senior rows are often thin.',
     }];
     if (cells.some((c) => c.source === 'crowdsourced')) {

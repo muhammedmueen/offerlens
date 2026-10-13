@@ -1,3 +1,5 @@
+import { isCityAdjustedScope } from '@/modules/salary/city-adjustment.js';
+
 /**
  * Render market data for the negotiation prompt, with its provenance attached
  * (Phase 1 task 6).
@@ -23,6 +25,7 @@ export function describeMarketData(marketData: unknown): string {
         disclaimer?: string | null;
         roleUsed?: string;
         locationUsed?: string;
+        benchmarkScope?: string;
     } | null | undefined;
 
     if (!md || !md.marketRange) {
@@ -55,8 +58,12 @@ export function describeMarketData(marketData: unknown): string {
     // Real survey data, but modelled and national: it must never read as offers or submissions,
     // so this branch never uses the word VERIFIED.
     if (md.dataSource === 'public_survey') {
+        // 5.1b: scaled to the city by a PLFS factor; still an estimate, never offers or data for this city.
+        const adjusted = isCityAdjustedScope(md.benchmarkScope);
         return [
-            'Market Data (PUBLIC SURVEY, India-wide, not specific to this city or to real offers):',
+            adjusted
+                ? 'Market Data (PUBLIC SURVEY, India-wide figures scaled to the city by a PLFS 2023-24 factor; an estimate, not offers or data for this city):'
+                : 'Market Data (PUBLIC SURVEY, India-wide, not specific to this city or to real offers):',
             `  25th percentile: ${range.p25}`,
             `  Median:          ${range.p50}`,
             `  75th percentile: ${range.p75}`,
@@ -65,7 +72,9 @@ export function describeMarketData(marketData: unknown): string {
                 ? `  This offer sits at roughly the ${md.offerPercentile}th percentile of survey respondents.`
                 : '',
             md.disclaimer ? `  Provenance: ${md.disclaimer}` : '',
-            'You MAY cite these figures as "the Stack Overflow Developer Survey 2025 (India)".',
+            adjusted
+                ? 'You MAY cite these figures as "the Stack Overflow Developer Survey 2025 (India), scaled to the city using PLFS 2023-24".'
+                : 'You MAY cite these figures as "the Stack Overflow Developer Survey 2025 (India)".',
             'Do NOT describe them as offers, submissions or data for this city.',
         ].filter(Boolean).join('\n            ');
     }

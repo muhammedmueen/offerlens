@@ -5,6 +5,7 @@ import type { ScoreComponent } from './score.rubric.js';
 import type { ConfidenceReport } from './confidence.js';
 import type { DATA_SOURCES } from './analysis.zod.js';
 import type { BenchmarkScope } from '@/modules/salary/salary.service.js';
+import type { CityAdjustment } from '@/modules/salary/city-adjustment.js';
 
 export interface AnalysisResult {
     extractedData: {
@@ -94,6 +95,8 @@ export interface SalaryComparison {
     payBasis?: 'offered' | 'current' | 'mixed' | null;
     /** 5.7, 'mixed' only: data points by kind, summing to `sampleSize`. */
     payMix?: { offered: number; current: number; unlabelled: number } | null;
+    /** 5.1b, public_survey only: the PLFS city factor the quantiles were scaled by. Absent on national and crowd results. */
+    cityAdjustment?: CityAdjustment | null;
 }
 
 export interface NegotiationSuggestion {

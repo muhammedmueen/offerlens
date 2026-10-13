@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+import { PgDialect } from 'drizzle-orm/pg-core';
+import type { SQL } from 'drizzle-orm';
+
 // Mocks as in salary.lookup.test.ts: db.select().from(table).where() and an in-memory cache.
 type CrowdRow = { ctc: number; createdAt: Date; years: number };
 type RefRow = { ctc: number; weight: number };
@@ -9,7 +12,9 @@ const state = {
     /** One entry per reference query, in call order. getProgression issues them in bracket order. */
     refQueue: [] as RefRow[][],
     throws: false,
+    factors: [] as Array<{ nRespondents: number; factor: number }>,
     selects: [] as string[],
+    factorWhere: null as unknown,
 };
 const store = new Map<string, unknown>();
 
@@ -18,12 +23,13 @@ vi.mock('@/db/index.js', () => ({
     db: {
         select: () => ({
             from: (table: Record<symbol, unknown>) => ({
-                where: async () => {
+                where: async (cond?: unknown) => {
                     const name = String(table[Symbol.for('drizzle:Name')]);
                     state.selects.push(name);
                     if (state.throws) {
                         throw Object.assign(new Error('Failed query: select ... params: backend engineer,bangalore'), { cause: { code: '42P01' } });
                     }
+                    if (name === 'city_pay_factors') { state.factorWhere = cond; return state.factors; }
                     return name === 'salary_reference_rows' ? (state.refQueue.shift() ?? []) : state.crowd;
                 },
             }),
@@ -58,7 +64,9 @@ beforeEach(() => {
     state.crowd = [];
     state.refQueue = [];
     state.throws = false;
+    state.factors = [];
     state.selects = [];
+    state.factorWhere = null;
     store.clear();
 });
 
@@ -209,5 +217,54 @@ describe('failure', () => {
         const logged = JSON.stringify(warn.mock.calls);
         expect(logged).toContain('42P01');
         expect(logged).not.toMatch(/backend engineer|bangalore|Failed query|params/i);
+    });
+});
+
+describe('5.1b: PLFS city factor in the career table', () => {
+    const near = (a: number, b: number) => Math.abs(a - b) <= 2;
+
+    it('scales survey cells by the factor, never crowd cells, and sets cityAdjustment and the note', async () => {
+        const run = async () => {
+            state.crowd = crowd(10, 4, 5_000_000);   // Mid is a crowd cell
+            state.refQueue = [[], ref(12, 1_000_000), ref(12), ref(12, 2_000_000), ref(0), ref(0)];
+            return svc().getProgression(BASE);
+        };
+        const nat = await run();
+        expect(nat).not.toHaveProperty('cityAdjustment');
+        store.clear();
+        state.factors = [{ nRespondents: 170, factor: 1.25 }];
+        const adj = await run();
+
+        expect(adj.cityAdjustment).toMatchObject({ city: 'bangalore', factor: 1.25, plfsSampleSize: 170 });
+        expect(near(adj.cells![1].marketRange!.p50, nat.cells![1].marketRange!.p50 * 1.25)).toBe(true);   // survey: scaled
+        expect(adj.cells![2]).toMatchObject({ source: 'crowdsourced' });
+        expect(adj.cells![2].marketRange).toEqual(nat.cells![2].marketRange);                              // crowd: untouched
+        expect(adj.cells![1].sampleSize).toBe(nat.cells![1].sampleSize);
+        expect(adj.notes![0].disclaimer).toContain('adjusted for Bangalore by a factor of 1.25');
+        expect(nat.notes![0].disclaimer).toContain('all cities');
+    });
+
+    it('no factor row (suppressed city): identical to today, no cityAdjustment key', async () => {
+        state.refQueue = [[], ref(12, 1_000_000), ref(12), ref(0), ref(0), ref(0)];
+        const p = await svc().getProgression(BASE);
+        expect(p).not.toHaveProperty('cityAdjustment');
+        expect(p.notes![0].disclaimer).toContain('India-wide figures');
+    });
+
+    it('no scaled survey cell (every cell crowd or thin): no cityAdjustment and the national note', async () => {
+        state.factors = [{ nRespondents: 170, factor: 1.25 }];
+        state.refQueue = [[], ref(4), ref(4), ref(4), ref(4), ref(4)];
+        const p = await svc().getProgression(BASE);
+        expect(p.cells!.every((c) => c.source !== 'public_survey')).toBe(true);
+        expect(p).not.toHaveProperty('cityAdjustment');
+        expect(p.notes![0].disclaimer).toContain('India-wide figures');
+    });
+
+    it('the factor read is pinned to the PLFS source version', async () => {
+        state.factors = [{ nRespondents: 170, factor: 1.25 }];
+        state.refQueue = [[], ref(12), ref(12), ref(0), ref(0), ref(0)];
+        await svc().getProgression(BASE);
+        const { params } = new PgDialect().sqlToQuery(state.factorWhere as SQL);
+        expect(params).toEqual(expect.arrayContaining(['plfs_2023_24', '2023-24', 'bangalore']));
     });
 });

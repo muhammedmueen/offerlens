@@ -1,6 +1,7 @@
 import { db } from '@/db/index.js';
 import { salarySubmissions } from '@/db/schema/salary-submissions.js';
 import { salaryReferenceRows } from '@/db/schema/salary-reference-rows.js';
+import { cityPayFactors } from '@/db/schema/city-pay-factors.js';
 import { createHash } from 'node:crypto';
 import { eq, and, inArray, isNull, gte, lt } from 'drizzle-orm';
 import { AppError } from '@/shared/errors/app-error.js';
@@ -12,6 +13,10 @@ import { MIN_SAMPLE_SIZE, recencyWeight, rejectOutliers, summarise, weightedPerc
 import { EXPERIENCE } from '@/db/seed-data.js';
 import { addSteps, progressionNotes, type Progression, type ProgressionCell } from './progression.js';
 import { toSalaryComparison } from './benchmark-comparison.js';
+import {
+    ACTIVE_CITY_FACTOR_SOURCES, PLFS_SOURCE, adjustedLocationLabel, cityLabel, isUsableFactor,
+    type CityAdjustedScope, type CityAdjustment,
+} from './city-adjustment.js';
 
 /**
  * Minimum rows (after outlier rejection) before a benchmark is reported. Defined once in
@@ -20,7 +25,7 @@ import { toSalaryComparison } from './benchmark-comparison.js';
 export { MIN_SAMPLE_SIZE };
 
 export type BenchmarkSource = 'crowdsourced' | 'public_survey';
-export type BenchmarkScope = 'role_city' | 'role_experience_national' | 'role_national';
+export type BenchmarkScope = 'role_city' | 'role_experience_national' | 'role_national' | CityAdjustedScope;
 
 export interface Benchmark {
     source: BenchmarkSource;
@@ -34,7 +39,7 @@ export interface Benchmark {
     referenceFamilies: readonly string[];
     /** The matcher's confidence; 1 for an exact stored-string hit on an unmatched role. Never 0. */
     roleMatchConfidence: number;
-    /** Canonical city for crowdsourced; 'India (national)' for the survey. */
+    /** Canonical city for crowdsourced; 'India (national)' for the survey, '... adjusted for <City>' when a PLFS factor applied. */
     locationUsed: string;
     sampleSize: number;
     /** Seed bracket label for tier 2 (display name only); null otherwise. */
@@ -51,6 +56,8 @@ export interface Benchmark {
     payBasis?: 'offered' | 'current' | 'mixed' | null;
     /** 'mixed' only: rows by kind, counted over the rows that survive outlier rejection (sums to sampleSize). */
     payMix?: PayMix | null;
+    /** 5.1b, survey tiers only: the PLFS city factor the quantiles were scaled by. Absent on national and crowd results. */
+    cityAdjustment?: CityAdjustment | null;
 }
 
 export interface PayMix { offered: number; current: number; unlabelled: number }
@@ -198,6 +205,41 @@ export class SalaryService {
     }
 
     /**
+     * PLFS city factor for a canonical metro, or null: no row (suppressed or never loaded), an unusable
+     * row, or any read error. Null always means "serve national figures exactly as before"; a factor is
+     * never invented or interpolated. Survey tiers only: callers never reach this for a crowd result.
+     * ponytail: one tiny read of a <= 6-row table per survey-tier lookup, deliberately NOT cached, so a
+     * `db:load-city-factors` run is visible on the next request and the cached survey rows (which stay
+     * unadjusted) can never serve a stale factor. Upgrade path: a Redis key the loader deletes.
+     */
+    private async cityAdjustment(cityKey: string): Promise<CityAdjustment | null> {
+        try {
+            const [row] = await db
+                .select({ nRespondents: cityPayFactors.nRespondents, factor: cityPayFactors.factor })
+                .from(cityPayFactors)
+                .where(and(
+                    inArray(cityPayFactors.source, [...ACTIVE_CITY_FACTOR_SOURCES]),
+                    eq(cityPayFactors.sourceVersion, PLFS_SOURCE.sourceVersion),
+                    eq(cityPayFactors.city, cityKey),
+                ));
+            if (!isUsableFactor(row)) return null;
+            return {
+                source: PLFS_SOURCE.source,
+                city: cityKey,
+                cityLabel: cityLabel(cityKey),
+                factor: row.factor,
+                plfsSampleSize: row.nRespondents,
+                period: PLFS_SOURCE.period,
+            };
+        } catch (err) {
+            // Class name + pg code only: Drizzle's message embeds the SQL and bound values.
+            console.warn('[Salary] city factor lookup failed', err instanceof Error ? err.name : 'unknown',
+                (err as { cause?: { code?: string } }).cause?.code ?? '');
+            return null;
+        }
+    }
+
+    /**
      * The ordered lookup shared by `getBenchmark` and `getStats`:
      *   1a. crowdsourced, role + city, the PREFERRED pay basis only, n >= 10 (after outlier rejection,
      *       recency-weighted). Offer analysis prefers 'offered', the Explorer 'current'.
@@ -206,6 +248,8 @@ export class SalaryService {
      *   2. reference, role family + experience bracket, national, n >= 10
      *   3. reference, role family only, national, n >= 10 (percentile withheld when the offer's bracket
      *      has no survey rows at all, 5.6)
+     *   Tiers 2 and 3 are scaled by the PLFS city factor when the metro has one (5.1b); the scope then
+     *   becomes `*_city_adjusted`. Crowd tiers are never scaled.
      *   4. null (the caller keeps the AI estimate)
      * Each tier summarises ITS OWN rows. Nothing is averaged across tiers and crowd and reference rows
      * are never pooled.
@@ -285,15 +329,25 @@ export class SalaryService {
         try {
             const families = match.referenceFamilies;
             const bracket = bracketFromLabel(ctx.experienceLevel);
+            // Read here, inside the survey-tier try and after tier 1 has failed: a crowd result never
+            // issues this query. The cached survey rows are unadjusted; the factor is applied after the read.
+            const adj = await this.cityAdjustment(cityKey);
             const base = {
                 source: 'public_survey' as const,
                 roleUsed: match.canonical!, // non-null: families are only set when a label matched
                 referenceFamilies: families,
                 roleMatchConfidence: match.confidence,
-                locationUsed: NATIONAL,
+                locationUsed: adj ? adjustedLocationLabel(cityKey) : NATIONAL,
+                ...(adj && { cityAdjustment: adj }),
             };
+            // ponytail: one multiplier per city for every role and experience level. The true effect
+            // differs by role and seniority, and PLFS has one software occupation group (NCO 251/252).
+            // Ceiling: a role whose city premium differs from that group (for example engineering
+            // managers) is mis-scaled. Crowdsourced rows are never adjusted and correct this as they
+            // build up. Upgrade: per-family factors if a larger source appears.
+            const scale = adj?.factor ?? 1;
             const toWeighted = (rows: Array<[number, number]>) =>
-                rows.map(([value, weight]): WeightedValue => ({ value, weight }));
+                rows.map(([value, weight]): WeightedValue => ({ value: value * scale, weight }));
 
             // 5.6: set when the offer's bracket has no survey respondents to rank against.
             let withheld: Benchmark['percentileWithheld'] = null;
@@ -306,7 +360,7 @@ export class SalaryService {
                         crowdCount: crowd.length,
                         benchmark: {
                             ...base, ...s,
-                            scope: 'role_experience_national',
+                            scope: adj ? 'role_experience_city_adjusted' : 'role_experience_national',
                             experienceBracket: bracket.label,
                             // Half-open in the query, so the inclusive top is maxYears - 1; 99 = open end.
                             experienceYearsRange: { min: bracket.minYears, max: bracket.maxYears >= 99 ? null : bracket.maxYears - 1 },
@@ -335,7 +389,7 @@ export class SalaryService {
                 return {
                     crowdCount: crowd.length,
                     benchmark: {
-                        ...base, ...s, scope: 'role_national', experienceBracket: null, experienceYearsRange: null,
+                        ...base, ...s, scope: adj ? 'role_city_adjusted' : 'role_national', experienceBracket: null, experienceYearsRange: null,
                         percentileWithheld: withheld,
                     },
                 };
@@ -373,6 +427,10 @@ export class SalaryService {
             const families = match.referenceFamilies;
             const now = Date.now();
             const crowd = await this.crowdRowsByYears(match.crowdKey, cityKey);
+            // 5.1b: same factor as the offer benchmark, so the career table and the Results page agree for
+            // one city. Survey cells only; crowd cells are never scaled. Null (never throws) = national.
+            const adj = await this.cityAdjustment(cityKey);
+            const scale = adj?.factor ?? 1;
 
             const cells = await Promise.all(EXPERIENCE.map(async (b): Promise<ProgressionCell> => {
                 const base = {
@@ -390,7 +448,7 @@ export class SalaryService {
                 }
 
                 const ref = await this.refRows(families, b);
-                const s = summarise(ref.map(([value, weight]): WeightedValue => ({ value, weight })), null, { rejectOutliers: false });
+                const s = summarise(ref.map(([value, weight]): WeightedValue => ({ value: value * scale, weight })), null, { rejectOutliers: false });
                 const crowdN = rejectOutliers(crowdItems).length;
                 return s
                     ? { ...base, sampleSize: s.sampleSize, crowdN, source: 'public_survey',
@@ -399,6 +457,8 @@ export class SalaryService {
             }));
 
             const withSteps = addSteps(cells);
+            // Only claim the adjustment if at least one survey cell actually carries scaled numbers.
+            const applied = cells.some((c) => c.source === 'public_survey') ? adj : null;
             const current = bracketFromLabel(input.experienceLevel);
             return {
                 applicable: true,
@@ -407,7 +467,8 @@ export class SalaryService {
                 referenceFamilies: families,
                 currentBracket: current?.label ?? null,
                 cells: withSteps,
-                notes: progressionNotes(withSteps, families),
+                notes: progressionNotes(withSteps, families, applied),
+                ...(applied && { cityAdjustment: applied }),
             };
         } catch (err) {
             // Fixed string + error class + pg code only. NOT err.message: Drizzle's query error
@@ -523,6 +584,8 @@ export class SalaryService {
             // Additive (5.7): which kind of pay served the number, the mix when pooled, and the same
             // disclaimer an offer analysis would carry, so its wording has one owner.
             ...(benchmark.source === 'crowdsourced' && { payBasis: benchmark.payBasis, payMix: benchmark.payMix }),
+            // 5.1b: the PLFS citation, factor and n travel with every adjusted number.
+            ...(benchmark.cityAdjustment && { cityAdjustment: benchmark.cityAdjustment }),
             disclaimer: toSalaryComparison(benchmark).disclaimer,
         };
     }

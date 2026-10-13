@@ -9,6 +9,8 @@ const state = {
     crowd: [] as CrowdRow[],
     refQueue: [] as RefRow[][],   // one entry per reference query, in call order
     refThrows: false,
+    factors: [] as Array<{ nRespondents: number; factor: number }>,   // city_pay_factors rows
+    factorThrows: false,
     selects: [] as string[],
     crowdQueries: [] as Array<{ sql: string; params: unknown[] }>,   // rendered WHERE of each crowd select
 };
@@ -25,6 +27,10 @@ vi.mock('@/db/index.js', () => ({
                     if (name === 'salary_reference_rows') {
                         if (state.refThrows) throw new Error('relation "salary_reference_rows" does not exist');
                         return state.refQueue.shift() ?? [];
+                    }
+                    if (name === 'city_pay_factors') {
+                        if (state.factorThrows) throw Object.assign(new Error('Failed query: select ... params: bangalore'), { cause: { code: '42P01' } });
+                        return state.factors;
                     }
                     // Render the real drizzle condition, then honour a `pay_basis = $n` predicate the way SQL
                     // does: `=` never matches NULL, so NULL-basis rows only come back from the unfiltered read.
@@ -71,6 +77,8 @@ beforeEach(() => {
     state.crowd = [];
     state.refQueue = [];
     state.refThrows = false;
+    state.factors = [];
+    state.factorThrows = false;
     state.selects = [];
     state.crowdQueries = [];
     store.clear();
@@ -445,6 +453,180 @@ describe('5.7: crowd queries and NULL-basis semantics', () => {
         expect(keys.sort()).toEqual([crowdCacheKey('wizard', 'pune', 'all'), crowdCacheKey('wizard', 'pune', 'offered')].sort());
         await svc().getBenchmark('Wizard', 'Pune', null, MID);
         expect(state.crowdQueries).toHaveLength(2);
+    });
+});
+
+// ── 5.1b: PLFS city factor, survey tiers only ──
+describe('5.1b: PLFS city factor', () => {
+    const FACTOR = { nRespondents: 170, factor: 1.25 };
+    const factorSelects = () => state.selects.filter((s) => s === 'city_pay_factors').length;
+    const near = (a: number, b: number) => Math.abs(a - b) <= 2;   // summarise() rounds to whole rupees
+
+    it('scales a tier-2 survey bracket by the factor: new scope, label, PLFS n, source and confidence unchanged', async () => {
+        state.refQueue = [refRows(10), refRows(10)];
+        const nat = (await svc().getBenchmark('Backend Engineer', 'Bangalore', null, MID))!;
+        expect(nat.scope).toBe('role_experience_national');
+        store.clear();
+        state.factors = [FACTOR];
+        const b = (await svc().getBenchmark('Backend Engineer', 'Bengaluru', null, MID))!;
+        expect(b).toMatchObject({
+            source: 'public_survey', scope: 'role_experience_city_adjusted',
+            locationUsed: 'India (national), adjusted for Bangalore',
+            sampleSize: 10, experienceBracket: 'Mid-Level (3-5 yrs)',
+            cityAdjustment: { source: 'plfs_2023_24', city: 'bangalore', cityLabel: 'Bangalore', factor: 1.25, plfsSampleSize: 170, period: '2023-24' },
+        });
+        for (const k of ['p25', 'p50', 'p75', 'p90'] as const) expect(near(b.marketRange[k], nat.marketRange[k] * 1.25)).toBe(true);
+        expect(b.percentileWithheld ?? null).toBeNull();
+    });
+
+    it('scales tier 3 (role-wide) too, and a delhi ncr factor reads "Delhi NCR"', async () => {
+        state.factors = [{ nRespondents: 86, factor: 1.25 }];
+        state.refQueue = [refRows(30)];
+        const b = (await svc().getBenchmark('Backend Engineer', 'Gurgaon', null, { currency: 'INR' }))!;
+        expect(b).toMatchObject({ scope: 'role_city_adjusted', locationUsed: 'India (national), adjusted for Delhi NCR' });
+        expect(b.cityAdjustment).toMatchObject({ city: 'delhi ncr', cityLabel: 'Delhi NCR', plfsSampleSize: 86 });
+    });
+
+    it('ranks the offer against the ADJUSTED quantiles (same offer, factor 0.79, ranks higher)', async () => {
+        state.refQueue = [refRows(30)];
+        const nat = (await svc().getBenchmark('Backend Engineer', 'Mumbai', 2_000_000, { currency: 'INR' }))!;
+        state.factors = [{ nRespondents: 31, factor: 0.79 }];
+        const adj = (await svc().getBenchmark('Backend Engineer', 'Mumbai', 2_000_000, { currency: 'INR' }))!;
+        expect(adj.scope).toBe('role_city_adjusted');
+        expect(adj.offerPercentile!).toBeGreaterThan(nat.offerPercentile!);
+    });
+
+    it('NEVER touches crowdsourced rows: a crowd tier wins unadjusted and the factor table is not even read', async () => {
+        state.crowd = crowdRows(10);
+        state.factors = [FACTOR];
+        const b = (await svc().getBenchmark('Backend Engineer', 'Bangalore', 2_200_000, MID))!;
+        expect(b).toMatchObject({ source: 'crowdsourced', scope: 'role_city', locationUsed: 'bangalore' });
+        expect(b).not.toHaveProperty('cityAdjustment');
+        expect(b.marketRange.p50).toBeLessThan(2_600_000);   // 2.0M..2.45M crowd rows, not x1.25
+        expect(factorSelects()).toBe(0);
+        const stored = toSalaryComparison(b);
+        expect(stored).not.toHaveProperty('cityAdjustment');
+    });
+
+    it('never pools crowd and reference: 9 thin crowd rows stay out of an adjusted survey summary', async () => {
+        state.crowd = crowdRows(9, 90_000_000);
+        state.factors = [FACTOR];
+        state.refQueue = [refRows(10, 1_500_000)];
+        const b = (await svc().getBenchmark('Backend Engineer', 'Bangalore', null, MID))!;
+        expect(b).toMatchObject({ source: 'public_survey', scope: 'role_experience_city_adjusted', sampleSize: 10 });
+        expect(b.marketRange.p90).toBeLessThan(2_500_000);
+    });
+
+    it('a metro with no factor row (non-published or suppressed) serves national figures exactly, with no cityAdjustment key', async () => {
+        state.refQueue = [refRows(10), refRows(10)];
+        const none = (await svc().getBenchmark('Backend Engineer', 'Pune', 2_000_000, MID))!;
+        expect(none).toMatchObject({ scope: 'role_experience_national', locationUsed: 'India (national)' });
+        expect(none).not.toHaveProperty('cityAdjustment');
+        expect(factorSelects()).toBe(1);
+        // Same cached rows, factor appears for pune only: the figures differ by exactly the factor.
+        state.factors = [{ nRespondents: 87, factor: 1.03 }];
+        const adj = (await svc().getBenchmark('Backend Engineer', 'Pune', 2_000_000, MID))!;
+        expect(adj.scope).toBe('role_experience_city_adjusted');
+        expect(near(adj.marketRange.p50, none.marketRange.p50 * 1.03)).toBe(true);
+    });
+
+    it('a non-metro never reads the factor table and gets no survey benchmark at all', async () => {
+        state.factors = [FACTOR];
+        state.refQueue = [refRows(40)];
+        expect(await svc().getBenchmark('Backend Engineer', 'Jaipur', null, MID)).toBeNull();
+        expect(factorSelects()).toBe(0);
+    });
+
+    it.each([
+        ['n under the floor', { nRespondents: 29, factor: 1.1 }],
+        ['factor above 2.0', { nRespondents: 100, factor: 2.5 }],
+        ['factor below 0.5', { nRespondents: 100, factor: 0.2 }],
+        ['non-finite factor', { nRespondents: 100, factor: Number.NaN }],
+    ])('ignores an unusable stored row (%s): national figures', async (_name, row) => {
+        state.factors = [row];
+        state.refQueue = [refRows(10)];
+        const b = (await svc().getBenchmark('Backend Engineer', 'Bangalore', null, MID))!;
+        expect(b.scope).toBe('role_experience_national');
+        expect(b).not.toHaveProperty('cityAdjustment');
+    });
+
+    it('a failing factor read degrades to national figures and logs the class and pg code, not the message', async () => {
+        state.factorThrows = true;
+        state.refQueue = [refRows(10)];
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const b = (await svc().getBenchmark('Backend Engineer', 'Bangalore', null, MID))!;
+        expect(b).toMatchObject({ source: 'public_survey', scope: 'role_experience_national', locationUsed: 'India (national)' });
+        expect(warn).toHaveBeenCalledWith('[Salary] city factor lookup failed', 'Error', '42P01');
+        expect(JSON.stringify(warn.mock.calls)).not.toContain('params');
+        warn.mockRestore();
+    });
+
+    it('Fresher withholding still holds under the adjusted scope: range scaled, no percentile, salary unscored', async () => {
+        state.factors = [FACTOR];
+        state.refQueue = [[], refRows(30)];
+        const b = (await svc().getBenchmark('Backend Engineer', 'Bangalore', 1_200_000, { experienceLevel: 'Fresher (0-1 yrs)', currency: 'INR' }))!;
+        expect(b).toMatchObject({
+            source: 'public_survey', scope: 'role_city_adjusted', offerPercentile: null,
+            percentileWithheld: { reason: 'no_experience_rows', yearsRange: { min: 0, max: 0 } },
+        });
+        const stored = toSalaryComparison(b);
+        expect(stored).toMatchObject({ offerPercentile: null, percentileWithheld: 'no_experience_rows', benchmarkScope: 'role_city_adjusted' });
+        const score = calculateScore({
+            redFlags: [], benefitsChecklist: null, extractedData: null, benefits: [],
+            offerPercentile: stored.offerPercentile, salarySource: b.source, salaryScope: b.scope,
+            salaryWithheld: b.percentileWithheld ? b.percentileWithheld.reason : undefined,
+        });
+        expect(score.components.find((c) => c.key === 'salary')).toMatchObject({ value: null, weight: 0, unscoredReason: 'no_experience_rows' });
+    });
+
+    it('the n >= 10 floor is unchanged: 9 survey rows with a factor still fall through to null', async () => {
+        state.factors = [FACTOR];
+        state.refQueue = [refRows(9), refRows(9)];
+        expect(await svc().getBenchmark('Backend Engineer', 'Bangalore', null, MID)).toBeNull();
+    });
+
+    // Cache correctness: survey rows are cached UNADJUSTED under the unchanged key, the factor is read per request.
+    it('a factor loaded (or removed) after the survey rows were cached is applied on the very next request, with no flush', async () => {
+        state.refQueue = [refRows(10)];
+        const before = (await svc().getBenchmark('Backend Engineer', 'Bangalore', null, MID))!;
+        expect(before.scope).toBe('role_experience_national');
+        const keys = [...store.keys()].filter((k) => k.startsWith('salary:ref:'));
+        expect(keys).toHaveLength(1);
+        expect(keys[0]).toBe(refCacheKey('so_survey_2025', ['Backend Engineer'], { label: 'Mid-Level (3-5 yrs)' } as never));
+
+        state.factors = [FACTOR];                       // db:load-city-factors ran; Redis was not touched
+        const after = (await svc().getBenchmark('Backend Engineer', 'Bangalore', null, MID))!;
+        expect(after.scope).toBe('role_experience_city_adjusted');
+        expect(near(after.marketRange.p50, before.marketRange.p50 * 1.25)).toBe(true);
+        expect(refCalls()).toBe(1);                     // second request was served from the cache
+        expect([...store.keys()].filter((k) => k.startsWith('salary:ref:'))).toEqual(keys);   // nothing added or re-keyed
+        expect(store.get(keys[0])).toEqual(refRows(10).map((r) => [r.ctc, r.weight]));         // cached rows are the raw ones
+
+        state.factors = [];                             // factor removed (DELETE FROM city_pay_factors)
+        expect((await svc().getBenchmark('Backend Engineer', 'Bangalore', null, MID))!.marketRange).toEqual(before.marketRange);
+    });
+
+    it('getStats carries cityAdjustment, the adjusted scope/label and the PLFS disclaimer; national and crowd results do not', async () => {
+        state.factors = [FACTOR];
+        state.refQueue = [refRows(25)];
+        const s = await svc().getStats('Backend Engineer', 'Bangalore') as Record<string, unknown>;
+        expect(s).toMatchObject({
+            dataSource: 'public_survey', scope: 'role_city_adjusted', city: 'India (national), adjusted for Bangalore',
+            cityAdjustment: { factor: 1.25, plfsSampleSize: 170, cityLabel: 'Bangalore' },
+        });
+        expect(s.disclaimer).toContain('city factor of 1.25');
+
+        state.factors = [];
+        const nat = await svc().getStats('Backend Engineer', 'Bangalore');
+        expect(nat).toMatchObject({ scope: 'role_national', city: 'India (national)' });
+        expect(nat).not.toHaveProperty('cityAdjustment');
+
+        state.crowd = crowdRows(10);
+        state.factors = [FACTOR];
+        store.clear();
+        const crowd = await svc().getStats('Backend Engineer', 'Bangalore');
+        expect(crowd).toMatchObject({ dataSource: 'crowdsourced' });
+        expect(crowd).not.toHaveProperty('cityAdjustment');
     });
 });
 

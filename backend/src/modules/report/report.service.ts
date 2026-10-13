@@ -7,6 +7,7 @@ import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 import { AnalysisResult } from '@/modules/analysis/analysis.types.js';
 import { ATTRIBUTION_TEXT, SO_SURVEY_URL, ODBL_URL } from '@/modules/salary/reference-source.js';
+import { PLFS_CITATION_TEXT, PLFS_URL } from '@/modules/salary/city-adjustment.js';
 
 export class ReportService {
     async generatePDF(offerId: string): Promise<PDFKit.PDFDocument> {
@@ -107,6 +108,11 @@ export class ReportService {
                 doc.fontSize(9).font('Helvetica').fillColor('#333').text(ATTRIBUTION_TEXT);
                 doc.text(`Survey: ${SO_SURVEY_URL}`);
                 doc.text(`Licence: ${ODBL_URL}`);
+                // 5.1b: the PLFS citation beside every number that used a city factor (same 9 pt #333).
+                if (salary.cityAdjustment) {
+                    doc.text(PLFS_CITATION_TEXT);
+                    doc.text(`Survey: ${PLFS_URL}`);
+                }
             }
             doc.moveDown(1);
         }

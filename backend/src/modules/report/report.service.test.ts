@@ -51,6 +51,23 @@ describe('ReportService salary section', () => {
         expect(texts).toContain('Your Offer Percentile: 55th');
     });
 
+    it('adds the PLFS citation and link, and the adjusted location, only when a city factor was used (5.1b)', async () => {
+        const { PLFS_CITATION_TEXT, PLFS_URL } = await import('@/modules/salary/city-adjustment.js');
+        analysisRow = analysisWith({
+            dataSource: 'public_survey', offerPercentile: 55, locationUsed: 'India (national), adjusted for Pune',
+            cityAdjustment: { source: 'plfs_2023_24', city: 'pune', cityLabel: 'Pune', factor: 1.03, plfsSampleSize: 87, period: '2023-24' },
+        });
+        await new ReportService().generatePDF('o1');
+        expect(texts).toContain(ATTRIBUTION_TEXT);   // the ODbL text still applies
+        expect(texts).toContain(PLFS_CITATION_TEXT);
+        expect(texts.some((t) => t.includes(PLFS_URL))).toBe(true);
+        expect(texts).toContain('Location: India (national), adjusted for Pune');
+
+        texts.length = 0;
+        analysisRow = analysisWith({ dataSource: 'public_survey', offerPercentile: 55 });
+        await new ReportService().generatePDF('o1');
+        expect(texts).not.toContain(PLFS_CITATION_TEXT);
+    });
     it('omits the percentile line when it is null, and the attribution for other sources', async () => {
         analysisRow = analysisWith({ dataSource: 'crowdsourced', offerPercentile: null });
         await new ReportService().generatePDF('o1');

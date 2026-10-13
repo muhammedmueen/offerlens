@@ -85,12 +85,20 @@ export function toSalaryComparison(b: Benchmark): SalaryComparison {
         };
     }
 
+    const adj = b.cityAdjustment;
     return {
         ...common,
         dataSource: 'public_survey',
         disclaimer: `${SURVEY_DISCLAIMER_PREFIX} `
-            + `India-wide benchmark from the Stack Overflow Developer Survey 2025 (n = ${b.sampleSize}, `
-            + `${roleScope(b.referenceFamilies)}, all cities, ${experienceScope(b.experienceYearsRange)}). `
+            + (adj
+                ? `National benchmark from the Stack Overflow Developer Survey 2025 (n = ${b.sampleSize}, `
+                    + `${roleScope(b.referenceFamilies)}, ${experienceScope(b.experienceYearsRange)}), `
+                    + `adjusted for ${adj.cityLabel} by a city factor of ${adj.factor.toFixed(2)} derived from monthly cash earnings `
+                    + 'of urban salaried software professionals in the Periodic Labour Force Survey 2023-24 '
+                    + `(PLFS, n = ${adj.plfsSampleSize} sampled respondents in the ${adj.cityLabel} area). `
+                    + `This is an estimate: national survey figures scaled by one city factor, not offers or pay data from ${adj.cityLabel}. `
+                : `India-wide benchmark from the Stack Overflow Developer Survey 2025 (n = ${b.sampleSize}, `
+                    + `${roleScope(b.referenceFamilies)}, all cities, ${experienceScope(b.experienceYearsRange)}). `)
             // The survey measures current pay, so an offer ranked against it is offer versus current pay (5.7).
             + 'Survey figures describe current pay.'
             + (b.percentileWithheld
@@ -99,6 +107,7 @@ export function toSalaryComparison(b: Benchmark): SalaryComparison {
                     + 'Your offer is not ranked against it, and salary is left out of the score.'
                 : ''),
         ...(b.percentileWithheld && { percentileWithheld: b.percentileWithheld.reason }),
+        ...(adj && { cityAdjustment: adj }),
     };
 }
 

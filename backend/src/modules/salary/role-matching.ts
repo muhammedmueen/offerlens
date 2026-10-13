@@ -161,6 +161,8 @@ const CITY_ALIASES: Record<string, string[]> = {
     pune: ['pune', 'pimpri'],
     chennai: ['chennai', 'madras'],
 };
+/** Canonical metro keys; one source of truth for the PLFS city-factor CSV (5.1b). */
+export const METRO_KEYS = Object.keys(CITY_ALIASES);
 const CITY_PATTERNS = Object.entries(CITY_ALIASES).flatMap(([canonical, aliases]) =>
     aliases.map((alias) => ({ canonical, alias, re: new RegExp(`\\b${alias}\\b`) })));
 
