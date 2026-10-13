@@ -16,6 +16,7 @@
         "db:push": "tsx node_modules/drizzle-kit/bin.cjs push",
         "db:seed": "tsx src/db/seed.ts",
         "db:load-reference": "tsx src/db/load-reference.ts",
+        "db:load-city-factors": "tsx src/db/load-city-factors.ts",
         "eval": "tsx eval/run-eval.ts",
         "lint": "tsc --noEmit && eslint src",
         "lint:eslint": "eslint src",

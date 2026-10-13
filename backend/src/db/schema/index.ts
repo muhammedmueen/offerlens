@@ -10,6 +10,7 @@ export * from './metadata.js';
 export * from './analytics.js';
 export * from './salary-submissions.js';
 export * from './salary-reference-rows.js';
+export * from './city-pay-factors.js';
 export * from './forum.js';
 export * from './usage-ledger.js';
 export * from './quota-counters.js';
