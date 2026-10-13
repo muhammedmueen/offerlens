@@ -2,7 +2,7 @@
  * Milestone shape as the API actually returns it.
  *
  * This component previously required `skills: string[]` on every milestone. The career
- * path endpoint returns `{ year, title, focus, salaryRange }` and has no per-milestone
+ * path endpoint returns `{ year, title, focus }` and has no per-milestone
  * skills field — it returns `skillsToLearn` at the top level instead. So `m.skills.map()`
  * threw "Cannot read properties of undefined", which crashed the whole results page
  * because there was no error boundary above it.
@@ -15,7 +15,6 @@ export interface Milestone {
   title?: string;
   /** Prose description of the focus for that year. */
   focus?: string;
-  salaryRange?: string;
   /** Not returned today, but harmless to render if it appears. */
   skills?: string[];
 }
@@ -47,9 +46,6 @@ const CareerTimeline: React.FC<CareerTimelineProps> = ({ milestones }) => {
               {m.title && <h4 className="font-semibold text-sm">{m.title}</h4>}
             </div>
             {m.focus && <p className="text-xs text-muted-foreground mb-2">{m.focus}</p>}
-            {m.salaryRange && (
-              <p className="text-xs font-medium text-foreground mb-2">{m.salaryRange}</p>
-            )}
             {Array.isArray(m.skills) && m.skills.length > 0 && (
               <div className="flex flex-wrap gap-1">
                 {m.skills.map((s) => (
