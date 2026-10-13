@@ -732,7 +732,7 @@ than a theme list plus a separate priority list.
 | Phase | Scope | Gate |
 |---|---|---|
 | **4 — Launch Blockers** | Usage ledger, plan limits, three untrue privacy promises, one smoke spec | 4.1–4.8 ✅ done. Phase 4 is complete |
-| **5 — Salary Data** | Seed benchmarks, then fuzzy matching, outlier rejection, contribution prompt | 5.1 Phase A ✅, 5.2 ✅, 5.3 ✅, 5.4 ✅, 5.5 ✅ (see "Phase 5 Phase A outcome", "Phase 5 task 5.4 outcome" and "Phase 5 task 5.5 outcome"). Open: 5.1 Phase B (PLFS city factors) |
+| **5 — Salary Data** | Seed benchmarks, then fuzzy matching, outlier rejection, contribution prompt | 5.1 Phase A ✅, 5.2 ✅, 5.3 ✅, 5.4 ✅, 5.5 ✅, 5.6 ✅, 5.7 ✅, 5.8 ✅, 5.9 ✅ (see "Phase 5 Phase A outcome", "Phase 5 task 5.4 outcome", "Phase 5 task 5.5 outcome" and "Phase 5 closing round outcome"). Open: 5.1 Phase B (PLFS city factors, waiting on the owner's data access) |
 | **6 — Revenue & Compliance** | ~~Payments~~ (parked), retention policy, correction loop, scanned-PDF OCR | 6.1 parked (non-commercial); 6.4 needs Cloud Vision billing |
 | **7 — Operations** | Admin auth hardening, superadmin, dashboards | One of the Phase 7 triggers firing |
 
@@ -2806,6 +2806,10 @@ untracked work. Small ones can ride along with 4.5–4.8.
 | 5.3 | ✅ Poisoning protection — 3σ outlier rejection, recency weighting | Data integrity — see the Phase A outcome |
 | 5.4 | ✅ Post-analysis contribution prompt | Grows the crowdsourced set, opt-in, through the existing `POST /salaries` — see the Phase 5 task 5.4 outcome |
 | 5.5 | ✅ Career path salary progression | The half of the old task 20 that needs benchmarks - see the Phase 5 task 5.5 outcome |
+| 5.6 | ✅ Fresher offers: benchmark shown, no percentile | Stops Fresher scores being pushed down by a junior-skewed, all-experience comparison - see "Phase 5 closing round outcome" |
+| 5.7 | ✅ `pay_basis` column and the hybrid like-with-like lookup | Separates offered from current pay without splitting thin data - see "Phase 5 closing round outcome" |
+| 5.8 | ✅ Login limiter: per-IP plus per-email (live-checked against real Redis) | Closes the cookie-minting bypass - see "Task 5.8 outcome" and "Phase 5 closing round outcome" |
+| 5.9 | ✅ Career table: 412 px layout and dark-theme contrast check | Measured, no defect found - see "Phase 5 closing round outcome" |
 
 > [!NOTE]
 > **5.1 was blocked on a product decision, not on engineering:** which public salary dataset, and
@@ -3001,7 +3005,7 @@ Full Stack 269, Backend 184, Frontend 62, Mobile 42, Data Scientist 31, DevOps 2
 Engineering Manager 22. Cells with n ≥ 10: Backend and Full Stack in five brackets, Frontend in four,
 Mobile in two (Mid, Senior), Data Scientist in one (Junior), Engineering Manager in one (Principal).
 Data Engineer and DevOps get the role-wide benchmark only. **No kept row has 0 years of experience, so a
-Fresher offer is always benchmarked against the whole role.**
+Fresher offer is always benchmarked against the whole role** (at the time of Phase A; since 5.6 the range is still shown but the offer is not ranked against it).
 
 ##### Verified live
 
@@ -3115,8 +3119,9 @@ Docker Postgres 16 + Redis 7, real data, real Gemini key.
 
 1. **Tier-3 skew risk.** The role-wide benchmark pools all experience levels, so a senior offer is
    compared with a population that includes juniors, and a Fresher offer (no 0-year rows) always lands
-   here. The note says "across all experience levels", but the percentile can still mislead at the
-   extremes. Phase B or partial pooling is the fix.
+   here (**since 5.6, a Fresher offer, or an offer whose bracket has zero survey rows, is shown the range but not ranked**).
+   The note says "across all experience levels", but the percentile can still mislead at the
+   extremes for the other brackets. Phase B or partial pooling is the fix.
 2. **Low-tail share.** Kept rows below 3,00,000 a year: Frontend 8.06%, Full Stack 5.95%, Backend 4.89%,
    Mobile 2.38%, others 0%. Frontend and Full Stack are above 5%; some of these may be monthly pay typed
    into the annual field, some may be real fresher pay. The 1,00,000 floor was **not** raised; the owner
@@ -3171,7 +3176,9 @@ against the global 100/min, because the plugin picks one or the other per route)
 | Limit | Value | Enforced? | Verdict |
 |---|---|---|---|
 | `global` | 100/min | yes, every route without its own limit (polling, `POST /offers`, analysis, report, delete, metadata, forum, feature requests, `/auth/refresh`, `/health`) | Kept. Measured headroom below |
-| `authLogin` | 10 / 15 min | `POST /auth/login`, `/auth/google` (each its own bucket) | Kept. Counts successes too; a real user does not log in 10 times in 15 min |
+| `authLogin` | 10 / 15 min | `POST /auth/login`, `/auth/google` (each its own bucket), per cookie, per IP when cookie-less | Kept. Counts successes too; a real user does not log in 10 times in 15 min |
+| `authLoginIp` | 30 / 15 min | `POST /auth/login` only, per client IP whatever the cookie (added by 5.8, see "Task 5.8 outcome") | New. Binds only cookie-minting clients, since cookie-less traffic hits the 10-per-IP `authLogin` fallback first |
+| `authLoginEmail` | 10 / 15 min | `POST /auth/login` only, per normalised email (sha256) whatever the cookie or IP (added by 5.8) | New. Attempts since the last successful login; same behaviour for registered and unregistered addresses |
 | `authSignup` | 5 / hour | yes | Kept. Validation failures count |
 | `offerExtractText` | 20 / hour | yes | Kept. One call per upload attempt |
 | `offerExtractFile` | 10 / hour | yes | Kept |
@@ -3248,7 +3255,7 @@ function) the file failed 6 of 6 (no header, no 429, no buckets; the reviewer re
   the frontend does not use it); the limiter does not touch the `OPTIONS` preflight route (registered before it).
 - **Behind a proxy:** the app does not set `trustProxy`, so there cookie-less clients would share the proxy's IP
   bucket. Documented in `DEPLOYMENT.md`; not changed.
-- **Known ceiling:** a client can still mint many cookies (each costs one IP-keyed request, up to 100/min per IP)
+- **Known ceiling (closed for login by 5.8, see "Task 5.8 outcome"; what remains is listed there):** a client can still mint many cookies (each costs one IP-keyed request, up to 100/min per IP)
   and get a bucket per cookie. That weakens `authLogin` in particular; the upgrade path is a per-route IP or
   email key for login. Not done because keying login by IP alone would make one office NAT share 10 attempts per
   15 minutes, which is a behaviour decision for the owner.
@@ -3263,6 +3270,41 @@ function) the file failed 6 of 6 (no header, no 429, no buckets; the reviewer re
 for routes that never had one), `API_DOCUMENTATION.md`, `DEPLOYMENT.md` (Redis dependency, proxy note),
 `LOCAL_DEVELOPMENT.md` (troubleshooting row for tripping a limit while testing), `roadmap.md` (M5 status), and
 this plan (open item 5, the audit item, the C1 row, the before/after table).
+
+##### Task 5.8 outcome: login limiter, per-IP plus per-email
+
+Design: `.agents/tasks/phase5-closing-design.md` section 3. Code: `createLoginGuard` in `middleware/rate-limiter.ts`
+(wired as the `preHandler` of `POST /auth/login` only), `RATE_LIMITS.authLoginIp` and `authLoginEmail`. No new dependency.
+
+- **Three limits on `POST /auth/login`, independent buckets.** The per-cookie `authLogin` (10 / 15 min, kept), a per-IP limit
+  (30 / 15 min, keyed on `req.ip` alone) and a per-email limit (10 / 15 min, any cookie or IP). Any can answer the standard
+  `RATE_LIMIT_EXCEEDED` 429 with `Retry-After`; the body is the same for all three and for every address, so it reveals
+  neither which limit fired nor whether the account exists. `POST /auth/google` has no email in its body, so it keeps only
+  the per-cookie bucket.
+- **Mechanism (read against `@fastify/rate-limit` 10.3.0).** The plugin's key generator runs at `onRequest`, before the body
+  is parsed; a route has one `config.rateLimit` (the cookie bucket); and a second `fastify.rateLimit()` preHandler never
+  runs (all handlers from one plugin share a `rateLimitRan` flag). So the guard is a `preHandler` (body parsed and validated)
+  that calls `fastify.createRateLimit` for the IP and keeps an atomic Redis counter (`INCR` + `PEXPIRE NX` + `PTTL`) for the email.
+- **Failed attempts, not all attempts.** The email counter increments before the password is checked (parallel guesses cannot
+  slip past a read-then-increment) and a successful login deletes it, so it holds the attempts since the last success.
+  A 400 (invalid body) never reaches the guard; a request stopped by one check spends none of the later ones.
+- **Email handling.** Trimmed, lower-cased, sha256-hashed (`node:crypto`) before it enters any Redis key (`login-email:<64 hex>`)
+  or log. The raw address is never logged. Unregistered and registered addresses count, lock and answer identically.
+- **Accepted trade-offs (not removed):** people behind one shared network share the 30-per-IP allowance; anyone can lock
+  another person's login by failing 10 times against their email, and while locked even the right password gets 429. The lock
+  is on this route only, never on the account, Google login, refresh or an issued token. The pre-existing
+  `POST /auth/signup` 409 `EMAIL_IN_USE` still reveals that an address is registered; 5.8 adds no new enumeration channel.
+- **What remains (`ponytail:` comment in `rate-limiter.ts`):**
+  1. **`trustProxy` is unset: set it before deploying.** Behind a proxy or load balancer every client shares one IP, and the
+     login IP limit (which ignores cookies) becomes a site-wide cap of 30 logins per 15 minutes for ALL users, browsers included.
+  2. Many IPs can still try 10 passwords per email per 15 minutes each (about 960 a day per account).
+  3. `/auth/google` is covered only by the per-cookie bucket.
+  4. The email hash is plain sha256, so someone with Redis read access can confirm a guessed address (upgrade: HMAC with a server secret).
+  5. Cookie-less login traffic is stopped by the existing 10-per-IP `authLogin` fallback long before 30, so the new per-IP limit only binds cookie-minting clients.
+- **Fail closed.** A failed or missing Redis reply to the email counter throws (a 500), as for every limited route. Needs Redis 7 (`PEXPIRE ... NX`; compose pins `redis:7-alpine`).
+- **Frontend.** `LoginPage` already maps a `RATE_LIMIT_EXCEEDED` 429 to the existing `RATE_LIMITED_AUTH_TEXT`; no code change, now pinned by a test.
+- **Tests.** `modules/auth/auth.login-limits.test.ts` (15) and `pages/LoginPage.test.tsx` (2); see `.agents/tasks/phase5-5.8-login-limiter.md` for the commands and results.
+  **Not covered by automated tests:** window expiry against real timers (not run live either: the closing round did not wait out a window), and the Redis commands against a real Redis (run live in the closing round, see "Phase 5 closing round outcome").
 
 #### Phase 5 task 5.4 outcome — post-analysis salary contribution prompt, plus the clean-up round
 
@@ -3336,14 +3378,13 @@ Benchmarked against crowdsourced (unverified) salary submissions for this role a
 show "verified submission(s)" (and the old AI-estimate sentence). No render-time rewrite was added; re-running an analysis
 picks up the new wording. I did not render an old analysis to look at it.
 
-**Open item — `pay_basis`.** Offered and current pay are still mixed and unlabelled in `salary_submissions`, so percentiles
-blend them and rows cannot be relabelled later. Recommended, needing owner approval: nullable `pay_basis` (`current` |
-`offered`) by an expand-only migration, an optional `payBasis` in `salary.schema.ts`, `'offered'` sent from the card, and a
-filter or weight in `crowdRows` (cache key `v3`). The sooner it ships the fewer unlabelled rows exist.
+**Open item — `pay_basis`. RESOLVED by 5.7** (see "Phase 5 closing round outcome"): nullable `pay_basis` column (migration 0007),
+`payBasis` in `salary.schema.ts`, `'offered'` sent from the card, and the hybrid lookup with cache keys `salary:crowd:v3`. Rows
+stored before 0007 stay NULL (unlabelled) and count only in the pooled tier, so they cannot be relabelled later.
 
 ##### Cache-delay behaviour
 
-`submit()` already deletes `salary:crowd:v2:<role>:<city>` after an approved insert, so the cell refreshes on write. The delay that
+`submit()` already deletes `salary:crowd:v2:<role>:<city>` (v2 at the time of 5.4; v3 since 5.7, which deletes three keys, one per basis) after an approved insert, so the cell refreshes on write. The delay that
 matters is the n ≥ 10 floor after outlier rejection, and analyses already stored never change. The success copy says so ("It will not
 show up in anyone's benchmark right away: we only show a range for a role and city once we have at least 10 data points, and
 analyses already done are not updated."). **Live** (see the precedence check below): with 9 rows the cell served `public_survey`; the
@@ -3460,12 +3501,12 @@ were deleted by logged id.
 
 ##### Open items (owner decisions; none were touched)
 
-1. **`pay_basis`** (above): offered and current pay mixed and unlabelled.
+1. **`pay_basis`** (above): **RESOLVED by 5.7.**
 2. **G1: the cookie-less bypass of the 1 h cooldown.** A script that sends no cookie gets a fresh guest id per request, so the cooldown
    never triggers and only the global 100/min applies; `POST /salaries` has no route limit ("not done, by design"). Upgrade path:
    `...routeLimit('salarySubmit')` with `{ max: 10, window: '1 hour' }` (the limiter keys cookie-less clients on IP).
-3. **The login limiter's cookie-minting gap** (from the Rate limiter fix: a client can mint cookies and get a bucket each).
-4. **Fresher offers are scored against all experience levels** (tier-3 skew; Phase A open item 1).
+3. **The login limiter's cookie-minting gap** (from the Rate limiter fix: a client can mint cookies and get a bucket each). **RESOLVED by 5.8** (per-IP and per-email login limits); what remains is in "Task 5.8 outcome".
+4. **Fresher offers are scored against all experience levels** (tier-3 skew; Phase A open item 1). **RESOLVED by 5.6** (range shown, no percentile).
 5. **Phase B (PLFS city factors), Phase 6 and Phase 7.** (Task 5.5 has since landed.)
 6. **Pre-existing contrast failures** Lighthouse found on the results page: the severity label (2.84:1) and footer/muted text (4.48:1).
 7. **Route-level JS cost** of the shared form (+4.5 kB gzip on a results page) and the footer CLS spike.
@@ -3599,9 +3640,9 @@ with the same wording as the offer benchmark. Crowd cells are close to dormant (
   state (apparel in one run, healthcare in another), so those narratives were about that industry. That is the extraction stage, not 5.5.
 
 ##### Open items (owner decisions; none were touched)
-1. **Fresher** is scored against all experience levels and now also shows "Not enough data (n = 0)" in the table (Phase A open item 1).
-2. **`pay_basis`** (offered versus current pay, mixed and unlabelled in crowd rows).
-3. **The login limiter's cookie-minting gap.**
+1. **Fresher** shows "Not enough data (n = 0)" in the table. (The scoring half was **resolved by 5.6**: a Fresher offer is no longer ranked against all experience levels.)
+2. **`pay_basis`** (offered versus current pay, mixed and unlabelled in crowd rows). **Resolved by 5.7.**
+3. **The login limiter's cookie-minting gap.** Resolved by 5.8 (see "Task 5.8 outcome").
 4. **Phase B (PLFS city factors)** stays open.
 5. Not done: company-specific career ladders and market-trend skills (no data behind them), and an un-gated progression endpoint
    (at the daily career cap the 429 hides the table too).
@@ -3610,6 +3651,190 @@ with the same wording as the offer benchmark. Crowd cells are close to dormant (
 `docs/api-spec.md` (new `GET /offers/:id/career-path` section), `docs/API_DOCUMENTATION.md` (career row), `docs/LOCAL_DEVELOPMENT.md`
 (the pay table is recomputed on every open, not cached), and this plan (the Career Path row, the Phase 5 and What Happens Next tables,
 stale "5.5 open" wording).
+
+#### Phase 5 closing round: decisions (2026-10-11)
+
+Settled with the owner after 5.5 shipped. It turned the open items from the 5.1, 5.4 and 5.5 reviews into tasks
+5.6 to 5.9, plus the PLFS step. **5.6 to 5.9 are built; see "Phase 5 closing round outcome" below.** The PLFS step (Phase B) is not.
+
+**5.6 Fresher offers (decision: show the range, no percentile).** The survey has no 0-year rows, so a Fresher
+offer is compared with every experience level for the role, which pushes the score down. Instead: show the
+benchmark range for information, pass **no percentile** to the rubric, and let the score redistribute salary's
+weight exactly as it does when there is no data. The disclosure says why.
+
+**5.7 `pay_basis` and the hybrid lookup (decisions: add the column; hybrid like-with-like).**
+- Add a nullable `salary_submissions.pay_basis` (`'current'` or `'offered'`) by an expand-only migration with a
+  rollback note, as for 0006. Add an optional `payBasis` to `salary.schema.ts`. The 5.4 card sends `'offered'`;
+  the Salary Explorer form asks the user. Rows stored before the column exists stay `null`.
+- **Lookup (like-with-like when there is enough data, pooled otherwise).** Each tier is its own computation;
+  nothing is averaged across tiers.
+  - Analysing an offer: offered rows for the role + city with n >= 10 after outlier rejection, else all rows
+    pooled with n >= 10 and the mix shown ("12 of 15 data points are offered pay"), else the survey tiers, then
+    the AI estimate.
+  - Salary Explorer: current-pay rows with n >= 10, else the pooled set with the mix.
+  - `null` rows count only in the pooled tier, never as current or offered.
+- Cache keys move to a new version (`salary:crowd:v3`) with the basis in the key. The UI says which tier served
+  the number.
+- **Limit that this does not fix:** the survey measures current pay, so an offer compared with the survey tier
+  is always offer versus current pay. Add "survey figures describe current pay" to the disclaimer.
+- Early on almost every cell will be under 10 per basis, so behaviour starts as pooled-and-labelled and becomes
+  like-with-like as rows build up, with no later code change.
+
+**5.8 Login limiter (decision: both).** Keep the per-cookie `authLogin` bucket. Add a generous per-IP limit on
+login attempts (starting point 30 per 15 minutes) and a per-email limit on the login route only (starting point
+10 failed attempts per 15 minutes, whatever the cookie or IP). Known trade-offs, accepted: people behind one
+shared network share the per-IP allowance, and someone can lock another person's login by failing attempts
+against their email. Keep the lockout on the login route, never on the account elsewhere. Needs a live check of
+the 429 shape and that a legitimate login still works from another bucket.
+
+**5.9** Re-screenshot the career table at 412 px after the last `whitespace-nowrap` change, and measure
+dark-theme and crowd-note contrast. Report the numbers; claim nothing unmeasured.
+
+**5.1 Phase B (PLFS city factors).** The owner registers on `microdata.gov.in` and submits the access request.
+The Data Access Agreement says the data must not be used for commercial purposes, is limited to the applicant,
+must be used only for the stated purpose, must not be used for proprietary purposes, must not be used to
+identify anyone, requires security measures, requires citation of the source, and requires an electronic copy
+of any publication to `nssunit.dsdd@mospi.gov.in`. Consequences for the build:
+- Only derived aggregates (city-to-national ratios, with small cells suppressed) may leave the owner's machine.
+  Raw rows stay out of the repository and out of any cloud model's context; the pipeline runs locally and agents
+  see only the code and the aggregate output.
+- The stated intended use binds the owner. If the project becomes a paid SaaS, the PLFS-derived factors must be
+  removed. The intended-use text must stay accurate (it says the plan and pricing screens are mock-ups).
+- Cite "PLFS 2023-24, National Statistics Office, MoSPI" in the data README and the UI note.
+- Phase B is blocked until the owner has the data. It is not part of 5.6 to 5.9.
+
+#### Phase 5 closing round outcome (tasks 5.6 to 5.9)
+
+Branch `phase5a-salary-reference-seed`, uncommitted at the time of writing. Design: `.agents/tasks/phase5-closing-design.md`.
+Build notes: `.agents/tasks/phase5-closing-area1-5.6-5.7-backend-notes.md`, `...area2-5.7-frontend-5.9-notes.md`,
+`phase5-5.8-login-limiter.md`. Live-check scripts and raw output: `.agents/tasks/live-closing-*` and `closing-*.txt`.
+**`.agents/` is gitignored and local only**; a fresh clone does not have these files, so every figure that matters is in this section.
+
+**Review nits fixed afterwards:** the offer marker is hidden on the results chart when the percentile is withheld (`SalaryBar` `hideOffer`); the pay-basis radio group is a `radiogroup` with `aria-invalid`; the 5.4 cache-key text and an indentation slip are corrected.
+
+##### What was built
+
+- **5.6 Fresher offers.** `SalaryService.lookup` tier 3 (role-wide survey range) is still returned when the offer's bracket has no survey rows,
+  but the offer is not ranked: `offerPercentile` is null and `Benchmark.percentileWithheld = { reason: 'no_experience_rows', yearsRange }`.
+  The rule is data-driven: `bracket.minYears === 0 || bracketRows.length === 0`, evaluated only after the bracket tier failed. From the 662
+  loaded survey rows that is **Fresher for every role family** (0 rows) and **Engineering Manager at Junior and Mid** (0 and 0). Every other
+  thin bracket (1 to 9 rows, for example Data Engineer and DevOps) keeps a percentile; this was not generalised. The rubric
+  (`score.rubric.ts`) gives salary `value: null`, so its weight is redistributed by the existing path, with a reason-specific note and
+  `unscoredReason`. The comparison matrix shows `Not scored` (no winner, row excluded from the common basis). The survey disclaimer gains
+  "Survey figures describe current pay." and, when withheld, a plain sentence that the range is for information and the offer is not ranked.
+  `confidence.ts` is unchanged.
+- **5.7 `pay_basis` and the hybrid lookup.** Migration `0007_salary_pay_basis.sql` (expand-only, no backfill): nullable `pay_basis text`
+  with `CHECK (pay_basis IN ('current','offered'))`. `salary.schema.ts` accepts `payBasis` `current` | `offered` | absent (null, `''` and anything else is a 400).
+  The 5.4 card sends `offered`; the Salary Explorer form asks with three native radios (Current pay, Offered pay, Not sure), nothing preselected,
+  and "Not sure" omits the key (stored NULL). Cache keys are `salary:crowd:v3:<basis>:<role>:<city>` for `offered`, `current` and `all`;
+  `submit()` deletes all three on every approved insert and none on a rejected one. The stored row gained only `pay_basis`: still no user,
+  guest, fingerprint, offer or company, and timestamps are still day-coarsened. The 5.4 open item is closed.
+- **5.8 login limiter.** See "Task 5.8 outcome" for the mechanism (per-cookie 10, per-IP 30 and per-email 10, each per 15 minutes, on
+  `POST /auth/login` only; email sha256-hashed before it reaches Redis or a log; an atomic `INCR` + `PEXPIRE NX` + `PTTL` counter; fail closed).
+  The cookie-minting gap for login is closed.
+- **5.9 career table checks.** Measured, no defect, no code change (numbers below).
+
+##### Honesty properties and how each was verified
+
+| Property | Verified by |
+|---|---|
+| A Fresher offer is not ranked against a population that has no Fresher in it | Unit tests (lookup, rubric, matrix, disclaimer). **Live:** Backend Engineer, Bengaluru, Fresher, CTC 12,00,000: `offerPercentile: null`, `percentileWithheld: "no_experience_rows"`, `sampleSize` 184, range p25/p50/p75/p90 8,87,500 / 20,50,000 / 40,80,000 / 65,00,000; the PDF contains no "percentile"; the results page shows no "th percentile" label |
+| The score explains the redistribution, and the weight is spread, not zeroed | **Live:** score breakdown redFlags 85 (weight 43), salary `null` (weight 0, `unscoredReason` set), benefits 75 (29), growth 0 (14), transparency 80 (14); weights sum to 100; `scoringMethod: fallback`; overall note "salary vs market (no survey data at your experience level) could not be scored, so the remaining factors carry more weight"; the page renders it |
+| A covered, non-Fresher offer still scores salary | **Live:** the same role and CTC at "Mid-Level (3-5 yrs)": tier 2, n = 39, percentile 45, salary weight 30, `scoringMethod: standard`, score 60 |
+| Withholding is a survey gap, not a verdict, in a comparison | **Live:** comparing the two offers: salary row `Not scored` / `45 / 100`, no winner, row note says it is a gap in the survey and "not a lower or higher salary", Overall (comparable basis) 69 vs 66, note "Salary vs market is excluded because the survey has no data at one offer's experience level" |
+| No number below n = 10, no mixing across sources | Unit tests plus the live tier run below; the survey and crowd rows are never pooled |
+| Nothing is averaged across tiers; the mix is the mix of the rows shown | Unit tests; **live:** at every stage the `payMix` returned equals the SQL counts of the rows in the cell and sums to `sampleSize`, and every quantile equals an independent computation (below) |
+| NULL rows are never counted as current or offered | **Live (real Postgres):** in the S2 stage the 2 unlabelled rows appear only in the pooled (`mixed`) result; the offered-only and current-only results ignore them |
+| `pay_basis` is validated at both layers | **Live:** `INSERT ... pay_basis = 'x'` fails with `salary_submissions_pay_basis_check`; the unit test pins the 400s at the API |
+| No identity on the row | **Live:** the four rows submitted through the UI have `user_id` NULL, `fingerprint` NULL and a UTC-midnight `created_at` |
+| Login limits do not reveal whether an account exists, and no address or hash is exposed | **Live:** registered and unregistered addresses answer the same 401 shape for the first 10 and the same 429 (status, body, header names) on the 11th; every `login-email:*` key matches `^login-email:[0-9a-f]{64}$`; a scan of all Redis keys and the API log finds no address or local part |
+
+##### Migration 0007 (live, `npm run db:migrate`; `db:push` was not used)
+
+Applied cleanly on a database that already held 36 salary rows, 662 reference rows and migrations 0000 to 0006 (it became `__drizzle_migrations`
+id 8, `created_at` 1791881699089). After it: 36 rows, 0 with a `pay_basis` (all earlier rows are NULL), the CHECK constraint exists and rejects `'x'`.
+**Rollback** (not executed): `ALTER TABLE salary_submissions DROP COLUMN pay_basis;` (the CHECK goes with it), then
+`DELETE FROM drizzle.__drizzle_migrations WHERE created_at = 1791881699089;`, then delete the Redis keys `salary:crowd:v3:*`. The rows keep their other columns.
+
+##### The hybrid lookup, with live numbers
+
+Cell: Backend Engineer, Bengaluru (stored `backend engineer` / `bangalore`), which held 0 rows before. Four rows were submitted through the real UI in four
+separate browser contexts (the card: offered; the Explorer: current, offered, "Not sure"); the rest through `POST /salaries` with a fresh cookie each.
+Each stage ran a real Explorer request right after the last write (so it also proves the three-key invalidation) and a real offer analysis
+(Backend Engineer, Bengaluru, Mid-Level, CTC 12,00,000, real Gemini). "Independent" = quantiles recomputed from the SQL rows by separate code.
+
+| Stage (SQL counts) | Explorer (`GET /salaries/stats`) | Offer analysis |
+|---|---|---|
+| S1: offered 2, current 1, unlabelled 1 (n = 4) | survey, role-wide, n = 184, p50 20,50,000 | survey tier 2, n = 39, percentile 45 |
+| S2: offered 9, current 4, unlabelled 2 (n = 15) | `crowdsourced`, `mixed`, n = 15, mix 9 / 4 / 2, p25 22,25,000, p50 26,00,000, p75 31,50,000 (independent: same) | `crowdsourced`, `mixed`, n = 15, mix 9 / 4 / 2, percentile 0 (12,00,000 is below every row); "9 of 15 data points are offered pay, 4 are current pay, 2 are not labelled" |
+| S3: offered 10, current 4, unlabelled 2 (n = 16) | still `mixed`, n = 16, mix 10 / 4 / 2, p50 25,50,000 | **offered wins:** `payBasis: offered`, n = 10, `payMix` null, p25 / p50 / p75 21,00,000 / 22,50,000 / 25,00,000 (independent: same); "All 10 are offered pay: what employers offered, not necessarily what people are paid now" |
+| S4: offered 10, current 10, unlabelled 2 (n = 22) | **current-first:** `payBasis: current`, n = 10, p25 / p50 / p75 32,00,000 / 34,50,000 / 37,00,000 (independent: same); the pooled median would have been 29,00,000 | offered still wins (n = 10, p50 22,50,000), unchanged by the 6 new current rows |
+
+So: offered at 10 or more wins for an offer lookup (S3, S4); pooled with the mix below 10 (S2); current-first in the Explorer once current reaches 10 (S4) and pooled
+with the mix before that (S2, S3); the survey tiers when the cell has under 10 of anything usable (S1). The Redis keys after S4 were exactly the three
+`salary:crowd:v3:{all,offered,current}:backend%20engineer:bangalore`. All 22 rows were deleted afterwards by role and city, after confirming the cell held 0 rows before.
+In the UI: the Explorer dialog shows the legend "What kind of pay is this?" with three radios, none checked; pressing Send without a choice posts nothing, shows
+"Choose current pay, offered pay or not sure" and focuses the first radio; the bodies posted were `payBasis: offered` (card), `current`, `offered` and no `payBasis` key ("Not sure").
+
+##### Login limiter, live (real Redis 7, API on 127.0.0.1 and on the host's LAN address as a second source IP)
+
+Each login call carried its own freshly minted `ol_guest` cookie (a cookie-less client is stopped earlier, see below). 25 checks, 25 passed:
+- Registered address, 10 wrong passwords: 401 x 10, the 11th is 429 `RATE_LIMIT_EXCEEDED`, `Retry-After` 896 to 900 s; the right password is also 429 while locked (accepted trade-off). The key's PTTL was about 898 s (a fixed window; `PEXPIRE NX`).
+- Unregistered address: the same 401 x 10 then the same 429, with the same body and header names. An upper-case variant of the locked address shares its bucket.
+- Another account logs in (200) from a new cookie while the first is locked.
+- Success clears the counter: 9 wrong, then the right password (200) removed that address's `login-email` key; then 10 wrong are 401 and the 11th is 429.
+- Per IP: 30 distinct addresses from 127.0.0.1, each with its own cookie, are all 401; the 31st is 429 with `x-ratelimit-limit: 30`. A second source IP (192.168.0.193) still logs in (200).
+- Cookie-less: 11 logins from one IP give 401 x 10 then 429 with `x-ratelimit-limit: 10` (the existing `ip:` bucket), long before the 30-per-IP limit.
+- Browser: `LoginPage` for a locked address shows "Too many attempts. Please wait a while before trying again." and not "Invalid email or password."
+- Redis keys: `login-email:<64 hex>` and `fastify-rate-limit-undefinedundefined-login-ip:<ip>` (the plugin builds that prefix from route data the call does not have; harmless and unique). No key and no API log line contained an address.
+- **Script, not limit, was wrong, twice.** My first runs failed because (a) I cleaned the wrong Redis key pattern for the IP bucket (the `undefinedundefined` name above) and (b) 24 failed attempts from one IP in sections (a) to (d) used up the 30-per-IP budget of the later sections. The limit behaved as designed; I changed the script to clear the IP key between sections and changed no limit. The three regression scripts below never tripped a limit.
+- **Left open (unchanged, see "Task 5.8 outcome"):** set `trustProxy` before any deploy (behind one proxy every user shares one IP and the 30-per-IP login limit becomes a site-wide cap), many IPs can still try 10 passwords per email per 15 minutes each, `/auth/google` has only the per-cookie bucket, and the email hash is plain sha256 (upgrade: HMAC). Window expiry was not tested live (no limit was waited out).
+
+##### 5.9 career table numbers (412 px, Chromium; API mocked with the real captured 5.5 response, so "live data" means that response)
+
+Contrast (WCAG formula, computed colours, alpha composited), light / dark: column and row headers, median, step, based-on, thin-cell text, survey note paragraph
+**17.08:1 / 17.84:1**; survey note links **4.84:1 / 5.37:1**; crowd note paragraph **17.08:1 / 17.84:1**. All at or above 4.5:1. Overflow: the page and the drawer do not
+scroll sideways (scrollWidth 412 = clientWidth 412 and 411 = 411), 0 elements sit outside the table region, and the table region scrolls inside itself (client 361, scroll 529 survey / 536 crowd);
+scrolled to the end the last column is reachable. 12 screenshots `live59-{light,dark}-{survey,crowd}-{drawer,table,scrolled}.png`. Not measured: borders, focus rings, hover states, the sheet's close
+button, a real phone, other browsers, a screen reader. The crowd cell was a mocked edit of the real response, not a live crowd cell.
+
+##### Regression and verification record (everything below was run in this round)
+
+- Backend: `npx tsc --noEmit` clean; `npx eslint src` clean; `npm test` **848 passed, 3 skipped** (62 files passed, 1 skipped; baseline 793 + 3 skipped, so +55 new tests: 5.6/5.7 +40, 5.8 +15).
+- Frontend: `tsc --noEmit -p tsconfig.app.json` clean; `eslint .` 0 errors, 17 warnings (same count as before, none in new files); `npx vitest run` **11 files, 127 passed** (baseline 108, +19); `npm run build` succeeds
+  (`ResultsPage` **18.42 kB gzip** vs 18.38 at 5.5, +0.04 kB; `SalaryExplorerPage` 1.79 kB; the shared form chunk 106.79 kB, no earlier figure recorded).
+- `node test-security.mjs` **20 passed, 0 failed**; `node test-m2.mjs` **32 passed, 0 failed**; `node test-m3.mjs` **19 passed, 0 failed** (each run adds one row to the `senior software engineer` / `bangalore` cell: 35 to 36 rows; this is the script's existing behaviour and that row was left in place);
+  `cd frontend && npx playwright test` (production build on :8080) **1 passed (30.3 s)**. No limit was raised and no test-only escape hatch was added.
+- Phase 0 eval, `npm run eval -- --runs 3` (not saved): structured **95.1%** (93.8 to 95.8), nuanced **83.5%** (82.7 to 84.2), red-flag F1 84.7% (83.4 to 86.5), noise floor 2.1%; both targets pass.
+  One case errored in pass 3 ("All AI models are currently busy"), so **16 of 17** cases were scored in all passes. **No score moved, by construction:** the harness measures extraction (company, role, CTC, benefits, clauses, red flags) and
+  never calls the rubric, so it cannot show a score change from 5.6. What changes a score is shown by the live Fresher/Mid pair above and by the rubric unit test that pins identical weights, values and score to the plain-null case.
+  Reasoned counterfactual (not run): before 5.6 the Fresher offer above would have been ranked at about the 34th percentile of the 184 all-experience rows (unweighted count; the service uses weights), giving a salary component of about 34 and an overall score near 59 instead of 69.
+  Only Fresher offers with a role-wide benchmark, and Engineering Manager Junior/Mid, are affected.
+- Gemini and Google credentials were present; no live check was blocked.
+
+##### Observations (not changed)
+
+- The Fresher results chart used to draw the dashed "Your Offer" line on the all-experience range. **Fixed after review**: the marker is now hidden when the percentile is withheld (see the review-nits line above).
+- The API's per-request log line carries the client IP and the guest id. That predates this round and is why the stored salary timestamps are day-coarsened (4.6). This round adds no log line that carries an address, a hash or a payBasis, and the login guard logs nothing on a failure beyond a fixed string.
+- `POST /auth/signup` still answers 409 for an existing address (unchanged; 5.8 adds no enumeration channel).
+
+##### Verified live versus only reasoned
+
+- **Live:** migration 0007 on existing data; the CHECK constraint; all three `pay_basis` values via the Explorer form and the card; stored rows have no identity; the four lookup stages with independent quantile checks;
+  cache invalidation on write (the next Explorer call after each batch reflected it); the Fresher and 3-year analyses, PDF text, results page and comparison; every login-limiter check above including the browser message; the regression scripts, the smoke spec and the eval.
+- **Only reasoned or unit-tested:** the outlier-rejection interaction with the mix at n near 10 (unit only; the live data had no outliers); the 400 paths for `payBasis` (unit only); the limiter's window expiry and reset; Redis outages (fail closed, unit only); `trustProxy` behaviour behind a proxy;
+  the Engineering Manager Junior/Mid withheld case (unit only; no live run); the 5.9 crowd cell (mocked edit); a real phone, other browsers, screen readers, Lighthouse; the model's compliance with prompts.
+
+##### Not done, by decision
+
+- Phase B (PLFS city factors) stays open and waits on the owner's data access; none of 5.6 to 5.9 depends on it.
+- `confidence.ts` is unchanged: a crowd number is still "medium, self-reported", whatever the pay basis.
+- No "pay_basis" backfill or relabelling of older rows, no per-IP limit on `POST /salaries` (G1 stays as recorded), and the survey is still current pay: an offer compared with the survey tier is offer versus current pay, now stated in every survey disclaimer.
+
+##### Docs changed
+
+`docs/api-spec.md` (rate-limit summary and the login limits; the `salaryComparison` optional fields), `docs/API_DOCUMENTATION.md` (login row, `POST /salaries` `payBasis`, `/salaries/stats` response),
+`docs/database-design.md` (the `salary_comparison` fields, `unscoredReason` and the `pay_basis` column with its rollback), `docs/DEPLOYMENT.md` (the `trustProxy` pre-deploy requirement), `docs/LOCAL_DEVELOPMENT.md` (the 429 troubleshooting row), and this plan (the Phase 5 and What Happens Next tables, the 5.4 `pay_basis` open item, the Phase A Fresher item, the decisions block).
 
 ---
 ### Phase 6: Revenue & Compliance

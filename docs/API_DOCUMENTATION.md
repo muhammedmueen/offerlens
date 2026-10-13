@@ -34,7 +34,7 @@ Error:
 | Method | Endpoint | Description | Auth Required |
 | :--- | :--- | :--- | :--- |
 | `POST` | `/auth/signup` | Create a new account | No |
-| `POST` | `/auth/login` | Login with email/password | No |
+| `POST` | `/auth/login` | Login with email/password. Rate limited per browser cookie (10), per IP (30) and per email (10), each per 15 minutes; any of them answers `429 RATE_LIMIT_EXCEEDED` with `Retry-After`. See `api-spec.md` | No |
 | `POST` | `/auth/google` | Login/Signup with Google | No |
 | `POST` | `/auth/refresh` | Refresh access token | No |
 | `POST` | `/auth/logout` | Logout user | Yes |
@@ -72,8 +72,9 @@ Error:
 | `GET` | `/salaries/stats` | Get aggregated market stats | No |
 
 `POST /salaries` body: `role`, `city`, `experienceYears` (0-60), `ctc` (positive integer, up to 1,000,000,000),
-`companyType` (`product` | `service` | `startup` | `mnc` | `other`) and an optional `companySize`. Nothing else is
-read. The stored row carries no user, guest, fingerprint, offer or company: role and city are saved as canonical
+`companyType` (`product` | `service` | `startup` | `mnc` | `other`), an optional `companySize` and an optional
+`payBasis` (`current` | `offered`; omit it for "Not sure", it is stored as NULL; `null`, `""` or any other value is a 400).
+The results-page card sends `offered`; the Salary Explorer form asks. Nothing else is read. The stored row carries no user, guest, fingerprint, offer or company: role and city are saved as canonical
 keys, and `created_at` / `updated_at` are coarsened to the UTC day. One submission per browser per hour (a Redis
 cooldown keyed on a hash of the guest cookie, not stored on the row). The repeat gets a 429 with code
 `RATE_LIMIT_EXCEEDED` and `error.details.reason = "ALREADY_SUBMITTED"`, so a client can tell it from the global
@@ -89,7 +90,11 @@ have 10 approved rows after outlier rejection. The Salary Explorer dialog and th
 Rate limit: 30/min per signed-in user, guest cookie or (cookie-less) IP; the 31st call in a window gets a 429 `RATE_LIMIT_EXCEEDED` with `Retry-After` (checked live, see the PLAN's rate-limiter outcome; all limits are in api-spec.md). With enough data the response holds `count`, `dataSource` (`crowdsourced` or
 `public_survey`), `scope` (`role_city`, `role_experience_national`, `role_national`), `role`, `city`,
 `locationUsed`, `p25`, `p50`, `p75`, `p90`. Otherwise `dataSource` is `null`, `data` is `null` and `count`
-is the number of crowdsourced submissions so far. `public_survey` is a modelled, India-wide benchmark from
+is the number of crowdsourced submissions so far. A crowdsourced result also carries `payBasis` and `payMix`, and every
+result carries a `disclaimer`. The Explorer prefers `current`-pay rows (10 or more after outlier rejection); otherwise it pools
+every approved row (including unlabelled ones) when that set has 10 or more, with `payBasis: "mixed"` and
+`payMix: { offered, current, unlabelled }` (sums to `count`); otherwise the survey tiers. Offer analysis prefers `offered` rows
+the same way. `public_survey` is a modelled, India-wide benchmark from
 the Stack Overflow Developer Survey 2025 (ODbL), not offers in the requested city.
 
 ## 5. Forum (`/forum`)

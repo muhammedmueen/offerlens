@@ -355,6 +355,13 @@ Stored in `analyses.salary_comparison`:
   sampleSize?: number;
   benchmarkScope?: "role_city" | "role_experience_national" | "role_national";
   experienceBracket?: string;
+  // 5.6, public_survey only: set when the survey has no respondents in the offer's experience range.
+  // The range is shown but offerPercentile is null and salary is left out of the score.
+  percentileWithheld?: "no_experience_rows" | null;
+  // 5.7, crowdsourced only: which kind of pay served the number ("mixed" = pooled), and for "mixed"
+  // the data points by kind (sums to sampleSize). Absent on analyses stored before 5.7.
+  payBasis?: "offered" | "current" | "mixed" | null;
+  payMix?: { offered: number; current: number; unlabelled: number } | null;
 }
 ```
 
@@ -368,6 +375,16 @@ user, guest or fingerprint column. Loaded by `npm run db:load-reference`.
 
 In `scoreBreakdown.components`, the salary component may carry
 `basis: { source, scope }`. Comparisons rank salary only when two offers share a basis.
+A component whose value is `null` (no data) has weight 0 and its weight is redistributed; since 5.6 it may also carry
+`unscoredReason: "no_experience_rows"`, meaning the survey has no data at the offer's experience level. The comparison
+shows such a cell as "Not scored" with no winner, and an analysis stored without the field renders as before.
+
+**`salary_submissions.pay_basis` (migration 0007, task 5.7).** `text`, nullable, `CHECK (pay_basis IN ('current','offered'))`.
+`current` = what the contributor is paid now, `offered` = a CTC from an offer letter, NULL = "Not sure" or a row stored before
+0007 (no backfill). It is an attribute of the pay, not an identifier, and is not derived from any identifier. The lookup uses
+`pay_basis = X` for the like-with-like tiers, which SQL never matches for NULL, so NULL rows count only in the pooled tier.
+Rollback: `ALTER TABLE salary_submissions DROP COLUMN pay_basis` (drops the constraint with it), delete the
+`drizzle.__drizzle_migrations` row with `created_at = 1791881699089`, and delete the Redis keys `salary:crowd:v3:*`.
 
 ### Negotiation Suggestions (JSONB)
 

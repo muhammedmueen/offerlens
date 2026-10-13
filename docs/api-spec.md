@@ -303,6 +303,8 @@ Get full analysis results. Only available when `status = COMPLETED`.
       "roleMatchConfidence": 0.95,
       "locationUsed": "Bangalore, India",
       "dataSource": "ai_estimated",   // or "crowdsourced" (unverified; confidence level medium, badge "Check this", never "Verified") | "public_survey" (modelled, India-wide; ODbL attribution required)
+      // Optional, additive. public_survey: "percentileWithheld": "no_experience_rows" => range shown, offerPercentile null, salary unscored (a Fresher offer).
+      // crowdsourced: "payBasis": "offered" | "current" | "mixed" and, when "mixed", "payMix": { "offered": 9, "current": 4, "unlabelled": 2 } (sums to sampleSize).
       "disclaimer": null
     },
 
@@ -616,7 +618,10 @@ Vote on a feature request. One vote per fingerprint.
 |---|---|---|
 | `POST /offers` (daily quota, not a rate limit) | guest 1, `free` 3, `unlimited` none | IST calendar day |
 | `POST /auth/signup` | 5 | 1 hour |
-| `POST /auth/login`, `POST /auth/google` | 10 | 15 minutes |
+| `POST /auth/login`, per browser cookie (per client IP when the request has no cookie) | 10 | 15 minutes |
+| `POST /auth/login`, per client IP (any cookie) | 30 | 15 minutes |
+| `POST /auth/login`, per email address (normalised, any browser or IP) | 10 | 15 minutes |
+| `POST /auth/google` (per browser cookie only; no email limit) | 10 | 15 minutes |
 | `POST /offers/extract` | 20 | 1 hour |
 | `POST /offers/extract-file` | 10 | 1 hour |
 | `POST /offers/:id/negotiate` | 10 | 1 hour |
@@ -632,6 +637,19 @@ Each row is its own bucket per caller, and a route with its own limit does not a
 Anyone else is counted by their signed `ol_guest` cookie (one bucket per browser, not per network). A request that arrives
 without a valid cookie is counted by client IP instead, so a script that drops cookies cannot get a fresh budget per request.
 Behind a reverse proxy, cookie-less clients are counted by the proxy address unless Fastify `trustProxy` is set (see DEPLOYMENT.md).
+
+**Login has three limits, all on `POST /auth/login`.** They are separate buckets and any one can answer 429.
+- The per-email limit counts attempts since the last successful login for that address (a success clears it). The address is
+  trimmed, lower-cased and hashed (sha256) before it reaches Redis or a log; the raw address is never stored or logged.
+  It treats an unregistered address exactly like a registered one, and the 429 is the same body for every address and for
+  all three limits, so it does not reveal whether an account exists. (`POST /auth/signup` still answers 409 for an existing
+  address; that is separate and unchanged.)
+- `POST /auth/google` has no email in its body, so only the per-cookie limit applies to it.
+- A 400 (invalid body) spends neither the per-IP nor the per-email limit. A request stopped by one limit does not spend the next.
+- A legitimate login still works from another browser and IP while one address, cookie or IP is locked.
+- Accepted trade-offs: people behind one shared network share the 30-per-IP allowance, and anyone can lock another person's
+  login by failing 10 times against their email (even the right password gets 429 until the 15-minute window ends). The lock is
+  on this route only, never on the account, Google login or an issued token.
 
 **What a rate-limit 429 looks like.** `{ "success": false, "error": { "code": "RATE_LIMIT_EXCEEDED", "message": "..." } }` with
 `Retry-After`, `X-RateLimit-Limit`, `X-RateLimit-Remaining` (0) and `X-RateLimit-Reset`. It is a short-window "slow down" and is
