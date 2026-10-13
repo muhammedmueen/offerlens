@@ -83,7 +83,8 @@ export const CAREER_PATH_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 //
 // Only entries applied with `routeLimit('<name>')` are enforced; everything else shares the
 // `global` bucket. Wired: offerExtractText, offerExtractFile, accountExport, authSignup, authLogin,
-// negotiate, compare, benefits, salaryStats. NOT wired (no route uses them, so they do nothing):
+// negotiate, compare, benefits, salaryStats (plus authLoginIp and authLoginEmail through
+// `createLoginGuard`, not `routeLimit`). NOT wired (no route uses them, so they do nothing):
 // offerPolling, analysisGet, offerDelete, reportGet, metadata, featureRequestCreate,
 // featureRequestVote, corrections. Wiring offerPolling would be a mistake as written: 60/min
 // leaves little room over a 1 s poll loop (those routes ride the 100/min global instead).
@@ -103,7 +104,13 @@ export const RATE_LIMITS = {
     featureRequestCreate: { max: 5, window: '1 hour' },
     featureRequestVote: { max: 30, window: '1 minute' },
     authSignup: { max: 5, window: '1 hour' },
+    // POST /auth/login and /auth/google: per browser cookie (per IP when the request has no cookie).
     authLogin: { max: 10, window: '15 minutes' },
+    // POST /auth/login ONLY, enforced by `createLoginGuard` (not `routeLimit`): per client IP (30), and
+    // per normalised email, any cookie or IP (10; attempts since the last successful login). /auth/google
+    // has no email in its body, so neither applies there. `windowMs` is the same window as a number.
+    authLoginIp: { max: 30, window: '15 minutes', windowMs: 15 * 60 * 1000 },
+    authLoginEmail: { max: 10, window: '15 minutes', windowMs: 15 * 60 * 1000 },
     negotiate: { max: 10, window: '1 hour' },
     compare: { max: 20, window: '1 hour' },
     corrections: { max: 20, window: '1 hour' },
