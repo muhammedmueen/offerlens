@@ -110,6 +110,19 @@ function valueOf(entry: ComparisonEntry, key: ScoreComponentKey): number | null 
 }
 
 /**
+ * True when salary was deliberately left unscored because the survey has no respondents at the offer's
+ * experience level (5.6). That is a gap in the survey, not a lower or higher salary: it never counts
+ * as a win or a loss, and it is worded differently from "No data".
+ */
+function salaryWithheld(entry: ComparisonEntry): boolean {
+    return Boolean(entry.components?.find((c) => c.key === 'salary')?.unscoredReason);
+}
+
+const SALARY_WITHHELD_NOTE = 'Not scored for at least one offer because the survey has no respondents at that '
+    + 'offer\'s experience level. That is a gap in the survey, not a lower or higher salary, so no winner is '
+    + 'shown and the row is excluded from the overall.';
+
+/**
  * The components every offer has a score for.
  *
  * Empty when any offer has no breakdown at all, which is the pre-task-10 case — there is then
@@ -205,6 +218,9 @@ export function buildComparison(entries: ComparisonEntry[], now = new Date()): C
     const mismatch = keys.length > 0 && excluded.includes('salary') && salaryBasisMismatch(entries);
     // Excluded for lack of data, as opposed to excluded for a basis mismatch.
     const noData = excluded.filter((k) => !(k === 'salary' && mismatch));
+    // 5.6: salary is missing for a policy reason, not for lack of data about the offer.
+    const salaryGap = noData.includes('salary') && entries.some(salaryWithheld);
+    const otherNoData = salaryGap ? noData.filter((k) => k !== 'salary') : noData;
 
     const comparable = new Map(entries.map((e) => [e.id, comparableScore(e, keys)]));
     const diverges = entries.some((e) => {
@@ -222,9 +238,11 @@ export function buildComparison(entries: ComparisonEntry[], now = new Date()): C
             winnerId: winnerBy(entries, (e) => comparable.get(e.id) ?? null),
             ...(excluded.length > 0 && {
                 note: [
-                    noData.length > 0
-                        && `Excludes ${noData.map((k) => COMPONENT_LABELS[k].toLowerCase()).join(', ')}, `
+                    otherNoData.length > 0
+                        && `Excludes ${otherNoData.map((k) => COMPONENT_LABELS[k].toLowerCase()).join(', ')}, `
                             + 'which at least one of these offers has no data for.',
+                    salaryGap
+                        && 'Salary vs market is excluded because the survey has no data at one offer\'s experience level.',
                     mismatch
                         && 'Salary vs market is excluded because these offers were benchmarked against different data.',
                 ].filter(Boolean).join(' '),
@@ -252,15 +270,18 @@ export function buildComparison(entries: ComparisonEntry[], now = new Date()): C
             metric: COMPONENT_LABELS[key],
             values: entries.map((e) => {
                 const value = valueOf(e, key);
-                return value === null ? 'No data' : `${value} / 100`;
+                if (value !== null) return `${value} / 100`;
+                return key === 'salary' && salaryWithheld(e) ? 'Not scored' : 'No data';
             }),
             // Values stay visible, but no winner is declared across different data.
             winnerId: comparableHere && !differentBasis ? winnerBy(entries, (e) => valueOf(e, key)) : null,
             ...(differentBasis
                 ? { note: BASIS_MISMATCH_NOTE }
-                : !comparableHere && keys.length > 0 && {
-                    note: 'Not scored for every offer, so it is excluded from the overall.',
-                }),
+                : key === 'salary' && entries.some(salaryWithheld)
+                    ? { note: SALARY_WITHHELD_NOTE }
+                    : !comparableHere && keys.length > 0 && {
+                        note: 'Not scored for every offer, so it is excluded from the overall.',
+                    }),
         });
     }
 

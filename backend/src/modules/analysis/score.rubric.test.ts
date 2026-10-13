@@ -425,3 +425,36 @@ describe('a missing benefits checklist (task 15)', () => {
         expect(note.toLowerCase()).toContain('growth');
     });
 });
+
+describe('5.6: salary withheld (no survey respondents at the offer\'s experience level)', () => {
+    const plain = calculateScore(baseInput({ offerPercentile: null }));
+    const withheld = calculateScore(baseInput({ offerPercentile: null, salarySource: 'public_survey', salaryScope: 'role_national', salaryWithheld: 'no_experience_rows' }));
+    const salaryOf = (r: ReturnType<typeof calculateScore>) => r.components.find((c) => c.key === 'salary')!;
+
+    it('explains why in plain words, and differently from the no-data note', () => {
+        expect(salaryOf(withheld).note).toContain('no respondents at your experience level');
+        expect(salaryOf(withheld).note).toContain('shown for information only');
+        expect(salaryOf(withheld).note).not.toBe(salaryOf(plain).note);
+        expect(salaryOf(withheld).unscoredReason).toBe('no_experience_rows');
+        expect(salaryOf(plain).unscoredReason).toBeUndefined();
+    });
+
+    it('redistributes exactly as with no data: same score, values and weights', () => {
+        expect(withheld.score).toBe(plain.score);
+        expect(withheld.method).toBe('fallback');
+        expect(withheld.components.map((c) => [c.key, c.value, c.weight]))
+            .toEqual(plain.components.map((c) => [c.key, c.value, c.weight]));
+        expect(salaryOf(withheld)).toMatchObject({ value: null, weight: 0 });
+    });
+
+    it('the overall note says why salary was left out; the plain note does not', () => {
+        expect(withheld.note).toContain('salary vs market (no survey data at your experience level) could not be scored');
+        expect(plain.note).not.toContain('no survey data at your experience level');
+    });
+
+    it('is ignored when a percentile exists', () => {
+        const scored = calculateScore(baseInput({ offerPercentile: 60, salaryWithheld: 'no_experience_rows' }));
+        expect(salaryOf(scored).value).toBe(60);
+        expect(salaryOf(scored).unscoredReason).toBeUndefined();
+    });
+});

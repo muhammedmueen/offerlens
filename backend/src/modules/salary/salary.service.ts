@@ -11,6 +11,7 @@ import { matchRole, canonicalCity, isIndianMetro, bracketFromLabel, type Experie
 import { MIN_SAMPLE_SIZE, recencyWeight, rejectOutliers, summarise, weightedPercentileRank, type WeightedValue } from './salary.stats.js';
 import { EXPERIENCE } from '@/db/seed-data.js';
 import { addSteps, progressionNotes, type Progression, type ProgressionCell } from './progression.js';
+import { toSalaryComparison } from './benchmark-comparison.js';
 
 /**
  * Minimum rows (after outlier rejection) before a benchmark is reported. Defined once in
@@ -40,7 +41,19 @@ export interface Benchmark {
     experienceBracket: string | null;
     /** Years actually queried, inclusive; max null = open end. Null for tier 1 and tier 3. */
     experienceYearsRange: { min: number; max: number | null } | null;
+    /**
+     * Set when the survey has no respondents in the offer's experience range, so the all-experience range
+     * is shown but the offer is NOT ranked against it (5.6). yearsRange = the empty range, inclusive,
+     * max null = open end (same convention as experienceYearsRange).
+     */
+    percentileWithheld?: { reason: 'no_experience_rows'; yearsRange: { min: number; max: number | null } } | null;
+    /** Crowdsourced only (5.7): which kind of pay served the number; 'mixed' = pooled across kinds. */
+    payBasis?: 'offered' | 'current' | 'mixed' | null;
+    /** 'mixed' only: rows by kind, counted over the rows that survive outlier rejection (sums to sampleSize). */
+    payMix?: PayMix | null;
 }
+
+export interface PayMix { offered: number; current: number; unlabelled: number }
 
 export interface BenchmarkContext {
     /** The upload form's experience label. */
@@ -65,6 +78,8 @@ interface SalarySubmissionInput {
     ctc: number;
     companyType: 'product' | 'service' | 'startup' | 'mnc' | 'other';
     companySize?: '1-10' | '11-50' | '51-200' | '201-1000' | '1000+';
+    /** Task 5.7. Absent = "Not sure", stored as NULL. */
+    payBasis?: 'current' | 'offered';
     /**
      * Used ONLY for the one-hour repeat-submission check, which lives in Redis with a TTL.
      * It is never written to the row: a stored submission carries no user or guest linkage (4.6).
@@ -92,12 +107,22 @@ export const SALARY_CACHE_TTL_SECONDS = 3600;
 // ':' or ',' could collide with a neighbouring cell's key. encodeURIComponent escapes both.
 const enc = encodeURIComponent;
 
+/** Which rows a crowd read selects: only offered, only current, or every approved row (NULL basis included). */
+export type CrowdBasisKey = 'offered' | 'current' | 'all';
+type CrowdRow = [ctc: number, createdAtMs: number, basis: 'offered' | 'current' | null];
+
 /**
- * Crowdsourced cell: `Array<[ctc, createdAtMs]>` sorted by ctc. Versioned so a shape change needs
- * no manual flush. The old `salary:ctcs:v1:*` entries are never read again and expire on their own.
+ * Crowdsourced cell: `Array<[ctc, createdAtMs, basis]>` sorted by ctc, one key per basis. Versioned so
+ * a shape change needs no manual flush. The old `salary:crowd:v2:*` entries are never read again and
+ * expire on their own. `basis` is a fixed literal, never user text, so keys cannot collide.
  */
-export function crowdCacheKey(roleKey: string, cityKey: string): string {
-    return `salary:crowd:v2:${enc(roleKey)}:${enc(cityKey)}`;
+export function crowdCacheKey(roleKey: string, cityKey: string, basis: CrowdBasisKey): string {
+    return `salary:crowd:v3:${basis}:${enc(roleKey)}:${enc(cityKey)}`;
+}
+
+/** Every v3 key a new row for this cell can affect. An offered row changes `offered` and `all`; a NULL row `all` only. */
+export function crowdCacheKeys(roleKey: string, cityKey: string): string[] {
+    return (['offered', 'current', 'all'] as const).map((b) => crowdCacheKey(roleKey, cityKey, b));
 }
 
 /** Reference cell: `Array<[ctc, weight]>` sorted by ctc, non-empty only. */
@@ -109,31 +134,35 @@ const NATIONAL = 'India (national)';
 
 export class SalaryService {
     /**
-     * Approved crowdsourced `[ctc, createdAtMs]` pairs for a role+city, cached for an hour.
+     * Approved crowdsourced `[ctc, createdAtMs, basis]` rows for a role+city, cached for an hour.
      *
-     * Selects `ctc` and `created_at` only: nothing that could identify a submitter is read (4.6).
-     * The cached unit is the raw pairs, not a summary, because the offer percentile depends on the
-     * caller's own CTC and recency weights change daily; both are applied after the cache read.
+     * `basis` 'offered' / 'current' selects with `pay_basis = X`, which SQL never matches for NULL, so
+     * NULL-basis rows are in the 'all' read only (the pooled tier). Selects `ctc`, `created_at` and
+     * `pay_basis` only: nothing that could identify a submitter is read (4.6). The cached unit is the
+     * raw rows, not a summary, because the offer percentile depends on the caller's own CTC and recency
+     * weights change daily; both are applied after the cache read.
      */
-    private async crowdRows(roleKey: string, cityKey: string): Promise<Array<[number, number]>> {
+    private async crowdRows(roleKey: string, cityKey: string, basis: CrowdBasisKey): Promise<CrowdRow[]> {
         // ponytail: the key holds caller-supplied role/city (<= 120 chars each) and an empty cell is
-        // cached, so a caller can create many tiny keys that live 3600 s. The 30/min route limit slows
-        // that per client but does not cap it: each fresh guest cookie gets its own 30/min, and cookies
-        // are minted at up to 100/min per IP (global limit), so one IP can still add on the order of
+        // cached, so a caller can create many tiny keys that live 3600 s: up to three per (role, city)
+        // now (offered, current, all; one lookup reads two). The 30/min route limit slows that per
+        // client but does not cap it: each fresh guest cookie gets its own 30/min, and cookies are
+        // minted at up to 100/min per IP (global limit), so one IP can still add on the order of
         // thousands of keys a minute. Fine at personal-project scale. Upgrade path: skip the write for
         // an empty array when the role is unmatched (or a shorter TTL for empty cells).
-        return cached(crowdCacheKey(roleKey, cityKey), SALARY_CACHE_TTL_SECONDS, async () => {
+        return cached(crowdCacheKey(roleKey, cityKey, basis), SALARY_CACHE_TTL_SECONDS, async () => {
             const rows = await db
-                .select({ ctc: salarySubmissions.ctc, createdAt: salarySubmissions.createdAt })
+                .select({ ctc: salarySubmissions.ctc, createdAt: salarySubmissions.createdAt, payBasis: salarySubmissions.payBasis })
                 .from(salarySubmissions)
                 .where(and(
                     eq(salarySubmissions.role, roleKey),
                     eq(salarySubmissions.city, cityKey),
                     eq(salarySubmissions.status, 'approved'),
+                    basis === 'all' ? undefined : eq(salarySubmissions.payBasis, basis),
                 ));
 
             return rows
-                .map((r): [number, number] => [r.ctc, r.createdAt.getTime()])
+                .map((r): CrowdRow => [r.ctc, r.createdAt.getTime(), r.payBasis ?? null])
                 .sort((a, b) => a[0] - b[0]);
         });
     }
@@ -170,17 +199,23 @@ export class SalaryService {
 
     /**
      * The ordered lookup shared by `getBenchmark` and `getStats`:
-     *   1. crowdsourced, role + city, n >= 10 (after outlier rejection, recency-weighted)
+     *   1a. crowdsourced, role + city, the PREFERRED pay basis only, n >= 10 (after outlier rejection,
+     *       recency-weighted). Offer analysis prefers 'offered', the Explorer 'current'.
+     *   1b. crowdsourced, role + city, every approved row pooled (NULL-basis rows included), n >= 10
+     *       after rejection, returned with the mix so the number is labelled as pooled.
      *   2. reference, role family + experience bracket, national, n >= 10
-     *   3. reference, role family only, national, n >= 10
+     *   3. reference, role family only, national, n >= 10 (percentile withheld when the offer's bracket
+     *      has no survey rows at all, 5.6)
      *   4. null (the caller keeps the AI estimate)
-     * Each tier summarises ITS OWN rows. Crowdsourced and reference rows are never pooled.
+     * Each tier summarises ITS OWN rows. Nothing is averaged across tiers and crowd and reference rows
+     * are never pooled.
      */
     private async lookup(
         role: string,
         city: string,
         offerCtc: number | null,
         ctx: BenchmarkContext,
+        preferred: 'offered' | 'current',
     ): Promise<{ benchmark: Benchmark | null; crowdCount: number }> {
         if (!role.trim() || !city.trim()) return { benchmark: null, crowdCount: 0 };
 
@@ -193,29 +228,52 @@ export class SalaryService {
         const match = matchRole(role);
         const cityKey = canonicalCity(city) ?? city.slice(0, 120).toLowerCase().trim();
 
-        // Tier 1.
-        const crowd = await this.crowdRows(match.crowdKey, cityKey);
+        // Tier 1. `crowd` = every approved row in the cell; crowdCount is its length on every path.
+        const [own, crowd] = await Promise.all([
+            this.crowdRows(match.crowdKey, cityKey, preferred),
+            this.crowdRows(match.crowdKey, cityKey, 'all'),
+        ]);
         const now = Date.now();
-        const crowdSummary = summarise(
-            crowd.map(([value, createdAt]): WeightedValue => ({ value, weight: recencyWeight(createdAt, now) })),
+        const crowdBase = {
+            source: 'crowdsourced' as const,
+            scope: 'role_city' as const,
+            roleUsed: match.crowdKey,
+            referenceFamilies: [] as string[],
+            // An unmatched role hit its exact stored string, which is a full match, not 0.
+            roleMatchConfidence: match.canonical === null ? 1 : match.confidence,
+            locationUsed: cityKey,
+            experienceBracket: null,
+            experienceYearsRange: null,
+        };
+
+        // 1a. Like-with-like.
+        const ownSummary = summarise(
+            own.map(([value, createdAt]): WeightedValue => ({ value, weight: recencyWeight(createdAt, now) })),
             offerCtc,
             { rejectOutliers: true },
         );
-        if (crowdSummary) {
+        if (ownSummary) {
             return {
                 crowdCount: crowd.length,
-                benchmark: {
-                    source: 'crowdsourced',
-                    scope: 'role_city',
-                    ...crowdSummary,
-                    roleUsed: match.crowdKey,
-                    referenceFamilies: [],
-                    // An unmatched role hit its exact stored string, which is a full match, not 0.
-                    roleMatchConfidence: match.canonical === null ? 1 : match.confidence,
-                    locationUsed: cityKey,
-                    experienceBracket: null,
-                    experienceYearsRange: null,
-                },
+                benchmark: { ...crowdBase, ...ownSummary, payBasis: preferred, payMix: null },
+            };
+        }
+
+        // 1b. Pooled, with the mix. Reject first, count the mix over the rows that survive, then
+        // summarise without a second rejection, so the mix always sums to the sample size shown.
+        const kept = rejectOutliers(crowd.map(([value, createdAt, basis]) => (
+            { value, weight: recencyWeight(createdAt, now), basis }
+        )));
+        const pooled = summarise(kept, offerCtc, { rejectOutliers: false });
+        if (pooled) {
+            const payMix: PayMix = {
+                offered: kept.filter((k) => k.basis === 'offered').length,
+                current: kept.filter((k) => k.basis === 'current').length,
+                unlabelled: kept.filter((k) => k.basis === null).length,
+            };
+            return {
+                crowdCount: crowd.length,
+                benchmark: { ...crowdBase, ...pooled, payBasis: 'mixed', payMix },
             };
         }
 
@@ -237,8 +295,12 @@ export class SalaryService {
             const toWeighted = (rows: Array<[number, number]>) =>
                 rows.map(([value, weight]): WeightedValue => ({ value, weight }));
 
+            // 5.6: set when the offer's bracket has no survey respondents to rank against.
+            let withheld: Benchmark['percentileWithheld'] = null;
+
             if (bracket) {
-                const s = summarise(toWeighted(await this.refRows(families, bracket)), offerCtc, { rejectOutliers: false });
+                const bracketRows = await this.refRows(families, bracket);
+                const s = summarise(toWeighted(bracketRows), offerCtc, { rejectOutliers: false });
                 if (s) {
                     return {
                         crowdCount: crowd.length,
@@ -251,16 +313,31 @@ export class SalaryService {
                         },
                     };
                 }
+                // Fresher is always withheld (the survey has no 0-year rows; stays withheld if a future
+                // seed adds a few). Any other bracket is withheld only when it has ZERO rows: today that
+                // is Engineering Manager at Junior and Mid. Thin brackets (1-9 rows) keep a percentile.
+                // Data-driven, so it adjusts itself when `db:load-reference` loads new data.
+                if (bracket.minYears === 0 || bracketRows.length === 0) {
+                    withheld = {
+                        reason: 'no_experience_rows',
+                        // Half-open in the query, so the inclusive top is maxYears - 1; 99 = open end.
+                        yearsRange: { min: bracket.minYears, max: bracket.maxYears >= 99 ? null : bracket.maxYears - 1 },
+                    };
+                }
             }
 
-            // ponytail: tier 3 ranks the offer against ALL experience levels, and the SO India
-            // sample skews junior, so senior offers read high. Disclaimed as "all experience
-            // levels"; the upgrade path is to show the range without scoring this scope.
-            const s = summarise(toWeighted(await this.refRows(families, null)), offerCtc, { rejectOutliers: false });
+            // ponytail: tier 3 is ALL experience levels, and the SO India sample skews junior, so a
+            // senior offer ranked here reads high. Disclaimed as "all experience levels". It is
+            // not ranked at all for an empty bracket (`withheld`, 5.6). Ceiling: brackets with 1-9
+            // rows are still ranked here; widen the rule if that proves misleading.
+            const s = summarise(toWeighted(await this.refRows(families, null)), withheld ? null : offerCtc, { rejectOutliers: false });
             if (s) {
                 return {
                     crowdCount: crowd.length,
-                    benchmark: { ...base, ...s, scope: 'role_national', experienceBracket: null, experienceYearsRange: null },
+                    benchmark: {
+                        ...base, ...s, scope: 'role_national', experienceBracket: null, experienceYearsRange: null,
+                        percentileWithheld: withheld,
+                    },
                 };
             }
         } catch (err) {
@@ -395,6 +472,7 @@ export class SalaryService {
             ctc: input.ctc,
             companyType: input.companyType,
             companySize: input.companySize,
+            payBasis: input.payBasis ?? null,
             status,
             // Day-level only (5.4, D6): an exact ms would let a request-log line be joined to this row.
             createdAt: day,
@@ -407,8 +485,10 @@ export class SalaryService {
 
         // Invalidate on write rather than waiting out the hour. It matters most at exactly the
         // moment a role+city crosses MIN_SAMPLE_SIZE. Rejected submissions change nothing.
+        // All three v3 keys: an offered/current row changes its own key and `all`; a NULL row changes
+        // `all` only. Deleting the unaffected key is free and survives a later change to the basis rules.
         if (status === 'approved') {
-            await cacheDelete(crowdCacheKey(normedRole, normedCity));
+            await Promise.all(crowdCacheKeys(normedRole, normedCity).map(cacheDelete));
         }
     }
 
@@ -416,11 +496,12 @@ export class SalaryService {
      * Salary Explorer. `GET /salaries/stats` is public and unauthenticated by design; it is limited
      * to 30/min per signed-in user, guest cookie, or (cookie-less) IP by the route (`RATE_LIMITS.salaryStats`).
      *
-     * Without an experience level this can reach tiers 1 and 3 only. In the not-enough case `count`
-     * is the number of approved crowdsourced rows (never a survey count).
+     * Without an experience level this can reach tiers 1 and 3 only; tier 1 prefers current-pay rows,
+     * then pooled with the mix (5.7). In the not-enough case `count` is the number of approved
+     * crowdsourced rows (never a survey count).
      */
     async getStats(role: string, city: string) {
-        const { benchmark, crowdCount } = await this.lookup(role, city, null, {});
+        const { benchmark, crowdCount } = await this.lookup(role, city, null, {}, 'current');
 
         if (!benchmark) {
             return {
@@ -439,6 +520,10 @@ export class SalaryService {
             city: benchmark.locationUsed,
             locationUsed: benchmark.locationUsed,
             ...benchmark.marketRange,
+            // Additive (5.7): which kind of pay served the number, the mix when pooled, and the same
+            // disclaimer an offer analysis would carry, so its wording has one owner.
+            ...(benchmark.source === 'crowdsourced' && { payBasis: benchmark.payBasis, payMix: benchmark.payMix }),
+            disclaimer: toSalaryComparison(benchmark).disclaimer,
         };
     }
 
@@ -452,7 +537,7 @@ export class SalaryService {
         offerCtc: number | null,
         ctx: BenchmarkContext = {},
     ): Promise<Benchmark | null> {
-        return (await this.lookup(role, city, offerCtc, ctx)).benchmark;
+        return (await this.lookup(role, city, offerCtc, ctx, 'offered')).benchmark;
     }
 
     private validate(input: SalarySubmissionInput): boolean {

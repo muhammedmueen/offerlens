@@ -377,3 +377,42 @@ describe('salary basis (Phase 5): differing source or scope is not like-for-like
         expect(commonComponentKeys([withBasis('a', NATIONAL), withBasis('b', BRACKET)])).not.toContain('salary');
     });
 });
+describe('5.6: a Fresher offer whose salary was withheld', () => {
+    const withheldEntry = (id: string) => {
+        const e = entry(id, { ...FULL, salary: null });
+        e.components = e.components!.map((c) => (c.key === 'salary' ? { ...c, unscoredReason: 'no_experience_rows' as const } : c));
+        return e;
+    };
+    const result = buildComparison([withheldEntry('fresher'), entry('scored', FULL)]);
+    const salaryRow = result.rows.find((r) => r.metric === 'Salary vs market')!;
+
+    it('shows "Not scored" for the withheld offer and a number for the other, with no winner', () => {
+        expect(salaryRow.values).toEqual(['Not scored', '70 / 100']);
+        expect(salaryRow.winnerId).toBeNull();
+    });
+
+    it('explains that it is a survey gap, not a lower or higher salary', () => {
+        expect(salaryRow.note).toContain('a gap in the survey, not a lower or higher salary');
+        expect(salaryRow.note).toContain('no winner is shown');
+    });
+
+    it('leaves salary out of the common basis and says why in the Overall note', () => {
+        expect(result.basis.components).not.toContain('salary');
+        expect(result.basis.excluded).toContain('salary');
+        const overall = result.rows[0];
+        expect(overall.note).toContain('Salary vs market is excluded because the survey has no data at one offer\'s experience level.');
+        expect(overall.note).not.toContain('which at least one of these offers has no data for');
+    });
+
+    it('never lists salary as a trade-off or a win', () => {
+        expect(result.recommendation.tradeoffs.join(' ')).not.toContain('Salary vs market');
+    });
+
+    it('rows stored without unscoredReason render exactly as before ("No data", old note)', () => {
+        const old = buildComparison([entry('a', NO_SALARY), entry('b', FULL)]);
+        const row = old.rows.find((r) => r.metric === 'Salary vs market')!;
+        expect(row.values).toEqual(['No data', '70 / 100']);
+        expect(row.note).toBe('Not scored for every offer, so it is excluded from the overall.');
+        expect(old.rows[0].note).toContain('which at least one of these offers has no data for');
+    });
+});

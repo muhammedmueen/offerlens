@@ -88,6 +88,12 @@ export interface SalaryComparison {
     sampleSize?: number;
     benchmarkScope?: BenchmarkScope;
     experienceBracket?: string | null;
+    /** 5.6: set when the offer was not ranked because the survey has no respondents at its experience level. */
+    percentileWithheld?: 'no_experience_rows' | null;
+    /** 5.7, crowdsourced only: which kind of pay served the number ('mixed' = pooled). Absent on older analyses. */
+    payBasis?: 'offered' | 'current' | 'mixed' | null;
+    /** 5.7, 'mixed' only: data points by kind, summing to `sampleSize`. */
+    payMix?: { offered: number; current: number; unlabelled: number } | null;
 }
 
 export interface NegotiationSuggestion {

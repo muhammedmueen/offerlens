@@ -43,7 +43,7 @@ function median(sorted: number[]): number {
  * ignores experience, so a very senior high earner is judged against the same spread as a junior;
  * Phase B partial pooling is the upgrade path.
  */
-export function rejectOutliers(items: WeightedValue[]): WeightedValue[] {
+export function rejectOutliers<T extends WeightedValue>(items: T[]): T[] {
     const usable = items.filter((i) => Number.isFinite(i.value) && i.value > 0);
     if (usable.length === 0) return [];
 

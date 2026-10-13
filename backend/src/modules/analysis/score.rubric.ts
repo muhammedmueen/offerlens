@@ -76,7 +76,14 @@ export interface ScoreComponent {
     note: string;
     /** Salary component only, and only when scored. Absent on rows stored before Phase 5. */
     basis?: SalaryBasis;
+    /**
+     * Salary only (5.6): why an otherwise available benchmark was deliberately not used to score the
+     * offer. A gap in the survey, not a verdict on the offer, so the comparison must not rank on it.
+     */
+    unscoredReason?: SalaryWithheldReason;
 }
+
+export type SalaryWithheldReason = 'no_experience_rows';
 
 export interface ScoreResult {
     score: number;
@@ -103,6 +110,8 @@ export interface ScoreInput {
     /** What `offerPercentile` was measured against. Ignored when the percentile is null. */
     salarySource: SalaryBasis['source'];
     salaryScope?: SalaryBasis['scope'];
+    /** 5.6: the benchmark range is shown but the offer was not ranked, so salary is unscored. */
+    salaryWithheld?: SalaryWithheldReason;
 }
 
 const clamp = (n: number) => Math.max(0, Math.min(100, n));
@@ -140,8 +149,17 @@ export function scoreSalary(
     // "crowdsourced submissions".
     source: SalaryBasis['source'],
     scope?: SalaryBasis['scope'],
-): { value: number | null; note: string; basis?: SalaryBasis } {
+    withheld?: SalaryWithheldReason,
+): { value: number | null; note: string; basis?: SalaryBasis; unscoredReason?: SalaryWithheldReason } {
     if (offerPercentile === null || !Number.isFinite(offerPercentile)) {
+        if (withheld) {
+            return {
+                value: null,
+                unscoredReason: withheld,
+                note: 'Salary is not scored: the survey has no respondents at your experience level for this role, '
+                    + 'so your offer cannot be fairly ranked. The range is shown for information only.',
+            };
+        }
         return {
             value: null,
             note: 'No salary benchmark with enough data for this role and city, so salary is not scored.',
@@ -302,12 +320,15 @@ export function labelFor(score: number): string {
 
 export function calculateScore(input: ScoreInput): ScoreResult {
     const redFlags = scoreRedFlags(input.redFlags);
-    const salary = scoreSalary(input.offerPercentile, input.salarySource, input.salaryScope);
+    const salary = scoreSalary(input.offerPercentile, input.salarySource, input.salaryScope, input.salaryWithheld);
     const benefits = scoreBenefits(input.benefitsChecklist);
     const growth = scoreGrowth(input.extractedData, input.benefitsChecklist);
     const transparency = scoreTransparency(input.extractedData, input.benefits, input.redFlags);
 
-    const raw: Array<{ key: ScoreComponentKey; label: string; value: number | null; note: string; basis?: SalaryBasis }> = [
+    const raw: Array<{
+        key: ScoreComponentKey; label: string; value: number | null; note: string;
+        basis?: SalaryBasis; unscoredReason?: SalaryWithheldReason;
+    }> = [
         { key: 'redFlags', label: 'Red flags', ...redFlags },
         { key: 'salary', label: 'Salary vs market', ...salary },
         { key: 'benefits', label: 'Benefits', ...benefits },
@@ -330,6 +351,7 @@ export function calculateScore(input: ScoreInput): ScoreResult {
         weight: c.value === null ? 0 : Math.round(COMPONENT_WEIGHTS[c.key] * scale),
         note: c.note,
         ...(c.basis && { basis: c.basis }),
+        ...(c.unscoredReason && { unscoredReason: c.unscoredReason }),
     }));
 
     // Computed from exact weights rather than the rounded display ones, so the parts always sum
@@ -344,7 +366,9 @@ export function calculateScore(input: ScoreInput): ScoreResult {
         method: unscored.length === 0 ? 'standard' : 'fallback',
         components,
         note: unscored.length > 0
-            ? `Score based on limited market data — ${unscored.map((c) => c.label.toLowerCase()).join(', ')} `
+            ? 'Score based on limited market data — '
+                + unscored.map((c) => c.label.toLowerCase()
+                    + (c.unscoredReason ? ' (no survey data at your experience level)' : '')).join(', ') + ' '
                 + 'could not be scored, so the remaining factors carry more weight.'
             : null,
     };

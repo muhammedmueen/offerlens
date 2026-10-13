@@ -375,6 +375,8 @@ export const analysisWorker = new Worker(
                 // source, so 'crowdsourced' here is an inert placeholder, not a claim.
                 salarySource: benchmark?.source ?? 'crowdsourced',
                 salaryScope: benchmark?.scope,
+                // 5.6: the range is shown but the offer is not ranked; tells the rubric why salary is unscored.
+                salaryWithheld: benchmark?.percentileWithheld ? benchmark.percentileWithheld.reason : undefined,
             });
 
             const { score, label, method: scoringMethod } = scoring;

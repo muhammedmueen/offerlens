@@ -50,6 +50,13 @@
       "when": 1791797561443,
       "tag": "0006_salary_reference_rows",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791881699089,
+      "tag": "0007_salary_pay_basis",
+      "breakpoints": true
     }
   ]
 }

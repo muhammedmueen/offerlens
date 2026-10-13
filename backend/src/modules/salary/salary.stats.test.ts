@@ -122,3 +122,14 @@ describe('summarise', () => {
         expect(shuffled[0].value).toBe(10e6);
     });
 });
+
+describe('rejectOutliers keeps extra properties (5.7: the pay-basis tag survives)', () => {
+    it('returns the same tagged objects it keeps', () => {
+        const items = Array.from({ length: 12 }, (_, i) => ({ value: 2_000_000 + i * 10_000, weight: 1, basis: i % 2 ? 'offered' : null }));
+        const poison = { value: 1_000_000_000, weight: 1, basis: 'current' as const };
+        const kept = rejectOutliers([...items, poison]);
+        expect(kept).toHaveLength(12);
+        expect(kept.every((k) => 'basis' in k)).toBe(true);
+        expect(kept).not.toContain(poison);
+    });
+});

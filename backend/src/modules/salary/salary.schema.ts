@@ -15,6 +15,8 @@ export const submitSalarySchema = {
         ctc: z.coerce.number().int().positive().max(1_000_000_000),
         companyType: z.enum(['product', 'service', 'startup', 'mnc', 'other']),
         companySize: z.enum(['1-10', '11-50', '51-200', '201-1000', '1000+']).optional(),
+        // Task 5.7. Absent = "Not sure" = stored NULL. null, '' and any other string are a 400.
+        payBasis: z.enum(['current', 'offered']).optional(),
     }),
 };
 

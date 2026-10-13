@@ -89,3 +89,83 @@ describe('pickBenchmarkCity', () => {
         expect(pickBenchmarkCity(letter as string | null, form as string | null | undefined)).toBe(expected);
     });
 });
+
+describe('5.6: toSalaryComparison, percentile withheld', () => {
+    const withheld = survey({
+        scope: 'role_national', experienceBracket: null, experienceYearsRange: null, offerPercentile: null,
+        percentileWithheld: { reason: 'no_experience_rows', yearsRange: { min: 0, max: 0 } },
+    });
+
+    it('says why in plain words: no respondents at 0 years, shown for information, not ranked, left out of the score', () => {
+        const c = toSalaryComparison(withheld);
+        expect(c.disclaimer).toContain('The survey has no respondents for this role with 0 years of experience');
+        expect(c.disclaimer).toContain('shown for information only');
+        expect(c.disclaimer).toContain('not ranked against it');
+        expect(c.disclaimer).toContain('salary is left out of the score');
+        expect(c.disclaimer).not.toMatch(/verified|submission/i);
+        expect(c.percentileWithheld).toBe('no_experience_rows');
+        expect(c.offerPercentile).toBeNull();
+    });
+
+    it('states an open-ended or multi-year empty range as queried', () => {
+        const d = (yearsRange: { min: number; max: number | null }) =>
+            toSalaryComparison({ ...withheld, percentileWithheld: { reason: 'no_experience_rows', yearsRange } }).disclaimer;
+        expect(d({ min: 1, max: 2 })).toContain('with 1-2 years of experience');
+    });
+
+    it('a normal survey disclaimer ends with the current-pay sentence and has no withheld text or flag', () => {
+        const c = toSalaryComparison(survey());
+        expect(c.disclaimer).toMatch(/Survey figures describe current pay\.$/);
+        expect(c.disclaimer).not.toContain('not ranked');
+        expect(c).not.toHaveProperty('percentileWithheld');
+    });
+});
+
+describe('5.7: toSalaryComparison, crowd pay basis wording', () => {
+    const crowd = (over: Partial<Benchmark> = {}): Benchmark => survey({
+        source: 'crowdsourced', scope: 'role_city', referenceFamilies: [], experienceBracket: null,
+        experienceYearsRange: null, roleMatchConfidence: 1, sampleSize: 12, ...over,
+    });
+    const text = (over: Partial<Benchmark>) => toSalaryComparison(crowd(over)).disclaimer;
+
+    it('offered and current tiers say all of the data points are that kind of pay', () => {
+        expect(text({ payBasis: 'offered', payMix: null })).toBe(
+            'Based on 12 crowdsourced, unverified submissions for this role and city. '
+            + 'All 12 are offered pay: what employers offered, not necessarily what people are paid now.');
+        expect(text({ payBasis: 'current', payMix: null })).toBe(
+            'Based on 12 crowdsourced, unverified submissions for this role and city. All 12 are current pay.');
+    });
+
+    it('mixed names the pooling and the mix, omitting zero parts', () => {
+        const head = 'Based on 15 crowdsourced, unverified data points for this role and city, pooled because no single kind of pay had 10 yet. ';
+        expect(text({ sampleSize: 15, payBasis: 'mixed', payMix: { offered: 12, current: 0, unlabelled: 3 } }))
+            .toBe(`${head}12 of 15 data points are offered pay, 3 are not labelled.`);
+        expect(text({ sampleSize: 12, payBasis: 'mixed', payMix: { offered: 0, current: 4, unlabelled: 8 } }))
+            .toContain('4 of 12 data points are current pay, 8 are not labelled.');
+        expect(text({ sampleSize: 12, payBasis: 'mixed', payMix: { offered: 5, current: 7, unlabelled: 0 } }))
+            .toContain('5 of 12 data points are offered pay, 7 are current pay.');
+        expect(text({ sampleSize: 12, payBasis: 'mixed', payMix: { offered: 0, current: 12, unlabelled: 0 } }))
+            .toContain('12 of 12 data points are current pay.');
+    });
+
+    it('singular agreement: 1 of 1 data point is offered pay', () => {
+        expect(text({ sampleSize: 1, payBasis: 'mixed', payMix: { offered: 1, current: 0, unlabelled: 0 } }))
+            .toContain('1 of 1 data point is offered pay.');
+        expect(text({ sampleSize: 12, payBasis: 'mixed', payMix: { offered: 1, current: 1, unlabelled: 10 } }))
+            .toContain('1 of 12 data points is offered pay, 1 is current pay, 10 are not labelled.');
+    });
+
+    it('all unlabelled rows: says none say whether it is current or offered pay', () => {
+        expect(text({ payBasis: 'mixed', payMix: { offered: 0, current: 0, unlabelled: 12 } }))
+            .toContain('None of the 12 data points say whether it is current or offered pay.');
+    });
+
+    it('copies payBasis and payMix; a benchmark with no payBasis keeps the old sentence and omits both', () => {
+        const mixed = toSalaryComparison(crowd({ payBasis: 'mixed', payMix: { offered: 9, current: 1, unlabelled: 2 } }));
+        expect(mixed).toMatchObject({ payBasis: 'mixed', payMix: { offered: 9, current: 1, unlabelled: 2 } });
+        const old = toSalaryComparison(crowd());
+        expect(old.disclaimer).toContain('Some may be offered, not current, pay.');
+        expect(old).not.toHaveProperty('payBasis');
+        expect(old).not.toHaveProperty('payMix');
+    });
+});

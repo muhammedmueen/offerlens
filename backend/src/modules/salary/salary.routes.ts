@@ -21,6 +21,7 @@ export async function salaryRoutes(fastify: FastifyInstance) {
                 ctc: number;
                 companyType: 'product' | 'service' | 'startup' | 'mnc' | 'other';
                 companySize?: '1-10' | '11-50' | '51-200' | '201-1000' | '1000+';
+                payBasis?: 'current' | 'offered';
             };
 
             await salaryService.submit({
