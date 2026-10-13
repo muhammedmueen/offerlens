@@ -152,7 +152,7 @@ the Stack Overflow Developer Survey 2025 (ODbL), not offers in the requested cit
 ### Career Path (`/offers/:id/career-path`)
 | Method | Endpoint | Description | Auth Required |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/offers/:id/career-path` | Generate career progression based on offer | Yes |
+| `GET` | `/offers/:id/career-path` | Career narrative (`timeline`, `skillsToLearn`, `potentialRoles`) plus a deterministic `progression`: pay by experience bracket (median, 25th-75th, n, step) from the Stack Overflow India survey, or crowdsourced rows where a role + city + bracket has n >= 10. A bracket with fewer than 10 points has `marketRange: null` and its n; an unmapped role, non-INR offer or non-metro city gets `progression.applicable: false` with a `reason`. `progression` is recomputed on every call; the AI no longer returns `salaryRange`. See `api-spec.md`. | Yes |
 
 ### Comparison (`/offers/compare`)
 | Method | Endpoint | Description | Auth Required |

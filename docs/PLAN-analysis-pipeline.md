@@ -694,7 +694,7 @@ Option B is simplest and works with existing polling architecture.
 |--------|--------|
 | **Extract industry + company type** | Stage 1 extraction includes `industry` and `companyType` fields |
 | **Company-specific context** | If company is known (e.g., Google, TCS), AI uses company-specific career ladders |
-| **Salary progression with real data** | Year 1/3/5 salary ranges from crowdsourced DB filtered by experience level |
+| **Salary progression with real data** | ✅ Landed as 5.5, by experience **bracket** rather than Year 1/3/5: the survey has no 0-year rows and a bracket is what the data supports. Median and 25th-75th per bracket from the survey (or crowdsourced rows at n >= 10), thin cells show no number. See the Phase 5 task 5.5 outcome |
 | **Skills-to-learn grounded in reality** | AI generates based on actual job market trends, not generic lists |
 
 ---
@@ -732,7 +732,7 @@ than a theme list plus a separate priority list.
 | Phase | Scope | Gate |
 |---|---|---|
 | **4 — Launch Blockers** | Usage ledger, plan limits, three untrue privacy promises, one smoke spec | 4.1–4.8 ✅ done. Phase 4 is complete |
-| **5 — Salary Data** | Seed benchmarks, then fuzzy matching, outlier rejection, contribution prompt | 5.1 Phase A ✅, 5.2 ✅, 5.3 ✅, 5.4 ✅ (see "Phase 5 Phase A outcome" and "Phase 5 task 5.4 outcome"). Open: 5.1 Phase B (PLFS city factors), 5.5 |
+| **5 — Salary Data** | Seed benchmarks, then fuzzy matching, outlier rejection, contribution prompt | 5.1 Phase A ✅, 5.2 ✅, 5.3 ✅, 5.4 ✅, 5.5 ✅ (see "Phase 5 Phase A outcome", "Phase 5 task 5.4 outcome" and "Phase 5 task 5.5 outcome"). Open: 5.1 Phase B (PLFS city factors) |
 | **6 — Revenue & Compliance** | ~~Payments~~ (parked), retention policy, correction loop, scanned-PDF OCR | 6.1 parked (non-commercial); 6.4 needs Cloud Vision billing |
 | **7 — Operations** | Admin auth hardening, superadmin, dashboards | One of the Phase 7 triggers firing |
 
@@ -767,7 +767,7 @@ forward references to numbers that were going to move.
 | 22 | **5.2** | Fuzzy role matching |
 | 24 | **5.3** | Poisoning protection |
 | 25 | **5.4** | Contribution prompt |
-| 20 | **5.5** | Career path salary progression |
+| 20 | **5.5** | ✅ Career path salary progression |
 | 32 | **6.1** | Payment integration |
 | 27 | **6.2** | PII redaction + retention |
 | 26 | **6.3** | Correction loop |
@@ -801,7 +801,7 @@ forward references to numbers that were going to move.
 | **2** | Rule engine, tax calculator, rubric, confidence, cache | ✅ Done, 6 tasks |
 | **3** | Pipeline refactor, reliability, comparison, OCR | ✅ **Closed.** Rounds 1-5 shipped 7 tasks plus half of 21c; 3 items dropped and the rest promoted into Phases 4-6 |
 | **4** | **Launch blockers** — usage ledger, plan limits, privacy promises, smoke spec | ✅ Done, 8 tasks (4.1–4.8). The results-page Compare finding was fixed in the follow-up |
-| **5** | Salary data — seeding, matching, integrity | 🟡 Phase A built: 5.1 Phase A, 5.2, 5.3, 5.4 done. Phase B (PLFS) and 5.5 open |
+| **5** | Salary data — seeding, matching, integrity | 🟡 Phase A built: 5.1 Phase A, 5.2, 5.3, 5.4, 5.5 done. Phase B (PLFS) open |
 | **6** | Revenue & compliance — ~~payments~~, retention, corrections, scanned PDFs | ⬜ 6.1 parked (non-commercial); rest not urgent while there are no users |
 | **7** | Operations — admin auth, superadmin, dashboards | ⏸ Deliberately deferred until a trigger fires |
 
@@ -1804,7 +1804,7 @@ one of two ways, so that "Phase 3 remaining" stopped being a category:
 | 17 | Add prompt versioning to `aiMetadata` | Rollback + A/B testing | ✅ **Done** (round 1). See below |
 | 18 | Progressive results: store stage outputs, poll returns partial data | UX during longer processing | ❌ **Dropped** — contract change + frontend, for a ~20s wait. See **Not Planned** |
 | 19 | Update comparison to use rubric sub-scores | Dimension-by-dimension | ✅ **Done** (round 3) — the page was broken outright. See below |
-| 20 | Enhance career path with real context + salary progression | Realistic trajectories | ➡ **Now 5.5.** The context half shipped as task 7; the salary half needs benchmarks |
+| 20 | Enhance career path with real context + salary progression | Realistic trajectories | ✅ **Done as 5.5.** The context half shipped as task 7; the salary half landed with the survey benchmarks |
 | 21 | Add negotiation template library | Non-AI fallback | ✅ **Done** (round 2) — plus a measured regression from task 9. See below |
 | 21a | Stale job reaper — `PROCESSING` > 5 min → `FAILED` (use the existing `ANALYSIS_TIMEOUT_MS`) | Stuck offers currently never recover | ✅ **Done** (round 1). See below |
 | 21b | Redis-down fallback to synchronous processing | Roadmap requirement, not implemented | ❌ **Dropped** — a 20s request is worse than a clear error. See **Not Planned** |
@@ -2805,7 +2805,7 @@ untracked work. Small ones can ride along with 4.5–4.8.
 | 5.2 | ✅ Fuzzy role matching (synonym map) | Better matches against real submissions — see the Phase A outcome |
 | 5.3 | ✅ Poisoning protection — 3σ outlier rejection, recency weighting | Data integrity — see the Phase A outcome |
 | 5.4 | ✅ Post-analysis contribution prompt | Grows the crowdsourced set, opt-in, through the existing `POST /salaries` — see the Phase 5 task 5.4 outcome |
-| 5.5 | Career path salary progression | The half of the old task 20 that needs benchmarks |
+| 5.5 | ✅ Career path salary progression | The half of the old task 20 that needs benchmarks - see the Phase 5 task 5.5 outcome |
 
 > [!NOTE]
 > **5.1 was blocked on a product decision, not on engineering:** which public salary dataset, and
@@ -2922,7 +2922,7 @@ at, and never pooled into one percentile:
 #### Phase 5 Phase A outcome — public-survey salary benchmark (5.1 Phase A, 5.2, 5.3)
 
 **Status:** 5.1 Phase A ✅, 5.2 ✅, 5.3 ✅, `MIN_SAMPLE_SIZE` 5 → 10 ✅. **Still open:** 5.1 Phase B
-(PLFS city factors), 5.5 (5.4 is done, see its outcome). Design and plan: `.agents/tasks/phase5a-design.md`,
+(PLFS city factors). (5.4 and 5.5 are done, see their outcomes.) Design and plan: `.agents/tasks/phase5a-design.md`,
 `.agents/tasks/phase5a-plan.md`. (Committed since: `15d0614`, `bbfdeaa`, `9a69184`, `af63361`, merged with the rate limiter fix as `ba5502d`.)
 
 ##### What shipped
@@ -3139,7 +3139,7 @@ Docker Postgres 16 + Redis 7, real data, real Gemini key.
    one icon `button` with no accessible name, not in the new code. Not fixed here; a one-line `aria-label`
    once the button is identified. **Fixed in the 5.4 clean-up:** the Navbar icon buttons have accessible names; Lighthouse accessibility on `/salaries` is 1.00 (see the 5.4 outcome).
 7. **Not done, by design:** Phase B (PLFS city factors), 5.5 (career-path
-   salary progression), a route limit on `POST /salaries`, `company_type` / `company_size` on reference rows. (5.4, the contribution prompt, landed afterwards: see its outcome. The route limit stays "not done, by design" and its gap is open item 2 there.)
+   salary progression; landed afterwards, see its outcome), a route limit on `POST /salaries`, `company_type` / `company_size` on reference rows. (5.4, the contribution prompt, landed afterwards: see its outcome. The route limit stays "not done, by design" and its gap is open item 2 there.)
 
 #### Rate limiter fix (branch `fix-rate-limiter`, resolves Phase 5 open item 5 and the "dead config" audit item)
 
@@ -3466,7 +3466,7 @@ were deleted by logged id.
    `...routeLimit('salarySubmit')` with `{ max: 10, window: '1 hour' }` (the limiter keys cookie-less clients on IP).
 3. **The login limiter's cookie-minting gap** (from the Rate limiter fix: a client can mint cookies and get a bucket each).
 4. **Fresher offers are scored against all experience levels** (tier-3 skew; Phase A open item 1).
-5. **Phase B (PLFS city factors), task 5.5, Phase 6 and Phase 7.**
+5. **Phase B (PLFS city factors), Phase 6 and Phase 7.** (Task 5.5 has since landed.)
 6. **Pre-existing contrast failures** Lighthouse found on the results page: the severity label (2.84:1) and footer/muted text (4.48:1).
 7. **Route-level JS cost** of the shared form (+4.5 kB gzip on a results page) and the footer CLS spike.
 8. G3 (ten consistent fake values pass the floor) and G4/G5 (a rejected row still returns 201; the same person can resubmit after an hour)
@@ -3481,6 +3481,137 @@ fingerprint and 5-row wording tagged historical), and this plan (status tables, 
 
 ---
 
+#### Phase 5 task 5.5 outcome — career-path salary progression grounded in real benchmarks
+Branch `phase5a-salary-reference-seed` (one branch per phase; the work is in the working tree, not yet committed). Design and its
+review: `.agents/tasks/phase5-5.5-design.md`, `.agents/tasks/phase5-5.5-design-review.md`; the verification note is
+`.agents/tasks/phase5-5.5-verification.md`. Throwaway live-check scripts and raw output: `.agents/tasks/live55*.mjs`, `live55-*.txt/json`.
+> [!NOTE]
+> **`.agents/` is gitignored and local only.** Every `.agents/tasks/...` path above is a working note, not part of the repository.
+> Everything that has to outlive the session is in this section.
+
+##### What was built
+- **A pay-by-experience table, computed in code.** `SalaryService.getProgression` returns one cell per `EXPERIENCE` bracket (the
+  same half-open brackets lookup tier 2 uses, so the career view and the offer benchmark agree): median, 25th-75th, sample size,
+  source, and the change in median from the previous bracket. It reuses `matchRole`, `bracketFromLabel`, `refRows` (and its cache),
+  `summarise()`, `rejectOutliers()` and the `n >= 10` floor. No statistic is re-implemented. Pure assembly (`addSteps`,
+  `progressionNotes`) is in the new `salary/progression.ts`.
+- **Per cell: crowdsourced role + city + bracket if n >= 10 after outlier rejection, else the survey role family + bracket
+  (India-wide) if n >= 10, else "not enough data" with the n and no number.** Each source is summarised by its own call and never
+  pooled. A step is computed only between adjacent cells that both have numbers from the same source.
+- **Additive API.** `GET /offers/:id/career-path` gains a top-level `progression` (always present on a 200). The narrative is
+  cached on its own under `career-path:v2:<id>` (the narrative only); the table is recomputed on every open and never cached, so it
+  stays fresh against `db:load-reference` and crowd growth. On a cache miss the progression runs concurrently with the AI call and
+  after `reserve()`, so a 429 spends no progression reads. The one non-additive point: `timeline[].salaryRange` is gone.
+- **The model no longer authors pay.** The prompt moved to a pure `buildCareerPathPrompt` (`providers/ai/career.prompt.ts`): no
+  `salaryRange` in the template, and an explicit rule forbidding any salary, CTC, rupee, LPA, lakh, crore or percentage-of-pay
+  figure. The service whitelists the response (`toNarrative`: `timeline[{year,title,focus}]`, `skillsToLearn`, `potentialRoles`),
+  which drops any unrequested key. That is shape hygiene; it does not inspect prose.
+  **Review fix (prose scan):** a deterministic `containsPayFigure(text)` (`career.prompt.ts`) now scans every narrative string
+  (milestone year/title/focus, `skillsToLearn`, `potentialRoles`). If any trips, the whole narrative is dropped exactly like an
+  unusable result (quota unit released, nothing cached, error shape returned) and the pay table is kept. The guarantee is now
+  prompt + key whitelist + scan. The scan looks for: a currency marker next to digits (`₹`, `Rs`, `INR`, rupee(s)); digits with a
+  pay unit (LPA, lakh(s), lac(s), crore(s), cr, `p.a.`, per annum); a percentage tied to a pay word (salary, pay, CTC,
+  compensation, hike, increment, raise); an Indian-grouped number (`12,00,000`); and, only when a pay word is also present, `Nk`
+  or a 5+ digit / comma-grouped number. Years, `Year 3`, `5 years`, `(L5)`, team sizes and a bare `30%` do not trip it.
+  **Limit:** it is a regex heuristic, not a parser or a proof. It deliberately favours an occasional miss over dropping good
+  narratives, so it will not catch figures written in words ("two lakh"), other currencies, or a number split across fields.
+- **Task 20's first half was already done** (checked in the code, not assumed): task 7 extracts `industry` / `companyType` and
+  `CareerService` passes them to the prompt (`extracted.industry || 'Unknown'`); nothing is hardcoded to `'Technology'`.
+  `career.prompt.test.ts` now pins that the prompt uses the extracted values.
+- **UI.** New `CareerProgression.tsx`, rendered first in the career drawer: a real `<table>` (column and row headers, a screen-reader
+  caption, "(your level)" as text), the survey note through the existing `BenchmarkNotice` (so the attribution links are real anchors),
+  the disclaimer "Modelled from public surveys, not offers in your city.", a "Based on" cell stating the scope as text ("39 survey
+  respondents, India-wide" or "12 crowdsourced submissions, <city>"), and a single spanning "Not enough data (6 survey respondents;
+  at least 10 needed)" cell for thin rows. Figures use the app's existing `en-IN` grouping (`₹23,40,000`); **there is no lakh/LPA
+  helper in the codebase to reuse and none was added**. The crowd note is its own `text-foreground` paragraph, because
+  `BenchmarkNotice`'s crowdsourced branch is `text-muted-foreground` (4.48:1, under the 4.5:1 floor); `BenchmarkNotice` is untouched.
+  If the AI fails the panel shows the table and the existing message together. The two existing lists and their behaviour are unchanged.
+- **Fallbacks, no made-up data.** `applicable:false` with a `reason`: `non_inr`, then `role_not_covered`, then `city_not_covered`
+  (a pinned order; each returns before any query), or `lookup_error` (logged as a fixed string, the error class and the Postgres code,
+  never `err.message`, which carries the bound role and city). No migration, table, column or dependency.
+
+##### Thin-cell behaviour with the real cell sizes (survey rows loaded by `db:load-reference`, 662 rows, national)
+| Role family | Fresher | Junior | Mid | Senior | Staff/Lead | Principal | Numeric rows |
+|---|---|---|---|---|---|---|---|
+| Backend Engineer | 0 | 37 | 39 | 33 | 43 | 32 | 5 |
+| Full Stack Engineer | 0 | 60 | 70 | 54 | 51 | 34 | 5 |
+| Frontend Engineer | 0 | 19 | 12 | 10 | 13 | 8 | 4 |
+| Mobile Engineer | 0 | 7 | 13 | 10 | 8 | 4 | 2 |
+| Data Scientist | 0 | 10 | 9 | 7 | 2 | 3 | 1 |
+| Engineering Manager | 0 | 0 | 0 | 2 | 6 | 14 | 1 |
+| Data Engineer | 0 | 6 | 5 | 2 | 7 | 5 | 0 |
+| DevOps Engineer | 0 | 3 | 8 | 5 | 5 | 6 | 0 |
+
+**Fresher is "Not enough data (0 survey respondents)" for every role**: no kept survey row has 0 years. This is the existing Fresher
+open item showing up in a new place; the table says so instead of hiding the row. Data Engineer and DevOps show the "not enough
+data" table with no number at all and a sentence saying so. A generic title (`SDE-2`) pools the four developer families per cell,
+with the same wording as the offer benchmark. Crowd cells are close to dormant (a role + city + bracket cell needs 10 approved rows).
+
+##### Honesty properties and how each was verified
+| Property | Verified by |
+|---|---|
+| No number below n = 10 (after outlier rejection); the n is shown | Unit: n = 10 gives a number, n = 9 does not, and a 9 + poison set cannot pass on its raw count. **Live:** a Data Engineer offer in Bengaluru returned six `null` cells with n = 0, 6, 5, 2, 7, 5, and the browser table showed no `₹` anywhere |
+| No interpolation across gaps | Unit: a thin cell between two numeric cells leaves both without a step. The API returns `marketRange: null`, never an estimate |
+| Never pooled | Unit: a crowd median is computed from crowd rows only; no step between a survey and a crowd cell; the survey is not even queried for a cell the crowd wins. **Mock-only:** no live cell reaches n = 10 crowd rows |
+| Figures are right | **Live:** Backend Engineer in Bengaluru, API versus an independent computation over `salary_reference_rows` (rows pulled by SQL, midpoint-quantile written separately): n = 37/39/33/43/32 match exactly and p25/p50/p75 match to the rupee. `percentile_cont` in SQL agrees on every median and n but differs on p25/p75 by up to 5% (Senior p75 4,800,000 vs 5,050,000), because `summarise()` uses the existing midpoint-position quantile, not linear interpolation. That convention is the existing one and was not changed |
+| The AI states no pay figure | Prompt pinned by `career.prompt.test.ts` (forbid wording, no `salaryRange`, injected newlines collapsed). **Live sample:** 12 real Gemini narratives over 4 roles (Backend Engineer, Data Scientist, Registered Nurse, Product Manager), every string scanned for a currency symbol, LPA, lakh, crore, CTC, percent, `Nk`, "salary" or "pay": **0 matches**; four strings with digits were standards names (OAuth2, HL7, 510(k)). A clean sample is evidence, not a guarantee. **Review fix:** `containsPayFigure` now also scans the prose and drops a narrative that trips it (unit tests: 20 strings that must trip, 17 that must not, and service tests for title, focus, skill and role fields). A heuristic, not a proof |
+| The progression renders when the AI fails | Unit (soft error, malformed output, provider throw). **Live:** API restarted with an invalid Gemini key: HTTP 200 with `error` set, an empty timeline and the full `progression`; the browser showed the table and "We couldn't generate a career path"; the unit was given back (the user's `career` counter stayed at 1 after one success and two failures) and nothing was cached |
+| Unmapped roles get the honest fallback | **Live:** a Product Manager offer returned `applicable:false, reason: role_not_covered` and the drawer showed the sentence with no table and no `₹`; a Jaipur Backend Engineer offer returned `city_not_covered` |
+| Experience axis = lookup tier-2 brackets | `getProgression` iterates `EXPERIENCE`; unit pins `yearsRange` (Fresher 0-0, Junior 1-2, Principal open-ended) |
+| Attribution and disclaimer | **Live (Chromium):** the three links are real anchors (`SO_SURVEY_URL`, `ODBL_URL`, `DATASET_URL`, `rel="noopener noreferrer"`), the disclaimer is on screen, and Tab reaches the scroll region and the survey links |
+
+##### Regression and verification record (everything below was run, not read)
+- Backend: `npx tsc --noEmit` clean; `npx eslint src` clean; `npm test` → **751 passed, 3 skipped** (baseline 710 + 41 new).
+- Frontend: `tsc --noEmit -p tsconfig.app.json` clean; `npm run lint` 0 errors (17 warnings, the same count as before, none in the new files);
+  `npx vitest run` → 8 files, **103 passed** (89 + 14 new); `npm run build` succeeds.
+- **Bundle (vite gzip, clean `git archive HEAD` build versus this tree):** `ResultsPage` **17.34 → 18.35 kB (+1.01 kB**, under the +1.5 kB
+  budget); the shared form chunk and the entry chunk are unchanged. (The design quoted 16.48 kB, the pre-5.4 figure; 17.34 is the HEAD figure.)
+- `node test-security.mjs` **20 passed, 0 failed**; `node test-m3.mjs` **19 passed, 0 failed** (its career-path section passes);
+  `node test-m2.mjs` **32 passed, 0 failed**; `cd frontend && npx playwright test` → **1 passed (1.6 min)** against the production build on :8080.
+- **The login limiter bit my own check script, once.** The live UI script logged in on every run and passed the 10 logins per 15 minutes
+  (`authLogin`). Diagnosed from the Redis key (`fastify-rate-limit-POST/api/v1/auth/login-ip:127.0.0.1`, ttl about 12 minutes); I waited for
+  the window and changed no limit. The regression scripts never hit a limiter.
+- **After the review fixes (prose scan, step signs, trailing newlines):** backend `tsc` and `eslint src` clean, `npm test` **793 passed,
+  3 skipped** (751 + 42 new; one run showed a single failure in a PDF-upload test that passed on the immediate re-run, not in files
+  touched here); frontend `tsc -p tsconfig.app.json` clean, `npm run lint` 0 errors (same 17 warnings), `npx vitest run` **108 passed**
+  (103 + 5), `npm run build` succeeds (ResultsPage 18.38 kB gzip). Live: API + workers + Gemini + Postgres/Redis up, an uploaded
+  Backend Engineer offer returned a normal 3-milestone narrative (not dropped) with `progression` (6 cells, 5 numeric) on both the miss
+  and the cache hit, and `test-m3.mjs` 19 passed.
+- Phase 0 eval harness: **not run**, because extraction and scoring were not touched (the career prompt is not part of the eval).
+- Gemini and Google credentials were present; no live check was blocked.
+
+##### Not verified / only reasoned
+- **A live crowdsourced cell.** No role + city + bracket has 10 approved rows, so the crowd path (crowd beats survey, the crowd note,
+  the "12 crowdsourced submissions, <city>" scope text) is covered by mocked unit tests and jsdom only.
+- **Latency targets.** I took single samples, not p50/p95: a narrative-cache-hit request (which includes the progression) took 32 to 43 ms
+  warm; a cold request is dominated by the model (2.5 s to 46 s). The "p95 under 100 ms / 300 ms" targets were not measured.
+- **Contrast.** Computed colours in Chromium (light theme): table, row-header and survey-note text are `rgb(15,23,41)` on `rgb(248,250,252)`,
+  far above 4.5:1. The dark theme and the crowd note were **not** measured live; the crowd note's `text-foreground` class is asserted in jsdom.
+- **Lighthouse** on the open drawer (it starts a clean profile), **assistive technology** (no screen reader; the table semantics are
+  asserted from the DOM), Chromium only, and **a hosted deployment**.
+- **That the model obeys the prompt: fixed to a degree.** A pinned prompt only proves the instruction exists, and the 12-narrative
+  sample is clean evidence, not a guarantee. The prose scan (`containsPayFigure`) now drops a narrative that carries a pay figure
+  and keeps the table. It is a regex heuristic: a figure written in words, another currency, or one split across fields can still
+  get through, and a live Gemini narrative that trips it was not provoked (only mocked outputs exercise the drop path).
+- **Mismatched step signs: fixed.** `CareerProgression.stepText` derives both signs from the absolute change; a step that rounds to
+  0% prints unsigned (`−₹1,000 (0%)`), and a zero step prints "No change". The numeric `step` fields are untouched.
+- **Observation, not investigated:** on the Product Manager test letters the extracted `industry` came out as something the letter does not
+  state (apparel in one run, healthcare in another), so those narratives were about that industry. That is the extraction stage, not 5.5.
+
+##### Open items (owner decisions; none were touched)
+1. **Fresher** is scored against all experience levels and now also shows "Not enough data (n = 0)" in the table (Phase A open item 1).
+2. **`pay_basis`** (offered versus current pay, mixed and unlabelled in crowd rows).
+3. **The login limiter's cookie-minting gap.**
+4. **Phase B (PLFS city factors)** stays open.
+5. Not done: company-specific career ladders and market-trend skills (no data behind them), and an un-gated progression endpoint
+   (at the daily career cap the 429 hides the table too).
+
+##### Docs changed
+`docs/api-spec.md` (new `GET /offers/:id/career-path` section), `docs/API_DOCUMENTATION.md` (career row), `docs/LOCAL_DEVELOPMENT.md`
+(the pay table is recomputed on every open, not cached), and this plan (the Career Path row, the Phase 5 and What Happens Next tables,
+stale "5.5 open" wording).
+
+---
 ### Phase 6: Revenue & Compliance
 
 | # | Task | Impact | Blocked on |

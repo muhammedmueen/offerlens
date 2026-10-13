@@ -155,8 +155,9 @@ The change takes effect on the next request. Nothing caches the plan.
 - **Only finished analyses count.** A slot is reserved when the upload is queued, and given back if
   the analysis ends FAILED. An offer stuck in QUEUED/PROCESSING is reaped and refunded within about
   6 minutes.
-- **Career paths are cached per offer**, so reopening the drawer is free. Correcting the extracted
-  data clears the cache, and the next open costs one.
+- **Career paths are cached per offer** (the narrative only), so reopening the drawer is free. Correcting the extracted
+  data clears the cache, and the next open costs one. The pay-by-experience table is not cached: it is recomputed
+  from the database on every open (a few indexed queries, no AI call).
 - **`POST /offers/extract-file` (Cloud Vision) is NOT on the daily autofill cap.** It only has its
   hourly route limit (10/hour). A script can call it without ever calling `/extract`, so it should
   probably share the autofill cap; that is an open owner decision.

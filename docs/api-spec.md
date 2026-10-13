@@ -385,6 +385,38 @@ Download PDF report of the analysis.
 
 ---
 
+#### `GET /api/v1/offers/:id/career-path`
+Career narrative plus a pay-by-experience table for the offer's role family. Registered users only (`careerPath` gate).
+**Rate limit**: global 100/min; counts against the daily `career` cap on a narrative cache miss (a hit is free, a failed generation is given back)
+**Path params**: `id` - offer UUID
+**Response** `200` (`data`):
+```json
+{
+  "timeline": [{ "year": 1, "title": "...", "focus": "..." }],
+  "skillsToLearn": ["..."],
+  "potentialRoles": ["..."],
+  "error": "only present when the AI failed; timeline and lists are then empty",
+  "progression": {
+    "applicable": true,
+    "roleUsed": "Backend Engineer",
+    "cityUsed": "Bangalore",
+    "referenceFamilies": ["Backend Engineer"],
+    "currentBracket": "Mid-Level (3-5 yrs)",
+    "cells": [
+      { "bracket": "Fresher (0-1 yrs)", "yearsRange": { "min": 0, "max": 0 }, "sampleSize": 0, "crowdN": 0, "source": null, "marketRange": null, "step": null },
+      { "bracket": "Junior (1-3 yrs)", "yearsRange": { "min": 1, "max": 2 }, "sampleSize": 37, "crowdN": 0, "source": "public_survey", "marketRange": { "p25": 400000, "p50": 700000, "p75": 1200000 }, "step": null },
+      { "bracket": "Mid-Level (3-5 yrs)", "yearsRange": { "min": 3, "max": 4 }, "sampleSize": 39, "crowdN": 0, "source": "public_survey", "marketRange": { "p25": 805000, "p50": 1300000, "p75": 2175000 }, "step": { "absolute": 600000, "percent": 86 } }
+    ],
+    "notes": [{ "source": "public_survey", "disclaimer": "Modelled from public surveys, not offers in your city. ..." }]
+  }
+}
+```
+`progression` is always present on a 200 and is computed on every request (never cached). It is `{ "applicable": false, "reason": ... }` with no figures when `reason` is `role_not_covered` (outside the eight surveyed software role families), `non_inr`, `city_not_covered` (not one of the six metros) or `lookup_error`.
+Each cell is one experience bracket (the same half-open brackets the offer benchmark uses). `source` is `crowdsourced` (role + city, n >= 10 after outlier rejection), else `public_survey` (role family, India-wide, n >= 10), else `null` with `marketRange: null` (no number is ever filled in). For a `null` cell `sampleSize` is the survey row count and `crowdN` the crowdsourced count. Sources are never pooled. `step` is the change in median from the previous bracket, set only when both cells have numbers from the same source. Amounts are annual INR. Cross-sectional: each row is different people.
+**Changed in 5.5**: `timeline[].salaryRange` is no longer returned (the model no longer authors pay figures). `progression` is new and additive. If the model's prose carries a pay figure (a heuristic scan, not a proof), the narrative is dropped like any unusable result: `error` is set, the lists are empty, `progression` is still returned, and nothing is cached.
+**Errors**: `NOT_FOUND` (404), `OFFER_NOT_READY` (400), `INVALID_INPUT` (400, no role identified), `FEATURE_NOT_IN_PLAN` (403), `QUOTA_EXCEEDED` (429)
+---
+
 ### Metadata
 
 #### `GET /api/v1/metadata/roles`
