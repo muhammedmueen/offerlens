@@ -732,7 +732,7 @@ than a theme list plus a separate priority list.
 | Phase | Scope | Gate |
 |---|---|---|
 | **4 — Launch Blockers** | Usage ledger, plan limits, three untrue privacy promises, one smoke spec | 4.1–4.8 ✅ done. Phase 4 is complete |
-| **5 — Salary Data** | Seed benchmarks, then fuzzy matching, outlier rejection, contribution prompt | 5.1 Phase A ✅, 5.2 ✅, 5.3 ✅, 5.4 ✅, 5.5 ✅, 5.6 ✅, 5.7 ✅, 5.8 ✅, 5.9 ✅ (see "Phase 5 Phase A outcome", "Phase 5 task 5.4 outcome", "Phase 5 task 5.5 outcome" and "Phase 5 closing round outcome"). 5.1b ✅ (PLFS city factors, see "Phase 5 task 5.1b outcome"). D1 (README rider) decided: it fits. Owner action still open: send the MoSPI e-mail |
+| **5 — Salary Data** | Seed benchmarks, then fuzzy matching, outlier rejection, contribution prompt | 5.1 Phase A ✅, 5.2 ✅, 5.3 ✅, 5.4 ✅, 5.5 ✅, 5.6 ✅, 5.7 ✅, 5.8 ✅, 5.9 ✅ (see "Phase 5 Phase A outcome", "Phase 5 task 5.4 outcome", "Phase 5 task 5.5 outcome" and "Phase 5 closing round outcome"). 5.1b ✅ (PLFS city factors, see "Phase 5 task 5.1b outcome"). D1 (README rider) decided: it fits. MoSPI e-mail: not needed while nothing is published (repo is private); send before the factors are loaded into any deployed instance others can use |
 | **6 — Revenue & Compliance** | ~~Payments~~ (parked), retention policy, correction loop, scanned-PDF OCR | 6.1 parked (non-commercial); 6.4 needs Cloud Vision billing |
 | **7 — Operations** | Admin auth hardening, superadmin, dashboards | One of the Phase 7 triggers firing |
 
@@ -801,7 +801,7 @@ forward references to numbers that were going to move.
 | **2** | Rule engine, tax calculator, rubric, confidence, cache | ✅ Done, 6 tasks |
 | **3** | Pipeline refactor, reliability, comparison, OCR | ✅ **Closed.** Rounds 1-5 shipped 7 tasks plus half of 21c; 3 items dropped and the rest promoted into Phases 4-6 |
 | **4** | **Launch blockers** — usage ledger, plan limits, privacy promises, smoke spec | ✅ Done, 8 tasks (4.1–4.8). The results-page Compare finding was fixed in the follow-up |
-| **5** | Salary data — seeding, matching, integrity | 🟡 Phase A built: 5.1 Phase A, 5.2 to 5.9 and 5.1b (PLFS city factors) done. D1 decided (fits); owner action open: MoSPI e-mail |
+| **5** | Salary data — seeding, matching, integrity | 🟡 Phase A built: 5.1 Phase A, 5.2 to 5.9 and 5.1b (PLFS city factors) done. D1 decided (fits); MoSPI e-mail due before any shared deployment loads the factors (repo is private) |
 | **6** | Revenue & compliance — ~~payments~~, retention, corrections, scanned PDFs | ⬜ 6.1 parked (non-commercial); rest not urgent while there are no users |
 | **7** | Operations — admin auth, superadmin, dashboards | ⏸ Deliberately deferred until a trigger fires |
 
@@ -4024,7 +4024,7 @@ site) and the frontend strings. 5. The aggregate CSV stays in git history; wheth
 
 ##### Owner actions still open
 
-D1 (README rider) is **decided: it fits** (owner, 2026-10-11, own reading, see the licence table). Still open: the MoSPI e-mail (the agreement asks for a copy of any publication), re-reading the intended-use text against the method, and (optional) written confirmation on publishing aggregates. Nothing in the code waits on them; a "no" from MoSPI would mean removing the factors.
+D1 (README rider) is **decided: it fits** (owner, 2026-10-11, own reading, see the licence table). **Owner position, 2026-10-11:** the repository is private and will stay private, so the repo does not count as a publication and the MoSPI e-mail is not treated as required for it. The agreement's "send a copy of any publication" duty is triggered when the factors reach other people, that is when a deployed instance that others can use shows adjusted benchmarks or PDF reports (the PLFS citation is displayed there). Send the e-mail before that happens; it is also the cheapest route to the written answer on D1. Still open: re-reading the intended-use text against the method, and (optional) written confirmation on publishing aggregates. Nothing in the code waits on them; a "no" from MoSPI would mean removing the factors.
 
 ##### Docs changed
 
