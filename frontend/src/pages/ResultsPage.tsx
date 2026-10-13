@@ -222,6 +222,7 @@ const ResultsPage = () => {
               disclaimer={a.salaryComparison?.disclaimer}
               payBasis={a.salaryComparison?.payBasis}
               payMix={a.salaryComparison?.payMix}
+              cityAdjustment={a.salaryComparison?.cityAdjustment}
             />
           </section>
         )}

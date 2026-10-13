@@ -3,7 +3,7 @@ import { render, screen, cleanup, waitFor, within } from "@testing-library/react
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import CareerProgression, { type Progression } from "./CareerProgression";
 import CareerPathPanel from "./CareerPathPanel";
-import { ODBL_URL, SO_SURVEY_URL } from "@/constants/attribution";
+import { ODBL_URL, PLFS_CITATION_TEXT, PLFS_URL, SO_SURVEY_URL } from "@/constants/attribution";
 
 vi.mock("@/services/api", () => ({ default: { get: vi.fn() } }));
 import api from "@/services/api";
@@ -112,6 +112,19 @@ describe("CareerProgression", () => {
     const hrefs = Array.from(container.querySelectorAll("a")).map((a) => a.getAttribute("href"));
     expect(hrefs).toContain(SO_SURVEY_URL);
     expect(hrefs).toContain(ODBL_URL);
+  });
+
+  it("5.1b: scaled survey cells say so, crowd cells do not, and the PLFS citation is a real link", () => {
+    const crowdCell = cell("Senior (5-8 yrs)", [3_000_000, 3_500_000, 4_000_000], { source: "crowdsourced", sampleSize: 12, crowdN: 12 });
+    const { container } = render(<CareerProgression progression={{
+      ...base,
+      cells: [cell("Mid-Level (3-5 yrs)", [2_000_000, 2_340_000, 3_000_000]), crowdCell],
+      cityAdjustment: { cityLabel: "Bangalore", factor: 1.04, plfsSampleSize: 112 },
+    }} />);
+    expect(screen.getByText("39 survey respondents, India-wide, scaled to Bangalore")).toBeTruthy();
+    expect(screen.getByText("12 crowdsourced submissions, Bangalore")).toBeTruthy();
+    expect(container.textContent).toContain(PLFS_CITATION_TEXT);
+    expect(Array.from(container.querySelectorAll("a")).map((a) => a.getAttribute("href"))).toContain(PLFS_URL);
   });
 
   it("with no numeric row says so and still renders the table with its ns", () => {

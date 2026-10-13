@@ -1,5 +1,5 @@
 import { Globe } from "lucide-react";
-import { DATASET_URL, ODBL_URL, SO_SURVEY_URL } from "@/constants/attribution";
+import { DATASET_URL, ODBL_URL, PLFS_DATASET_URL, PLFS_URL, SO_SURVEY_URL } from "@/constants/attribution";
 
 interface BenchmarkNoticeProps {
   /** Unknown or missing values render as AI-estimated, matching the backend. */
@@ -10,7 +10,12 @@ interface BenchmarkNoticeProps {
   /** Crowdsourced only (5.7): which kind of pay served the number; 'mixed' = pooled across kinds. */
   payBasis?: "offered" | "current" | "mixed" | null;
   payMix?: PayMix | null;
+  /** Survey only (5.1b): set when the national figures were scaled by a PLFS city factor. */
+  cityAdjustment?: CityAdjustment | null;
 }
+
+/** Mirrors the backend `CityAdjustment` (city-adjustment.ts); only the fields shown here. */
+export interface CityAdjustment { cityLabel: string; factor: number; plfsSampleSize: number }
 
 export interface PayMix { offered: number; current: number; unlabelled: number }
 
@@ -43,16 +48,22 @@ function ExternalLink({ href, children }: { href: string; children: React.ReactN
  * submissions: the public_survey branch has its own wording, a visible text label (not just
  * an icon or colour) and the ODbL attribution with real links.
  */
-const BenchmarkNotice = ({ dataSource, sampleSize, disclaimer, payBasis, payMix }: BenchmarkNoticeProps) => {
+const BenchmarkNotice = ({ dataSource, sampleSize, disclaimer, payBasis, payMix, cityAdjustment }: BenchmarkNoticeProps) => {
   if (dataSource === "public_survey") {
     return (
       <aside aria-label="Salary benchmark source" className="mt-2 space-y-1 text-sm text-foreground">
         <p className="flex items-center gap-1.5 font-medium">
           <Globe className="h-4 w-4" aria-hidden="true" />
-          Public survey, India-wide
+          {cityAdjustment ? `Public survey, adjusted for ${cityAdjustment.cityLabel}` : "Public survey, India-wide"}
         </p>
         {disclaimer && <p>{disclaimer}</p>}
         {typeof sampleSize === "number" && <p>n = {sampleSize} respondents</p>}
+        {cityAdjustment && (
+          <p>
+            City factor x{cityAdjustment.factor.toFixed(2)} from PLFS 2023-24 (n = {cityAdjustment.plfsSampleSize}). An
+            estimate for {cityAdjustment.cityLabel}, not offers there.
+          </p>
+        )}
         <p>
           Contains information from the{" "}
           <ExternalLink href={SO_SURVEY_URL}>Stack Overflow Developer Survey 2025</ExternalLink> (Stack Exchange Inc.),
@@ -60,6 +71,13 @@ const BenchmarkNotice = ({ dataSource, sampleSize, disclaimer, payBasis, payMix 
           <ExternalLink href={ODBL_URL}>Open Database License (ODbL)</ExternalLink>.{" "}
           <ExternalLink href={DATASET_URL}>Download the derived dataset</ExternalLink>.
         </p>
+        {cityAdjustment && (
+          <p>
+            City adjustment derived from the{" "}
+            <ExternalLink href={PLFS_URL}>Periodic Labour Force Survey 2023-24</ExternalLink>, National Statistics
+            Office, MoSPI. <ExternalLink href={PLFS_DATASET_URL}>Download the city factors</ExternalLink>.
+          </p>
+        )}
       </aside>
     );
   }

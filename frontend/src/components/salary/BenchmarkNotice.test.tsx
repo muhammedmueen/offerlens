@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import BenchmarkNotice from "./BenchmarkNotice";
-import { ODBL_URL, SO_SURVEY_URL } from "@/constants/attribution";
+import { ODBL_URL, PLFS_CITATION_TEXT, PLFS_DATASET_URL, PLFS_URL, SO_SURVEY_URL } from "@/constants/attribution";
 
 afterEach(cleanup);
 
@@ -23,6 +23,30 @@ describe("BenchmarkNotice", () => {
     expect(container.querySelectorAll("a[rel='noopener noreferrer'][target='_blank']").length).toBe(3);
     // Modelled numbers are never described as submissions.
     expect(container.textContent).not.toMatch(/verified|crowdsourced|submission/i);
+  });
+
+  it("5.1b: city-adjusted survey shows the label, factor, PLFS n, both citations as real links, and never says verified", () => {
+    const { container } = render(
+      <BenchmarkNotice
+        dataSource="public_survey"
+        sampleSize={39}
+        disclaimer="Modelled from public surveys, not offers in your city. This is an estimate."
+        cityAdjustment={{ cityLabel: "Mumbai", factor: 0.79, plfsSampleSize: 31 }}
+      />,
+    );
+    expect(screen.getByText("Public survey, adjusted for Mumbai")).toBeTruthy();
+    expect(screen.getByText(/City factor x0\.79 from PLFS 2023-24 \(n = 31\)/)).toBeTruthy();
+    expect(container.textContent).toContain(PLFS_CITATION_TEXT);
+    const links = Array.from(container.querySelectorAll("a"));
+    const hrefs = links.map((a) => a.getAttribute("href"));
+    for (const h of [SO_SURVEY_URL, ODBL_URL, PLFS_URL, PLFS_DATASET_URL]) expect(hrefs).toContain(h);
+    expect(links.every((a) => a.getAttribute("rel") === "noopener noreferrer")).toBe(true);
+    expect(container.textContent).not.toMatch(/verified|crowdsourced|submission/i);
+  });
+
+  it("5.1b: without cityAdjustment there is no PLFS text or link", () => {
+    const { container } = render(<BenchmarkNotice dataSource="public_survey" sampleSize={39} disclaimer="x" />);
+    expect(container.textContent).not.toMatch(/PLFS|Labour Force/);
   });
 
   it("keeps crowdsourced and AI-estimated wording, without attribution", () => {

@@ -58,10 +58,13 @@ const SalaryExplorerPage = () => {
               disclaimer={data.disclaimer}
               payBasis={data.payBasis}
               payMix={data.payMix}
+              cityAdjustment={data.cityAdjustment}
             />
             {data.dataSource === "public_survey" && (
               <p className="text-sm text-foreground">
-                Fewer than 10 city-level submissions so far. This is an India-wide benchmark across all cities and experience levels.
+                {data.cityAdjustment
+                  ? `Fewer than 10 city-level submissions so far. This is a national benchmark across all experience levels, adjusted for ${data.cityAdjustment.cityLabel} by a PLFS-based factor.`
+                  : "Fewer than 10 city-level submissions so far. This is an India-wide benchmark across all cities and experience levels."}
               </p>
             )}
           </div>

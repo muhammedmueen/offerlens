@@ -1,4 +1,4 @@
-import BenchmarkNotice from "@/components/salary/BenchmarkNotice";
+import BenchmarkNotice, { type CityAdjustment } from "@/components/salary/BenchmarkNotice";
 
 /** The career response's `progression` key (5.5). Every field is optional: an older response has none. */
 interface Cell {
@@ -18,6 +18,8 @@ export interface Progression {
   currentBracket?: string | null;
   cells?: Cell[];
   notes?: Array<{ source: "public_survey" | "crowdsourced"; disclaimer: string }>;
+  /** 5.1b: survey cells are national figures scaled by this PLFS city factor. Crowd cells never are. */
+  cityAdjustment?: CityAdjustment | null;
 }
 
 // Phrased to avoid "unavailable" / "failed to load": the smoke spec treats those as a broken drawer.
@@ -41,10 +43,10 @@ function stepText(s: NonNullable<Cell["step"]>): string {
   return `${sign}${inr(Math.abs(s.absolute))} (${pct}${Math.abs(s.percent)}%)`;
 }
 
-function basedOn(c: Cell, cityUsed?: string): string {
+function basedOn(c: Cell, cityUsed?: string, adj?: CityAdjustment | null): string {
   return c.source === "crowdsourced"
     ? `${plural(c.sampleSize, "crowdsourced submission", "crowdsourced submissions")}, ${cityUsed ?? "this city"}`
-    : `${plural(c.sampleSize, "survey respondent", "survey respondents")}, India-wide`;
+    : `${plural(c.sampleSize, "survey respondent", "survey respondents")}, India-wide${adj ? `, scaled to ${adj.cityLabel}` : ""}`;
 }
 
 function thinText(c: Cell): string {
@@ -117,7 +119,7 @@ const CareerProgression = ({ progression }: { progression?: Progression | null }
                     <td className="p-2">{inr(c.marketRange.p50)}</td>
                     <td className="p-2">{inr(c.marketRange.p25)} to {inr(c.marketRange.p75)}</td>
                     <td className="whitespace-nowrap p-2">{c.step ? stepText(c.step) : "No comparison"}</td>
-                    <td className="p-2">{basedOn(c, progression.cityUsed)}</td>
+                    <td className="p-2">{basedOn(c, progression.cityUsed, progression.cityAdjustment)}</td>
                   </>
                 ) : (
                   <td colSpan={4} className="p-2">{thinText(c)}</td>
@@ -127,7 +129,9 @@ const CareerProgression = ({ progression }: { progression?: Progression | null }
           </tbody>
         </table>
       </div>
-      {survey && <BenchmarkNotice dataSource="public_survey" disclaimer={survey.disclaimer} />}
+      {survey && (
+        <BenchmarkNotice dataSource="public_survey" disclaimer={survey.disclaimer} cityAdjustment={progression.cityAdjustment} />
+      )}
       {/* Not BenchmarkNotice: its crowdsourced branch is text-muted-foreground, under the 4.5:1 contrast floor. */}
       {crowd && <p className="mt-2 text-sm text-foreground">{crowd.disclaimer}</p>}
     </section>
