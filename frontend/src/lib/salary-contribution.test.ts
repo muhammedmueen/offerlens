@@ -110,15 +110,28 @@ describe("containsCompanyName", () => {
 });
 
 describe("buildContributionBody and validateContribution", () => {
-  const good: ContributionValues = { role: "Backend Engineer", city: "Pune", years: "4", ctc: "2400000", companyType: "product", companySize: "201-1000" };
+  const good: ContributionValues = { role: "Backend Engineer", city: "Pune", years: "4", ctc: "2400000", companyType: "product", companySize: "201-1000", payBasis: "current" };
   const ok = { role: "ok", city: "ok" } as const;
   const none = { role: false, city: false };
 
-  it("builds exactly the six allowlisted keys, and drops a blank size", () => {
+  it("builds exactly the seven allowlisted keys, and drops a blank size", () => {
     expect(Object.keys(buildContributionBody(good)!).sort()).toEqual(
-      ["city", "companySize", "companyType", "ctc", "experienceYears", "role"],
+      ["city", "companySize", "companyType", "ctc", "experienceYears", "payBasis", "role"],
     );
     expect(buildContributionBody({ ...good, companySize: "" })).not.toHaveProperty("companySize");
+  });
+
+  it("sends payBasis for current/offered, omits the key for 'Not sure', and rejects an unanswered one", () => {
+    expect(buildContributionBody({ ...good, payBasis: "current" })!.payBasis).toBe("current");
+    expect(buildContributionBody({ ...good, payBasis: "offered" })!.payBasis).toBe("offered");
+    expect(buildContributionBody({ ...good, payBasis: "unsure" })).not.toHaveProperty("payBasis");
+    expect(buildContributionBody({ ...good, payBasis: "" })).toBeNull();
+    expect(validateContribution({ ...good, payBasis: "" }, ok, none)[0])
+      .toMatchObject({ field: "payBasis", message: "Choose current pay, offered pay or not sure" });
+  });
+
+  it("prefills 'offered' for the results-page card", () => {
+    expect(buildPrefill(analysis()).payBasis).toBe("offered");
   });
 
   it.each(["", " ", "abc", "61", "-1", "2.5"])("returns null for years %j", (years) => {

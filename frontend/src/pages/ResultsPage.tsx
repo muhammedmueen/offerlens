@@ -209,6 +209,7 @@ const ResultsPage = () => {
               p75={market.p75}
               p90={market.p90}
               userSalary={extracted.compensation?.totalCTC ?? undefined}
+              hideOffer={!!a.salaryComparison?.percentileWithheld}
               label={
                 a.salaryComparison?.offerPercentile
                   ? `Your offer is at the ${a.salaryComparison.offerPercentile}th percentile`
@@ -219,6 +220,8 @@ const ResultsPage = () => {
               dataSource={a.salaryComparison?.dataSource}
               sampleSize={a.salaryComparison?.sampleSize}
               disclaimer={a.salaryComparison?.disclaimer}
+              payBasis={a.salaryComparison?.payBasis}
+              payMix={a.salaryComparison?.payMix}
             />
           </section>
         )}

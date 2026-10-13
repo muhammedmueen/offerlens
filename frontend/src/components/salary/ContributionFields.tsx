@@ -10,13 +10,21 @@ interface Props {
   guards: Guards;
   confirmed: Confirmed;
   ctcHint?: string;
+  /** Ask whether the CTC is current or offered pay. Off in the results-page card, which knows it is offered. */
+  showPayBasis?: boolean;
   onChange: (key: keyof ContributionValues, value: string) => void;
   onConfirm: (key: "role" | "city", checked: boolean) => void;
   onBlurGuard: (key: "role" | "city") => void;
 }
 
 /** The inputs only: labels, hints, per-field errors and the "general term" confirmations. */
-const ContributionFields = ({ idPrefix, values, errors, guards, confirmed, ctcHint, onChange, onConfirm, onBlurGuard }: Props) => {
+const PAY_BASIS_OPTIONS = [
+  { value: "current", label: "Current pay" },
+  { value: "offered", label: "Offered pay" },
+  { value: "unsure", label: "Not sure" },
+] as const;
+
+const ContributionFields = ({ idPrefix, values, errors, guards, confirmed, ctcHint, showPayBasis, onChange, onConfirm, onBlurGuard }: Props) => {
   const id = (k: string) => `${idPrefix}-${k}`;
   const describedBy = (k: FieldKey, hint?: boolean) =>
     [hint ? `${id(k)}-hint` : null, errors[k] ? `${id(k)}-error` : null].filter(Boolean).join(" ") || undefined;
@@ -71,7 +79,7 @@ const ContributionFields = ({ idPrefix, values, errors, guards, confirmed, ctcHi
         {err("years")}
       </div>
       <div className="space-y-2">
-        <Label htmlFor={id("ctc")}>Yearly CTC in the offer (₹)</Label>
+        <Label htmlFor={id("ctc")}>{showPayBasis ? "Yearly CTC (₹)" : "Yearly CTC in the offer (₹)"}</Label>
         <Input
           id={id("ctc")} value={values.ctc} inputMode="numeric" autoComplete="off"
           onChange={(e) => onChange("ctc", e.target.value)}
@@ -80,6 +88,28 @@ const ContributionFields = ({ idPrefix, values, errors, guards, confirmed, ctcHi
         {ctcHint && <p id={id("ctc-hint")} className="text-xs text-foreground">{ctcHint}</p>}
         {err("ctc")}
       </div>
+      {showPayBasis && (
+        // Native radios: real labelled inputs, arrow keys move within the group, nothing preselected.
+        // role="radiogroup" because aria-invalid is not supported on the implicit "group" role of a fieldset.
+        <fieldset className="space-y-2" role="radiogroup" aria-invalid={!!errors.payBasis} aria-describedby={describedBy("payBasis")}>
+          <legend className="text-sm font-medium leading-none text-foreground">What kind of pay is this?</legend>
+          {PAY_BASIS_OPTIONS.map((o, i) => (
+            <label key={o.value} className="flex items-center gap-2 text-sm text-foreground">
+              <input
+                id={i === 0 ? id("payBasis") : undefined}
+                type="radio"
+                name={id("payBasis")}
+                value={o.value}
+                checked={values.payBasis === o.value}
+                onChange={() => onChange("payBasis", o.value)}
+                className="h-4 w-4 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              />
+              {o.label}
+            </label>
+          ))}
+          {err("payBasis")}
+        </fieldset>
+      )}
       <div className="space-y-2">
         <Label htmlFor={id("companyType")}>Company type</Label>
         <Select value={values.companyType} onValueChange={(v) => onChange("companyType", v)}>

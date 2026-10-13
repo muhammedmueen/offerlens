@@ -18,6 +18,8 @@ interface Props {
   /** Only used by the client-side guard. Never sent. */
   companyName?: string | null;
   ctcHint?: string;
+  /** Ask current vs offered pay. The results-page card leaves it off and prefills 'offered'. */
+  showPayBasis?: boolean;
   /** Set by the results-page card so a successful send hides that offer's prompt for good. */
   offerId?: string;
   cancelLabel: string;
@@ -28,13 +30,13 @@ interface Props {
   onCancel: () => void;
 }
 
-const EMPTY: ContributionValues = { role: "", city: "", years: "", ctc: "", companyType: "", companySize: "" };
-const ORDER: FieldKey[] = ["role", "city", "years", "ctc", "companyType"];
+const EMPTY: ContributionValues = { role: "", city: "", years: "", ctc: "", companyType: "", companySize: "", payBasis: "" };
+const ORDER: FieldKey[] = ["role", "city", "years", "ctc", "payBasis", "companyType"];
 const OK_GUARDS: Guards = { role: "ok", city: "ok" };
 const NOT_CONFIRMED: Confirmed = { role: false, city: false };
 
 const SalaryContributeForm = ({
-  idPrefix, initial, companyName, ctcHint, offerId, cancelLabel, focusFirstEmpty, announce, onSent, onCancel,
+  idPrefix, initial, companyName, ctcHint, showPayBasis, offerId, cancelLabel, focusFirstEmpty, announce, onSent, onCancel,
 }: Props) => {
   const queryClient = useQueryClient();
   const [values, setValues] = useState<ContributionValues>({ ...EMPTY, ...initial });
@@ -119,12 +121,13 @@ const SalaryContributeForm = ({
     <form onSubmit={onSubmit} noValidate className="space-y-4">
       <ContributionFields
         idPrefix={idPrefix} values={values} errors={errors} guards={guards} confirmed={confirmed}
-        ctcHint={ctcHint} onChange={change} onBlurGuard={blurGuard}
+        ctcHint={ctcHint} showPayBasis={showPayBasis} onChange={change} onBlurGuard={blurGuard}
         onConfirm={(k, checked) => setConfirmed((c) => ({ ...c, [k]: checked }))}
       />
       <p className="text-xs text-foreground">
-        We will store: role, city, years of experience, yearly CTC, company type and size. We will not store
-        your name, account, the company name or your letter. This is the CTC in your offer, not verified pay.
+        {showPayBasis
+          ? "We will store: role, city, years of experience, yearly CTC, company type and size, and whether this is current or offered pay. We will not store your name, account, the company name or your letter. This is self-reported pay, not verified."
+          : "We will store: role, city, years of experience, yearly CTC, company type and size. We will not store your name, account, the company name or your letter. This is the CTC in your offer, not verified pay."}
       </p>
       <div className="flex flex-wrap gap-2">
         <Button

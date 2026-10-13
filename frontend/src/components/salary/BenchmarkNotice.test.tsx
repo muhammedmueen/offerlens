@@ -32,4 +32,28 @@ describe("BenchmarkNotice", () => {
     expect(container.textContent).toContain("AI-estimated range");
     expect(container.querySelector("a")).toBeNull();
   });
+
+  it.each([
+    ["offered", null, "offered pay"],
+    ["current", null, "current pay"],
+    ["mixed", { offered: 9, current: 4, unlabelled: 2 }, "offered and current pay mixed"],
+    ["mixed", { offered: 9, current: 0, unlabelled: 6 }, "offered pay and unlabelled"],
+    ["mixed", { offered: 0, current: 4, unlabelled: 8 }, "current pay and unlabelled"],
+    ["mixed", { offered: 0, current: 0, unlabelled: 12 }, "pay type not recorded"],
+  ] as const)("labels crowd pay %s %j as %s", (payBasis, payMix, label) => {
+    const { container } = render(
+      <BenchmarkNotice dataSource="crowdsourced" sampleSize={15} payBasis={payBasis} payMix={payMix} disclaimer="12 of 15 data points are offered pay." />,
+    );
+    expect(container.textContent).toContain(`Based on crowdsourced submissions (n = 15), ${label}`);
+    expect(container.textContent).toContain("12 of 15 data points are offered pay.");
+  });
+
+  it("prints the stored survey disclaimer, including the Fresher 'not ranked' wording", () => {
+    const text = "Modelled from public surveys, not offers in your city. Survey figures describe current pay. "
+      + "The survey has no respondents for this role with 0 years of experience, so this range covers all experience levels "
+      + "and is shown for information only. Your offer is not ranked against it, and salary is left out of the score.";
+    render(<BenchmarkNotice dataSource="public_survey" sampleSize={39} disclaimer={text} />);
+    expect(screen.getByText(/Survey figures describe current pay/)).toBeTruthy();
+    expect(screen.getByText(/Your offer is not ranked against it/)).toBeTruthy();
+  });
 });

@@ -68,6 +68,7 @@ describe("ContributeSalaryCard", () => {
     expect((screen.getByLabelText("Years of experience") as HTMLInputElement).value).toBe("");
     expect((screen.getByLabelText(/Yearly CTC/) as HTMLInputElement).value).toBe("2400000");
     expect(document.activeElement).toBe(screen.getByLabelText("Years of experience"));
+    expect(screen.queryByRole("radio")).toBeNull(); // the card asks nothing new: it contributes the offer in the letter
   });
 
   it("keeps Send enabled when empty, invalid and pending; invalid submit posts nothing, announces and focuses the field", () => {
@@ -92,8 +93,8 @@ describe("ContributeSalaryCard", () => {
     send();
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
     const body = post.mock.calls[0][1];
-    expect(Object.keys(body).sort()).toEqual(["city", "companyType", "ctc", "experienceYears", "role"]);
-    expect(body).toMatchObject({ role: "Backend Engineer", city: "Pune", experienceYears: 4, ctc: 2_400_000, companyType: "product" });
+    expect(Object.keys(body).sort()).toEqual(["city", "companyType", "ctc", "experienceYears", "payBasis", "role"]);
+    expect(body).toMatchObject({ role: "Backend Engineer", city: "Pune", experienceYears: 4, ctc: 2_400_000, companyType: "product", payBasis: "offered" });
     expect(JSON.stringify(body)).not.toContain(OFFER_ID);
     expect(JSON.stringify(body)).not.toMatch(/acme/i);
     const ack = await screen.findByText(/at least 10 data points/);

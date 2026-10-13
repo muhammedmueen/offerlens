@@ -42,9 +42,11 @@ export interface ContributionValues {
   ctc: string;
   companyType: string;
   companySize: string;
+  /** '' = not answered yet (never defaulted); 'unsure' = "Not sure", sent as an absent key (stored NULL). */
+  payBasis: "" | "current" | "offered" | "unsure";
 }
 
-export type FieldKey = "role" | "city" | "years" | "ctc" | "companyType";
+export type FieldKey = "role" | "city" | "years" | "ctc" | "payBasis" | "companyType";
 export type Guard = "block" | "warn" | "ok";
 
 export interface ContributionBody {
@@ -54,6 +56,7 @@ export interface ContributionBody {
   ctc: number;
   companyType: string;
   companySize?: string;
+  payBasis?: "current" | "offered";
 }
 
 /** Whether to show the prompt at all. `dismissed` is passed in so this stays pure. */
@@ -95,6 +98,7 @@ export function buildPrefill(a: ContributionAnalysis): ContributionValues {
     ctc: typeof ctc === "number" ? String(roundCtc(ctc)) : "",
     companyType: TYPE_MAP[(d?.companyType ?? "").trim().toLowerCase()] ?? "",
     companySize: "",
+    payBasis: "offered", // the card contributes the offer in the letter, so the basis is known (5.7)
   };
 }
 
@@ -151,6 +155,7 @@ export function basicProblems(v: ContributionValues): Problem[] {
   const ctc = v.ctc.trim();
   if (!/^\d+$/.test(ctc)) add("ctc", CTC_DIGITS_MESSAGE);
   else if (Number(ctc) < 1 || Number(ctc) > MAX_CTC) add("ctc", CTC_DIGITS_MESSAGE);
+  if (!v.payBasis) add("payBasis", "Choose current pay, offered pay or not sure");
   if (!COMPANY_TYPES.some((t) => t.value === v.companyType)) add("companyType", "Choose a company type");
   return out;
 }
@@ -169,7 +174,7 @@ export function validateContribution(v: ContributionValues, guards: Guards, conf
       out.push({ field: f, message: "Confirm this is a general term, or change it", focus: "confirm" });
     }
   }
-  const order: FieldKey[] = ["role", "city", "years", "ctc", "companyType"];
+  const order: FieldKey[] = ["role", "city", "years", "ctc", "payBasis", "companyType"];
   return out.sort((a, b) => order.indexOf(a.field) - order.indexOf(b.field));
 }
 
@@ -183,6 +188,8 @@ export function buildContributionBody(v: ContributionValues): ContributionBody |
     ctc: Number(v.ctc.trim()),
     companyType: v.companyType,
     ...(v.companySize ? { companySize: v.companySize } : {}),
+    // "Not sure" omits the key; the server stores NULL. Never send null or ''.
+    ...(v.payBasis === "current" || v.payBasis === "offered" ? { payBasis: v.payBasis } : {}),
   };
 }
 

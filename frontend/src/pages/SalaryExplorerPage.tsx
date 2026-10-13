@@ -55,7 +55,9 @@ const SalaryExplorerPage = () => {
             <BenchmarkNotice
               dataSource={data.dataSource}
               sampleSize={data.count}
-              disclaimer={data.dataSource === "public_survey" ? "Modelled from public surveys, not offers in your city." : undefined}
+              disclaimer={data.disclaimer}
+              payBasis={data.payBasis}
+              payMix={data.payMix}
             />
             {data.dataSource === "public_survey" && (
               <p className="text-sm text-foreground">
@@ -102,6 +104,7 @@ const SalaryExplorerPage = () => {
               <div role="status" aria-live="polite" className="text-sm text-foreground">{formMessage}</div>
               <SalaryContributeForm
                 idPrefix="explorer"
+                showPayBasis
                 cancelLabel="Cancel"
                 announce={setFormMessage}
                 onSent={() => {
