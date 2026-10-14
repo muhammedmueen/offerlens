@@ -6,6 +6,9 @@ import { defineConfig } from "@playwright/test";
 // "forgot the workers" failure the walkthrough warns about.
 export default defineConfig({
   testDir: "./e2e",
+  // Clears the live rate-limit buckets before the run so a repeated spec does not trip authSignup
+  // (5/hour per IP). It never weakens the limit; see e2e/global-setup.ts.
+  globalSetup: "./e2e/global-setup.ts",
   timeout: 5 * 60_000, // two real Gemini analyses plus two drawer calls
   expect: { timeout: 10_000 },
   workers: 1,

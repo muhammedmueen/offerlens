@@ -618,6 +618,11 @@ in Chromium. It is not part of `npm test` and no CI job runs it. To run it:
 - The full stack must be up first: Postgres, Redis, API, **workers**, and `npm run dev` (or a
   built frontend), with a working Gemini key. The mock provider is not enough.
 - `cd frontend && npm run test:e2e`. Set `E2E_BASE_URL` if the frontend is not on `http://localhost:8080`.
+- A Playwright `globalSetup` first flushes the live rate-limit buckets (`fastify-rate-limit-*` and
+  `login-email:*`) via `docker exec offerlens-redis`, so re-running the spec does not trip the
+  signup limit (5/hour per IP) — the manual clear below. Override the container with
+  `E2E_REDIS_CONTAINER`, or set `E2E_SKIP_REDIS_FLUSH=1` and clear the keys yourself if your Redis
+  is remote or named differently.
 - It signs up an `e2e-<timestamp>@example.com` user (delete it afterwards), makes at least 4
   Gemini calls, and takes about 1 to 4 minutes.
 
