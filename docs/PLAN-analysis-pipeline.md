@@ -3129,8 +3129,9 @@ Docker Postgres 16 + Redis 7, real data, real Gemini key.
    decides.
 3. **Percentile wording.** The score note reads "62th percentile" (ordinal suffix); cosmetic, pre-existing
    pattern.
-4. **Pre-deploy gate.** Do not load the reference data into a deployed database until the repo is public
-   and `DATASET_URL` resolves, and the service-account key found in git history (follow-up F1) is resolved.
+4. **Pre-deploy gate (reworded by the deployment readiness round).** Do not load the reference data into a deployed database until
+   `DATASET_URL` resolves for an anonymous visitor. With the repo private it does not: an open owner decision, see "Deployment readiness
+   round outcome". The service-account key in git history (follow-up F1) is a separate key-rotation item.
 5. **RESOLVED on branch `fix-rate-limiter` (see "Rate limiter fix" below).** Was: rate limiters inert at
    HEAD (pre-existing, found during the review-fix pass). `registerRateLimiter` in `middleware/rate-limiter.ts` is registered with
    `app.register(...)` but is not wrapped in `fastify-plugin`, so `@fastify/rate-limit` lives in a child
@@ -4030,6 +4031,62 @@ D1 (README rider) is **decided: it fits** (owner, 2026-10-11, own reading, see t
 
 `docs/PLAN-analysis-pipeline.md` (this section, task tables, the PLFS paragraphs), `docs/database-design.md` (`city_pay_factors`, `salaryComparison.cityAdjustment`),
 `docs/api-spec.md` and `docs/API_DOCUMENTATION.md` (new scopes and the optional `cityAdjustment` on `/salaries/stats`, `salaryComparison` and the career `progression`).
+
+#### Deployment readiness round outcome (pre-deploy audit of the docs, `.env.example` and the production build)
+
+Branch `phase5a-salary-reference-seed`, uncommitted at the time of writing. Audit and working notes: `.agents/tasks/deploy-docs-env-audit.md`
+(24 findings, D1 to D24) and `.agents/tasks/deploy-code-fixes-note.md` (commands, counts, before/after logs).
+> [!NOTE]
+> **`.agents/` is gitignored and local only.** A fresh clone does not have those notes; everything that has to outlive the session is in this section.
+
+##### What was audited
+
+`docs/DEPLOYMENT.md`, `backend/.env.example` and `frontend/.env.example`, `docs/LOCAL_DEVELOPMENT.md`, `frontend/README.md`, and the code those documents
+describe: `env.schema.ts` against every `process.env` read, the Dockerfile and compose file, CI, CORS, cookie options, the health route, Swagger, the queue
+connection and the loaders. Starting verdict: `DEPLOYMENT.md` was out of date (6 of 21 variables, no workers, no migrate/seed path, and neither Docker nor PM2 could
+start the compiled app).
+
+##### What was fixed
+
+| Area | Findings | Change |
+|---|---|---|
+| Production build (code) | D1, D4, D5, D6, D21 | `build` is `tsc && tsc-alias` (`tsc-alias` pinned at 1.9.7), new `start:workers`, `engines.node >=22.13`, Dockerfile on `node:22-alpine` with `NODE_ENV=production` and `node dist/src/server.js`, new `backend/.dockerignore`. Before: both processes failed with `ERR_MODULE_NOT_FOUND` on `@/` aliases |
+| CORS (code) | D15 | `PATCH` added to the allowed methods (the corrections panel saves with PATCH); new `cors.test.ts`, failing before the fix |
+| `.env.example` (code) | D2, D13, D20, `LOG_LEVEL` | `COOKIE_SECRET` and `ALLOW_AI_REQUEST_OVERRIDE` commented out with notes, `NODE_ENV` and `postgres:postgres` warnings, `GOOGLE_CLIENT_SECRET` removed from the example (nothing reads it), `LOG_LEVEL` now actually sets the Fastify logger level |
+| CI (code) | D8 | The seed and `load-reference` steps get dummy JWT secrets (they failed with only `DATABASE_URL`); new "Production build smoke" step |
+| `DEPLOYMENT.md` (docs) | D3, D5, D6, D7, D11, D14, D16, D17, D18, D19, D20, D24 | Rewritten for the whole app: requirements, the full 21-variable backend table plus the two `VITE_` variables, an ordered checklist, API and workers as two processes on one volume, frontend build and SPA fallback, cookies/CORS/HTTPS, log lines to look for (`using MockAiProvider` must not appear), plans and quotas, Swagger and health-check caveats, compose warnings, `docker compose` v2 spelling, 27 escaped fences and one unclosed fence fixed |
+| `LOCAL_DEVELOPMENT.md`, `frontend/README.md` (docs) | D22, D23 | Test counts (backend 906 passed + 3 skipped, frontend 132; `test-m2.mjs` 32), the Playwright smoke spec and how to run it, the usage-ledger and account-export rows, Node 22.13+, `format:check` 69 → 157 files; frontend README says Fastify, Node 22.13+ and "no proxy" |
+
+##### Deliberately left (docs only, by decision)
+
+- **D9 dataset links** (below), **D10 `trustProxy`** and **D12 BullMQ TLS/username**: documented with the exact snippet or limitation; no `TRUST_PROXY` variable and no change to the queue connection code.
+- The compose file is untouched (default credentials, published ports, obsolete `version:` key); the guide warns instead.
+- The `GOOGLE_CLIENT_SECRET` schema line stays (harmless; documented as unused).
+- Migrate, seed and the loaders still run from a repo checkout with dev dependencies, not from the runtime image (they need `tsx`, `drizzle-kit`, `drizzle/` and the repo-level `data/`).
+
+##### Verified live (step 1, Windows host with Linux containers, scratch Postgres 16 / Redis 7)
+
+- `npm start` returns `/api/v1/health` 200 and `npm run start:workers` registers its repeat jobs in Redis, both with no module errors. The Docker image builds, and two containers (API and workers) sharing one named volume pass `test-security.mjs` 20/20, `test-m2.mjs` 32/0 and `test-m3.mjs` 19/0 through the container in production mode.
+- The CI seed and loader steps pass from an empty database with the added dummy secrets. The `.env.example` as written fails only on the two blank JWT secrets, and boots with just those filled in.
+- Backend `tsc` and `eslint` clean; backend `npm test` 906 passed, 3 skipped (baseline 901 + 5 new CORS cases). A PATCH preflight against the running server returns `GET, POST, PUT, PATCH, DELETE, OPTIONS`.
+- Docs step: frontend `vitest` 132 passed (12 files); the Playwright smoke spec passed (1 test, 57 s) against the compiled API (`npm start`), the compiled workers, the Vite dev server on :8080 and a real Gemini key; its `e2e-<timestamp>@example.com` user was deleted afterwards. `DEPLOYMENT.md` was checked mechanically: every fence closed, none escaped, every `npm run` script it names exists in `backend/package.json`, every variable it names exists in `env.schema.ts` (or the frontend example).
+
+##### Reasoned, not run
+
+- A Linux host; a host bind-mounted `./uploads` (may not be writable by the image's `node` user); the exact `docker run` and PM2 commands in the guide as written (the equivalent two-container run was tested with scratch infrastructure and a named volume); the nginx `try_files` and `trustProxy: 1` snippets; browser cookie behaviour behind HTTPS and across sites (inferred from the cookie options and the preflight, no hosted deployment exists); the `ci.yml` changes on a real GitHub run (parsed as YAML and simulated locally only); the failure of a TLS/username Redis URL against BullMQ (read from the connection code); Node 20 failing on the pinned dependencies (inferred from their declared engines).
+- The smoke spec does not exercise the corrections Save, so the PATCH fix is proven by the unit test and the live preflight, not by a browser.
+- `frontend/README.md`: the audit said Vite 7; the installed Vite is 5.4.19, so the README states the repo-wide Node 22.13+ rather than a Vite-specific minimum.
+
+##### Open items (none touched by this round)
+
+1. **D9: the dataset links are dead while the repository is private (OPEN OWNER DECISION).** The four constants (`reference-source.ts`, `city-adjustment.ts`, `frontend/src/constants/attribution.ts`) point at `github.com/.../tree/main/data/...`, which is a 404 for an anonymous visitor of a private repo. So the ODbL "dataset link beside every survey benchmark" and the PLFS dataset link are currently dead. Options: publish just the `data/` files elsewhere and update the constants (a drift test keeps backend and frontend in sync), or accept the dead link knowingly. The pre-deploy gate is now worded "the dataset link resolves for an anonymous visitor", not "the repository is public". The MoSPI gate is unchanged: send the e-mail before the factors are loaded into any deployed instance others can use.
+2. **D10: `trustProxy` has no environment knob.** Edit `buildApp()` in `app.ts` before deploying behind any proxy (snippet in `DEPLOYMENT.md` section 7). Without it every cookie-less client shares the proxy's IP bucket and the login IP limit (30 per 15 minutes) becomes site-wide.
+3. **D12: BullMQ ignores TLS, username and database index in `REDIS_URL`**, and does not URL-decode the password. A managed Redis that requires them breaks the queues until the connection options are built from the full URL.
+4. **D19: the health check does not touch Postgres or Redis**, and **Swagger UI is public in production** at `/api/v1/docs` (no `NODE_ENV` gate, `servers` says `http://localhost:8000`). Decide whether to gate or block it; the guide suggests blocking it at the proxy.
+5. **F1: the Cloud Vision service-account key is still in git history.** Rotation cannot be confirmed from the repo. The guide tells deployers to issue a new key. Rewriting history is only needed if the repo ever becomes public.
+6. `ALLOW_AI_REQUEST_OVERRIDE` still parses `false` as true (F6); production ignores it, and the example leaves it commented out.
+7. `npm run format:check` fails on 157 backend files (cosmetic, not enforced in CI).
+8. No CI job runs the Playwright smoke spec, and nothing has been run on a Linux host or a hosted deployment.
 
 ### Phase 6: Revenue & Compliance
 

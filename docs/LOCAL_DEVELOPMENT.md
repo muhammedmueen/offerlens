@@ -9,7 +9,7 @@ gotcha, the gotcha is stated rather than left to be discovered.
 
 | Tool | Version used | Notes |
 |---|---|---|
-| Node | 22+ | `node --version` |
+| Node | 22.13+ | `node --version`. `pdfjs-dist` needs 22.13 or newer; `backend/package.json` `engines` says so |
 | Docker Desktop | any recent | Must be **running**, not just installed |
 | An AI API key | — | Optional. Gemini, OpenAI or Anthropic — see §3.1. Without one the app uses a mock provider and returns canned analysis |
 
@@ -252,8 +252,8 @@ curl http://localhost:8000/api/v1/health
 ### Unit tests — no services required
 
 ```bash
-cd backend && npm test        # 330 tests
-cd frontend && npm test       # 1 placeholder test
+cd backend && npm test        # 906 passed, 3 skipped (the skipped three are the opt-in Postgres quota proof)
+cd frontend && npm test       # 132 passed (12 files)
 ```
 
 These need no database, no Redis and no API key. They cover the pure decision logic:
@@ -278,7 +278,7 @@ npm run lint          # tsc --noEmit + eslint — passes
 ```
 
 > [!NOTE]
-> `npm run format:check` currently **fails on 69 files**. Prettier was added in `-1C` but
+> `npm run format:check` currently **fails on 157 files**. Prettier was added in `-1C` but
 > never applied to the existing code, so the config exists and the codebase predates it.
 > This is cosmetic and not enforced in CI. Fixing it is one command — `npm run format` —
 > but it rewrites nearly every file, so it deserves its own commit rather than being mixed
@@ -292,7 +292,7 @@ users and offers.
 ```bash
 cd backend
 node test-security.mjs    # 20 assertions — authorization and guest identity
-node test-m2.mjs          # 25 — auth, migration, and registered-user features
+node test-m2.mjs          # 32 — auth, migration, and registered-user features
 node test-m3.mjs          # 19 — forum, crowdsourced salary, career path
 ```
 
@@ -563,10 +563,10 @@ Things you may notice that are understood and tracked:
 | OpenAI and Anthropic model ids are unverified | No key for either was available when the adapters were written. The ids in `src/config/constants.ts` are best-effort and flagged as such; override with `OPENAI_MODEL` / `ANTHROPIC_MODEL` if a call 404s |
 | **A job that finishes after the reaper failed it is free** | Known, rare. If one upload takes more than 5 minutes end to end, the reaper marks it FAILED and refunds the slot; if the worker then completes it anyway, that analysis cost nothing. Marked `ponytail:` in `analysis.worker.ts` |
 | **The AI negotiation stub is charged** | Known. When the provider falls back to a stub body without throwing, the negotiation unit is still used. Only a thrown error refunds it |
-| Per-user cost history disappears when an offer is deleted | Known. Tokens and cost are recorded in `analyses.aiMetadata.usage`, but `analyses` cascades from `offers` and `offers` cascades from `users`, and the cleanup worker deletes expired guest offers hourly. Task 4.1 moves it to an append-only ledger — it is the one thing here that cannot be backfilled later |
+| Per-user cost history survives an offer being deleted | Fixed in task 4.1. Every metered provider call is written to the append-only `usage_ledger` (migration 0003), which does not cascade from `offers` or `users`. `analyses.aiMetadata.usage` still carries the per-analysis figures but is deleted with the offer |
 | No admin interface | Deliberate, see Phase 7. Use `psql` against the Docker container; the panel gets built when someone other than you needs access, or when hand-written SQL becomes a daily chore |
 | No content moderation on forum or feature requests | Not built |
-| `GET /account/export` doesn't exist | Promised in the privacy policy, not implemented |
+| `GET /account/export` | Exists since task 4.7 (see `api-spec.md`); returns only the caller's own data |
 
 ---
 
@@ -604,20 +604,27 @@ npm run db:migrate && npm run db:seed && npm run db:load-reference && npm run db
 
 Being precise about this, because "the tests pass" is not the same as "the app works".
 
-**Verified by execution:** both packages typecheck and lint clean; 330 backend unit tests;
+**Verified by execution:** both packages typecheck and lint clean; 906 backend unit tests (3 skipped) and 132 frontend tests;
 the frontend builds (177.6 KB gzip initial); all three integration suites pass against a
 live stack with a real Gemini key; extraction accuracy measured at 96.1%/82.3% over three
 passes with a 2.4% noise floor; the browser
 integration seam (CORS preflight, credentialed cookies, `HttpOnly`/`SameSite`/`Path`,
 rejection of unlisted origins); the frontend dev server serves and SPA deep routes resolve.
 
-**Not verified:** the UI has never been driven through a real browser by an automated test.
-Every backend behaviour behind the screens is covered, but rendering, form validation and
-navigation have only been checked by reading the code and confirming the data contract.
-§8 exists because a human still needs to click through it.
+**Browser coverage is one smoke spec.** `frontend/e2e/smoke.spec.ts` drives the §8 walkthrough
+in Chromium. It is not part of `npm test` and no CI job runs it. To run it:
 
-There are also **no frontend component tests** — the one frontend test is a placeholder.
-That's the largest remaining gap in coverage.
+- Once: `cd frontend && npx playwright install chromium`.
+- The full stack must be up first: Postgres, Redis, API, **workers**, and `npm run dev` (or a
+  built frontend), with a working Gemini key. The mock provider is not enough.
+- `cd frontend && npm run test:e2e`. Set `E2E_BASE_URL` if the frontend is not on `http://localhost:8080`.
+- It signs up an `e2e-<timestamp>@example.com` user (delete it afterwards), makes at least 4
+  Gemini calls, and takes about 1 to 4 minutes.
+
+Beyond that spec the UI is covered by unit and component tests (jsdom; 11 real files plus one placeholder) and by hand. Rendering
+in other browsers, on a phone and with a screen reader has not been checked by any test.
+§8 exists because a human still needs to click through it. The smoke spec does not exercise
+saving corrections, which is the PATCH call.
 
 > [!WARNING]
 > This gap is not theoretical. Every one of the four bugs found in the results-page drawers
@@ -635,4 +642,5 @@ That's the largest remaining gap in coverage.
 >
 > All four are fixed, and the contract test now asserts response shapes rather than only
 > paths. But the class of bug recurs, and the thing that catches it is a browser driving the
-> UI. Playwright against the §8 walkthrough is the smallest thing that would close it.
+> UI. The Playwright smoke spec now covers the main walkthrough; extending it is the way to
+> widen that net.
