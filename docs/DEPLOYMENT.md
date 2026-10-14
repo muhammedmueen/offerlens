@@ -3,6 +3,14 @@
 How to deploy the whole app: the API, the background workers and the frontend. For running it on
 your own machine, see `LOCAL_DEVELOPMENT.md`.
 
+> **Deploying to the shared VPS (`offerlens.mueens.tech`)?** Follow the ordered, copy-paste
+> runbook in [`DEPLOY_VPS.md`](DEPLOY_VPS.md) instead — it wraps this reference with the exact
+> commands for that one box (host nginx one origin, loopback-only Docker ports, SSH-tunnel
+> migrations, the `deploy/` artifacts). This file stays the general "what the app needs"
+> reference. Two behaviours it relies on: set **`TRUST_PROXY=1`** (section 7) behind the single
+> host nginx, and in production image/scanned-document OCR without a real Vision key is refused
+> with `400 OCR_UNAVAILABLE` rather than returning canned text (section 5, "Honest OCR").
+
 The app is three things that must all be running:
 
 | Part | What it is | Started with |
@@ -69,6 +77,7 @@ the file to Docker with `--env-file`, it overrides the image's own `NODE_ENV=pro
 | `GOOGLE_CLIENT_SECRET` | no | none | optional | Declared in the schema but **unused**: nothing reads it |
 | `STORAGE_PATH` | no | `./uploads` | string | Shared between API and workers |
 | `LOG_LEVEL` | no | `info` | `fatal` / `error` / `warn` / `info` / `debug` / `trace` | Sets the Fastify/pino level |
+| `TRUST_PROXY` | **set to `1` behind this guide's nginx** | `0` (off) | integer `0`-`5` | Number of trusted proxy hops, passed to Fastify `trustProxy`. `0` is off (`request.ip` is the socket address); a positive count makes the rate-limit and login-IP buckets see the real client. See section 7 |
 
 ### Frontend (build time)
 
@@ -94,7 +103,7 @@ Do these in order. Steps 2 to 8 run from a checkout; step 9 can instead use the 
    npm ci          # keep dev dependencies: migrate, seed and loaders need tsx and drizzle-kit
    ```
 3. **Configure.** `cp .env.example .env` and set at least `NODE_ENV=production`, `DATABASE_URL`, `REDIS_URL`, `CORS_ORIGIN`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, `COOKIE_SECRET`, the AI key for `AI_PROVIDER`, and `STORAGE_PATH`. Do not reuse the old service-account key (see section 7).
-4. **Set `trustProxy`** (section 7) in `backend/src/app.ts` if the API sits behind any proxy or load balancer. It has no environment variable; edit before building.
+4. **Set `TRUST_PROXY`** (section 7) if the API sits behind any proxy or load balancer. With this guide's single host nginx, set `TRUST_PROXY=1` in `.env`. No code edit, no rebuild.
 5. **Migrate.** `npm run db:migrate` applies migrations `0000` to `0008`. Never use `db:push`.
 6. **Seed (required, safe to re-run).** `npm run db:seed` fills roles, cities and experience levels. Without it the upload dropdowns are empty.
 7. **Salary reference data (gated, section 6).** `npm run db:load-reference`. Optional for the app to run: without rows, salary is "not scored".
@@ -188,6 +197,8 @@ docker compose up -d
 - The frontend and API must be **same-site** (for example `app.example.com` and `api.example.com`). On genuinely different registrable domains the browser will not send the cookie and guests break. Supporting that needs `sameSite: 'none'` in `middleware/guest-identifier.ts` (a code change, noted there).
 - CORS allows exactly one origin, `CORS_ORIGIN`, with credentials. It must equal the site origin the browser sees. Allowed methods: `GET, POST, PUT, PATCH, DELETE, OPTIONS`.
 - Cloud Vision (images) needs billing enabled on the GCP project, otherwise every image upload fails with "OCR extraction failed". Pasted text, `.txt` and PDFs with a text layer never call it.
+- **Honest OCR without a real provider.** When `GOOGLE_CLOUD_CREDENTIALS` is unset the OCR provider is the mock, which returns canned fixture text. In **production** an image or scanned-document OCR request is now refused with a `400 OCR_UNAVAILABLE` ("Image uploads are not available on this deployment. Paste the text or upload a PDF with selectable text.") instead of a fabricated analysis — both on the synchronous `POST /offers/extract-file` route and inside the OCR worker (where it fails the offer with the same message and refunds the quota). Pasted text and text-layer PDFs are unaffected. Development and test keep the mock. The frontend upload page maps this code to a friendly inline notice. To accept image uploads in production, set `GOOGLE_CLOUD_CREDENTIALS` to a key with Vision billing enabled.
+- **Open item: AI provider falls back to the mock silently.** Unlike OCR, a missing key for the selected `AI_PROVIDER` still falls back to `MockAiProvider` with only a console warning (`ai.factory.ts`), so analyses are canned sample data rather than refused. There is no production guard on this. Confirm the logs do **not** contain `using MockAiProvider` (see the log-lines table in section 3) and set the key for your `AI_PROVIDER`.
 
 ---
 
@@ -197,14 +208,17 @@ Both datasets are optional. The app works without them.
 
 | Gate | Condition before loading |
 |---|---|
-| Stack Overflow survey rows (`db:load-reference`, ODbL) | The dataset link shown beside every survey benchmark **resolves for an anonymous visitor**. Do not load into a deployed database until it does |
-| PLFS city factors (`db:load-city-factors`) | The MoSPI e-mail (draft in the plan, "Phase 5 task 5.1b outcome") is sent **before the factors are loaded into any deployed instance that others can use**. Decision D1 (README rider) is recorded as decided by the owner. The data is non-commercial only. Safe to skip |
+| Stack Overflow survey rows (`db:load-reference`, ODbL) | The dataset link shown beside every survey benchmark **resolves for an anonymous visitor**. It points at `https://offerlens.mueens.tech/datasets/so-2025-india/`; serve the `data/so-2025-india/` files at that path before loading the rows |
+| PLFS city factors (`db:load-city-factors`) | The MoSPI e-mail (draft in the plan, "Phase 5 task 5.1b outcome") is sent **before the factors are loaded into any deployed instance that others can use**. Decision D1 (README rider) is recorded as decided by the owner. The data is non-commercial only. The PLFS dataset path (`https://offerlens.mueens.tech/datasets/plfs-city-factors/`) is served **only after that gate is passed**. Safe to skip |
 
-**Open owner decision: the dataset links are dead while the repository is private.** The links
-(`backend/src/modules/salary/reference-source.ts`, `city-adjustment.ts`, `frontend/src/constants/attribution.ts`)
-point at `github.com/.../tree/main/data/...`, which returns 404 to an anonymous visitor of a private repo. So today
-the ODbL "dataset link" and the PLFS dataset link are dead. Options: publish just the `data/` files elsewhere and
-update the constants (a drift test keeps backend and frontend in sync), or accept the dead link knowingly. Not decided.
+**Dataset links (audit D9).** The links in `backend/src/modules/salary/reference-source.ts`,
+`city-adjustment.ts` and `frontend/src/constants/attribution.ts` point at this deployment's own static host
+(`https://offerlens.mueens.tech/datasets/...`), not the private `github.com/.../tree/main/data/...` URL,
+which returns 404 to an anonymous visitor while the repo is private. The host is **hardcoded** in all four
+constants (a `ponytail:` comment on each says so); to move it, change those four constants AND the nginx
+`location /datasets/` block in `deploy/`. A drift test keeps the backend and frontend constants in sync.
+Serve the ODbL dataset at `/datasets/so-2025-india/` before loading the reference rows; serve the PLFS
+dataset at `/datasets/plfs-city-factors/` only after the MoSPI e-mail gate is passed.
 
 PLFS rollback: `DELETE FROM city_pay_factors;` makes every city serve the unchanged national figures at once, with no deploy or cache flush.
 The raw PLFS files never go on a server and never enter the repository.
@@ -213,18 +227,18 @@ The raw PLFS files never go on a server and never enter the repository.
 
 ## 7. Operations notes
 
-**`trustProxy`.** The app does not set Fastify `trustProxy`, and no variable controls it. Behind a reverse proxy
-or platform load balancer every client then looks like the proxy's IP. Edit `backend/src/app.ts`:
+**`TRUST_PROXY`.** Behind a reverse proxy or platform load balancer every client otherwise looks like the
+proxy's IP. Set the `TRUST_PROXY` environment variable to the number of trusted proxy hops in front of the
+API (0-5). With this guide's single host nginx that is `1`:
 
-```ts
-const app = Fastify({
-    trustProxy: 1, // number of proxy hops in front of the API; or a CIDR string. `true` trusts any X-Forwarded-For
-    logger: { level: config.LOG_LEVEL },
-    disableRequestLogging: true,
-});
+```
+TRUST_PROXY=1
 ```
 
-The proxy must overwrite `X-Forwarded-For`, not append to a client-supplied one. Rebuild after editing.
+`0` (the default) is off: `request.ip` is the socket address and `X-Forwarded-For` is ignored. A positive
+count makes Fastify trust that many `X-Forwarded-For` entries from the right, so `request.ip` becomes the
+real client. The proxy must overwrite `X-Forwarded-For`, not append to a client-supplied one. No code edit
+or rebuild is needed; it is read at boot.
 Without it: cookie-less clients share one 100/min bucket, and the login IP limit (30 per 15 minutes) becomes site-wide.
 
 **Swagger UI** is served at `/api/v1/docs` with no production gate and its `servers` entry says `http://localhost:8000`.
@@ -246,4 +260,4 @@ for the deployment; revoke the old one if you cannot confirm it was rotated.
 - **Uploads stay `QUEUED`**: the workers are not running, or they cannot see the same `STORAGE_PATH`.
 - **Server exits on boot**: read the "Invalid environment variables" line; usually a missing or short secret, or a blank `COOKIE_SECRET`.
 - **Rate limiting (needs Redis)**: limits are stored in Redis, so they hold across API processes, and the limiter fails closed (`skipOnError` is off), so an unreachable Redis should make requests error rather than skip the limit (from reading the plugin source, not tested). Browsers are counted per `ol_guest` cookie, signed-in users per account. Requests without a valid cookie (scripts, health checks) are counted per client IP. See `trustProxy` above. All limits are listed in `api-spec.md`.
-  - **Login limits (pre-deploy requirement).** `POST /auth/login` also has a per-IP limit (30 per 15 minutes, counted on the client IP whatever the cookie) and a per-email limit (10 per 15 minutes, attempts since the last successful login; the address is sha256-hashed in Redis and never logged). **Set `trustProxy` before enabling the login IP limit; otherwise the whole site shares 30 logins per 15 minutes.** This hits browsers too, because the login IP limit ignores cookies. The email counter needs Redis 7 (`PEXPIRE ... NX`; `docker-compose.yml` pins `redis:7-alpine`) and fails closed, so a Redis fault is a 500 on login rather than an open gate. `POST /auth/google` has no email and is covered only by the per-cookie limit. To clear limits in Redis, scan both `fastify-rate-limit-*` and `login-email:*`.
+  - **Login limits (pre-deploy requirement).** `POST /auth/login` also has a per-IP limit (30 per 15 minutes, counted on the client IP whatever the cookie) and a per-email limit (10 per 15 minutes, attempts since the last successful login; the address is sha256-hashed in Redis and never logged). **Set `TRUST_PROXY` before enabling the login IP limit; otherwise the whole site shares 30 logins per 15 minutes.** This hits browsers too, because the login IP limit ignores cookies. The email counter needs Redis 7 (`PEXPIRE ... NX`; `docker-compose.yml` pins `redis:7-alpine`) and fails closed, so a Redis fault is a 500 on login rather than an open gate. `POST /auth/google` has no email and is covered only by the per-cookie limit. To clear limits in Redis, scan both `fastify-rate-limit-*` and `login-email:*`.

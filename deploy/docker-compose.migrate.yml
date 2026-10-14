@@ -1,0 +1,24 @@
+# OfferLens — migration override. TEMPORARY. Publishes Postgres on loopback so migrations,
+# seed and the data loaders can run from the laptop through an SSH tunnel (the runtime image
+# has no tsx/drizzle-kit/drizzle/ or data/, so loads run from a laptop checkout).
+#
+# !!! WARNING !!!
+# This opens a database port on the server's loopback. It is NOT needed for normal operation.
+# Bring it up ONLY for the migration window and tear it down the moment you are done:
+#
+#   # up (adds the port on top of the running stack):
+#   docker compose -f docker-compose.prod.yml -f docker-compose.migrate.yml up -d postgres
+#   # ... run migrations/seed/loaders from the laptop over the SSH tunnel ...
+#   # down (removes the published port; the stack keeps running):
+#   docker compose -f docker-compose.prod.yml up -d postgres
+#
+# The port binds to 127.0.0.1 ONLY. Reach it from the laptop with an SSH tunnel:
+#   ssh -L 5433:127.0.0.1:5433 deploy@72.61.245.134
+# See docs/DEPLOY_VPS.md step 6 for the exact DATABASE_URL and commands.
+
+name: offerlens
+
+services:
+  postgres:
+    ports:
+      - '127.0.0.1:5433:5432'

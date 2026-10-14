@@ -4079,14 +4079,74 @@ start the compiled app).
 
 ##### Open items (none touched by this round)
 
-1. **D9: the dataset links are dead while the repository is private (OPEN OWNER DECISION).** The four constants (`reference-source.ts`, `city-adjustment.ts`, `frontend/src/constants/attribution.ts`) point at `github.com/.../tree/main/data/...`, which is a 404 for an anonymous visitor of a private repo. So the ODbL "dataset link beside every survey benchmark" and the PLFS dataset link are currently dead. Options: publish just the `data/` files elsewhere and update the constants (a drift test keeps backend and frontend in sync), or accept the dead link knowingly. The pre-deploy gate is now worded "the dataset link resolves for an anonymous visitor", not "the repository is public". The MoSPI gate is unchanged: send the e-mail before the factors are loaded into any deployed instance others can use.
-2. **D10: `trustProxy` has no environment knob.** Edit `buildApp()` in `app.ts` before deploying behind any proxy (snippet in `DEPLOYMENT.md` section 7). Without it every cookie-less client shares the proxy's IP bucket and the login IP limit (30 per 15 minutes) becomes site-wide.
+1. **D9: RESOLVED by the VPS-prep round (`.agents/tasks/vps-prep-code-notes.md`).** The four constants (`reference-source.ts`, `city-adjustment.ts`, the two in `frontend/src/constants/attribution.ts`) now point at the deploy's own static host — `https://offerlens.mueens.tech/datasets/so-2025-india/` and `.../datasets/plfs-city-factors/` — instead of the private `github.com/.../tree/main/data/...` URL that 404s for an anonymous visitor. The host is hardcoded (a `ponytail:` comment on each constant names the full change-list: all four plus the nginx `location /datasets/` block in `deploy/`). The drift test (`reference-source.test.ts`) pins the new host and rejects a `github.com` URL. The attribution TEXT is unchanged. Owner still serves `data/so-2025-india/` at its path before loading reference rows, and serves the PLFS path **only after** the MoSPI e-mail gate.
+2. **D10: RESOLVED by the VPS-prep round.** `TRUST_PROXY` is now an env var (hop count 0-5, default 0, parsed as an integer not `z.coerce.boolean`) wired to Fastify `trustProxy` in `app.ts` (0 → `false`). Behind this guide's single host nginx set `TRUST_PROXY=1`; no code edit or rebuild. Unit tests cover the parsing (unset/`0`/`1`/`2`, `abc` and `10` rejected) and a Fastify inject proves `request.ip` follows `X-Forwarded-For` with 1 and does not with 0.
 3. **D12: BullMQ ignores TLS, username and database index in `REDIS_URL`**, and does not URL-decode the password. A managed Redis that requires them breaks the queues until the connection options are built from the full URL.
 4. **D19: the health check does not touch Postgres or Redis**, and **Swagger UI is public in production** at `/api/v1/docs` (no `NODE_ENV` gate, `servers` says `http://localhost:8000`). Decide whether to gate or block it; the guide suggests blocking it at the proxy.
 5. **F1: the Cloud Vision service-account key is still in git history.** Rotation cannot be confirmed from the repo. The guide tells deployers to issue a new key. Rewriting history is only needed if the repo ever becomes public.
 6. `ALLOW_AI_REQUEST_OVERRIDE` still parses `false` as true (F6); production ignores it, and the example leaves it commented out.
 7. `npm run format:check` fails on 157 backend files (cosmetic, not enforced in CI).
 8. No CI job runs the Playwright smoke spec, and nothing has been run on a Linux host or a hosted deployment.
+9. **Honest OCR in production (fixed by the VPS-prep round).** With `GOOGLE_CLOUD_CREDENTIALS` unset the OCR provider is the mock, which returned canned fixture text. In production an image/scanned-document OCR request is now refused with `400 OCR_UNAVAILABLE` at the one shared choke point (`meterOcr` in `usage-ledger.ts`), reached by both `POST /offers/extract-file` and the OCR worker's image branch; development and test keep the mock. Pasted text and text-layer PDFs never call OCR and are unaffected. The upload page maps the code to a friendly inline notice.
+10. **OPEN: the AI provider still falls back to the mock silently.** Unlike OCR, a missing key for the selected `AI_PROVIDER` still selects `MockAiProvider` with only a console warning (`ai.factory.ts`); there is no production guard, so analyses would be canned sample data. Deliberately not changed by the VPS-prep round (brief scope was the OCR guard only). The existing mitigation stands: the deploy guide says to confirm the logs do not contain `using MockAiProvider` and to set the key for the chosen provider.
+
+#### VPS deployment preparation round outcome
+
+Branch `phase5a-salary-reference-seed`, uncommitted at the time of writing. Target decided with the owner: a single public URL
+`https://offerlens.mueens.tech` on the shared Ubuntu VPS (`72.61.245.134`) that already runs host nginx, host MySQL, host Redis, PHP-FPM
+and other Docker/Postgres containers, with ~3.4 GB of 7.8 GB free and 2 vCPU. Working notes: `.agents/tasks/vps-prep-code-notes.md`
+(items 1-3, the code) and `.agents/tasks/vps-prep-artifacts-notes.md` (items 4-5, this round). `.agents/` is gitignored; everything
+that must outlive the session is here.
+
+##### What was added
+
+| Area | File(s) | What |
+|---|---|---|
+| Compose (prod) | `deploy/docker-compose.prod.yml` | Project `offerlens`, own bridge network, four services: `api` (build `../backend`, image `offerlens-api`, `node dist/src/server.js`, published `127.0.0.1:8100:8000`), `workers` (same image, `node dist/src/workers/index.js`, same uploads volume), `postgres` (`postgres:16-alpine`, named volume, healthcheck, NO published port), `redis` (`redis:7-alpine`, `--maxmemory 96mb --maxmemory-policy noeviction`, appendonly + named volume, healthcheck). `mem_limit`/`cpus`/`oom_score_adj: 500` on every service, json-file log rotation, `restart: unless-stopped`, shared `uploads` volume at `/app/uploads` |
+| Compose (migrate) | `deploy/docker-compose.migrate.yml` | Override publishing postgres on `127.0.0.1:5433:5432` for the tunnelled migration step, with a prominent warning to stop it afterwards |
+| Env example | `deploy/.env.production.example` | Every backend variable with placeholders + comments; `.env.production` added to the root `.gitignore` with a `!`-exception keeping the example tracked |
+| nginx | `deploy/nginx/offerlens.mueens.tech.conf` | Server-block-only (no `default_server`, no http-level directives): `root /var/www/offerlens/dist` with SPA `try_files`, `location /api/` proxy to `127.0.0.1:8100` with the forwarded headers + `client_max_body_size 11m` + `proxy_read_timeout 90s`, `location /datasets/` static alias with sensible text types and `autoindex off`, nosniff/frame/referrer headers (no CSP), per-vhost gzip, a commented `limit_req`, separate access/error logs, and the final certbot TLS shape as comments |
+| Scripts | `deploy/scripts/backup-postgres.sh`, `restore-postgres.sh` | `set -euo pipefail`, pg_dump/psql via `docker exec` (no secrets in the scripts), gzip + 7-day retention with a fixed glob, restore behind a typed-confirmation prompt |
+| Runbook | `docs/DEPLOY_VPS.md` | Ordered, command-by-command, each labelled laptop/server/sudo: Namecheap A record, server prep + read-only pre-flight, scp of `deploy/`+`backend/`, `.env.production` (mode 600) with openssl secret generation, `up -d --build`, SSH-tunnel migrations/seed/loaders with the migrate override (city-factors GATED on the MoSPI gate), laptop frontend build (`VITE_API_BASE_URL=/api/v1`) + dataset copy, nginx install + certbot, smoke test, updates/rollback/backups/restore/logs/"stop OfferLens"/"what not to touch", plus security-isolation and known-limits sections |
+| Docs pointers | `docs/DEPLOYMENT.md` | A note at the top pointing at `DEPLOY_VPS.md` for this box and summarising the `TRUST_PROXY=1` and `OCR_UNAVAILABLE` behaviours from the code round |
+
+##### Decisions (from the brief and the repo, not guessed)
+
+- **One origin.** Host nginx serves the SPA and proxies `/api/` to the API container on `127.0.0.1:8100`; the frontend is built with
+  `VITE_API_BASE_URL=/api/v1` so there is no cross-site cookie problem and `CORS_ORIGIN` is the single site URL.
+- **Loopback-only publishing** on every port, because published Docker ports bypass UFW on this box (UFW allows only 22/80/443/6001 + coturn).
+- **Resource caps via `mem_limit`/`cpus`/`oom_score_adj`,** the top-level keys that apply in plain `docker compose` — the swarm-only
+  `deploy.resources` block would be silently ignored. `oom_score_adj: 500` makes OfferLens the kernel's first OOM victim, protecting production.
+- **Uploads volume mounted at a FIXED `/app/uploads`** rather than interpolating `${STORAGE_PATH}` (which `env_file` does not feed into compose
+  interpolation); `.env.production` sets `STORAGE_PATH=/app/uploads` to match, so api and workers agree.
+- **No frontend build/push scripts** (documented as PowerShell in the runbook, per the brief — the server has no Node).
+- **Migrations run from a laptop checkout** over an SSH tunnel to a temporary `127.0.0.1:5433`, because the runtime image has no
+  `tsx`/`drizzle-kit`/`drizzle/`/`data/`.
+
+##### Verified locally vs only reasoned
+
+- **Verified:** `docker compose -f deploy/docker-compose.prod.yml config` resolves `mem_limit` (api 536870912 / workers 402653184 /
+  postgres 536870912 / redis 134217728), `cpus`, and `oom_score_adj: 500` on all four services — proving the caps actually apply outside swarm.
+  The API port and the migrate override's DB port both resolve to `host_ip: 127.0.0.1` (8100 and 5433). The `.gitignore` rules were checked with
+  `git check-ignore`: `.env.production` is ignored, `.env.production.example` is not. (Docker Compose v5.5 / Engine 29.7 on the laptop.)
+- **Reasoned, not run:** nothing was executed on the server (no SSH this round). The `up -d --build`, the SSH-tunnel migration flow, the nginx
+  `nginx -t`/`certbot --nginx` steps, the backup/restore scripts, the 10 MB upload through nginx, and the actual OOM/memory behaviour under the
+  caps are all written from the compose/nginx semantics and the surveyed server state, not from a live deploy.
+
+##### Open items
+
+1. **MoSPI e-mail gate.** `npm run db:load-city-factors` and copying `data/plfs-city-factors/` to the public dataset path must wait until the
+   owner has sent the MoSPI e-mail and decided to publish PLFS on a public site (D1 / `DEPLOYMENT.md` section 6). The runbook marks both as gated.
+2. **Image uploads off until Vision.** `GOOGLE_CLOUD_CREDENTIALS` is unset in the example and no key is mounted; production image/scanned OCR is
+   refused with `400 OCR_UNAVAILABLE` (open item 9 above). Mounting a Vision key into the containers is left for when billing is enabled.
+3. **AI mock fallback is silent** (open item 10 above) — no production guard; the runbook's smoke test says to confirm the logs do not contain
+   `using MockAiProvider`.
+4. **Pending OS restart / 76 updates** on the server — the owner's decision when to apply.
+5. **Shared box with production.** One machine, no HA; OfferLens shares CPU/RAM/disk with live production services. Documented in the runbook's
+   "known limits".
+6. **CI and backups unverified on the server.** The backup/restore scripts, the cron line, and the whole deploy have not been exercised on the
+   live box; no CI job builds or deploys this stack.
+7. **Old Cloud Vision key in git history** (F1) still stands — issue a new key for the deploy.
 
 ### Phase 6: Revenue & Compliance
 
