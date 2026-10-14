@@ -25,6 +25,11 @@ import providersPlugin from '@/plugins/providers.js';
 
 export function buildApp() {
     const app = Fastify({
+        // Hop count from TRUST_PROXY (audit D10). 0 means off → `false`, so request.ip stays the
+        // socket address; a positive count trusts that many X-Forwarded-For entries from the
+        // right. Behind the guide's single host nginx this is 1. The proxy must overwrite
+        // X-Forwarded-For, not append to a client-supplied one.
+        trustProxy: config.TRUST_PROXY === 0 ? false : config.TRUST_PROXY,
         logger: { level: config.LOG_LEVEL }, // We use custom request logger but standard logger for internals
         disableRequestLogging: true, // Disable default to use ours
     });

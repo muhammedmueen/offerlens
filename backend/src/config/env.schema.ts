@@ -49,6 +49,21 @@ export const envSchema = z.object({
 
     STORAGE_PATH: z.string().default('./uploads'),
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+
+    /**
+     * Number of proxy hops in front of the API, passed to Fastify's `trustProxy` (audit D10).
+     *
+     * A hop COUNT, not a boolean: `z.coerce.boolean()` reads any non-empty string — including
+     * `"false"` — as true, which is exactly the trap `ALLOW_AI_REQUEST_OVERRIDE` fell into. 0
+     * means off (Fastify gets `false`); behind the guide's single host nginx use 1. Capped at 5
+     * so a typo cannot make Fastify trust an absurd chain. An unparseable value is rejected.
+     */
+    TRUST_PROXY: z
+        .string()
+        .optional()
+        .transform((v) => (v === undefined || v === '' ? 0 : Number(v)))
+        .pipe(z.number().int().min(0).max(5))
+        .default(0),
 });
 
 export type Env = z.infer<typeof envSchema>;
