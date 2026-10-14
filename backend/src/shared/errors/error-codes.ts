@@ -15,6 +15,9 @@ export const ERROR_CODES = {
     FEATURE_NOT_IN_PLAN: 'FEATURE_NOT_IN_PLAN',
     INTERNAL_ERROR: 'INTERNAL_ERROR',
     SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
+    // Image/scanned-document OCR was requested but this deployment has no real OCR provider
+    // (production + mock). The user can still paste text or upload a text-layer PDF.
+    OCR_UNAVAILABLE: 'OCR_UNAVAILABLE',
     EMAIL_IN_USE: 'EMAIL_IN_USE',
     INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
     TOKEN_EXPIRED: 'TOKEN_EXPIRED',

@@ -55,6 +55,19 @@ export function isRateLimited(err: unknown): boolean {
   return res?.status === 429 && res.data?.error?.code === "RATE_LIMIT_EXCEEDED";
 }
 
+/**
+ * The backend's OCR_UNAVAILABLE: this deployment has no real OCR provider, so an image or
+ * scanned document cannot be read here (the mock is refused in production). Pasted text and
+ * text-layer PDFs are unaffected. Mapped the same way as the rate-limit 429 above: by the
+ * error code, so the copy below is the one place the user-facing message lives.
+ */
+export function isOcrUnavailable(err: unknown): boolean {
+  return (err as ApiErrorLike)?.response?.data?.error?.code === "OCR_UNAVAILABLE";
+}
+
+export const OCR_UNAVAILABLE_TEXT =
+  "Image uploads aren't available here. Paste the text instead, or upload a PDF with selectable text.";
+
 /** Id of the exhausted-quota notice, for `aria-describedby` on the disabled upload button. */
 export const QUOTA_NOTICE_ID = "quota-notice";
 

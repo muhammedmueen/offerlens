@@ -18,5 +18,9 @@ export const ACTIVE_REFERENCE_SOURCES = [REFERENCE_SOURCE.source] as const;
 
 export const SO_SURVEY_URL = 'https://survey.stackoverflow.co/2025';
 export const ODBL_URL = 'https://opendatacommons.org/licenses/odbl/1-0/';
-export const DATASET_URL = 'https://github.com/muhammedmueen/offerlens/tree/main/data/so-2025-india';
+// ponytail: the dataset host is hardcoded. The repo is private, so the old github.com/.../tree
+// link 404s for an anonymous visitor (audit D9); this points at the deploy's own static path.
+// To move the host, change all four constants (here, city-adjustment.ts, and both in
+// frontend/src/constants/attribution.ts) AND the nginx `location /datasets/` block in deploy/.
+export const DATASET_URL = 'https://offerlens.mueens.tech/datasets/so-2025-india/';
 export const ATTRIBUTION_TEXT = 'Contains information from the Stack Overflow Developer Survey 2025 (Stack Exchange Inc.), made available under the Open Database License (ODbL).';

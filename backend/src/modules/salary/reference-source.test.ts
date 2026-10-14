@@ -16,6 +16,17 @@ describe('reference-source attribution', () => {
         expect(ODBL_URL).toContain('odbl/1-0');
     });
 
+    // Audit D9: the dataset links now point at the deploy's own static host, not the private
+    // github.com/.../tree URL that 404s for an anonymous visitor. The host is hardcoded (see the
+    // ponytail: comments on the constants); this pins it so a stray edit does not reintroduce the
+    // dead GitHub link.
+    it('serves the dataset links from the deploy host, not a private GitHub tree URL', () => {
+        for (const url of [DATASET_URL, PLFS_DATASET_URL]) {
+            expect(url).toContain('offerlens.mueens.tech/datasets/');
+            expect(url).not.toContain('github.com');
+        }
+    });
+
     it.each([
         ['SO_SURVEY_URL', SO_SURVEY_URL],
         ['ODBL_URL', ODBL_URL],

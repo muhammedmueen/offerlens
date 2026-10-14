@@ -68,4 +68,8 @@ export function adjustedLocationLabel(key: string): string {
 
 export const PLFS_CITATION_TEXT = 'City adjustment derived from the Periodic Labour Force Survey 2023-24, National Statistics Office, MoSPI.';
 export const PLFS_URL = 'https://microdata.gov.in/NADA/index.php/catalog/213';
-export const PLFS_DATASET_URL = 'https://github.com/muhammedmueen/offerlens/tree/main/data/plfs-city-factors';
+// ponytail: the dataset host is hardcoded. Same reason and change-list as DATASET_URL in
+// reference-source.ts: to move the host, change all four constants (here, reference-source.ts,
+// and both in frontend/src/constants/attribution.ts) AND the nginx `location /datasets/` block
+// in deploy/. This path is only served after the owner passes the PLFS gate (the MoSPI e-mail).
+export const PLFS_DATASET_URL = 'https://offerlens.mueens.tech/datasets/plfs-city-factors/';

@@ -10,6 +10,9 @@ import {
 } from '@/providers/ai/usage.js';
 import type { OcrProvider, OcrResult } from '@/providers/ocr/ocr.provider.js';
 import { GuestService } from '@/modules/guest/guest.service.js';
+import { config } from '@/config/index.js';
+import { AppError } from '@/shared/errors/app-error.js';
+import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 
 /**
  * The ledger's one and only DB write.
@@ -71,6 +74,20 @@ export async function meterOcr(
     ctx: UsageContext,
     insert: (row: NewUsageLedgerRow) => Promise<void> = insertLedgerRow,
 ): Promise<OcrResult> {
+    // Honest OCR in production. This is the one function both OCR callers reach — the
+    // /offers/extract-file route (via OfferService.extractTextFromFile) and the OCR worker's
+    // image branch — so the guard lives here once rather than at each caller. In production the
+    // mock provider would hand back canned text and a fabricated analysis, so refuse the image/
+    // scanned-document OCR request with a clear 4xx. Development and test are untouched: the mock
+    // is the expected local provider. Pasted text and text-layer PDFs never call meterOcr.
+    if (config.NODE_ENV === 'production' && ocr.name === 'mock') {
+        throw new AppError(
+            ERROR_CODES.OCR_UNAVAILABLE,
+            'Image uploads are not available on this deployment. Paste the text or upload a PDF with selectable text.',
+            400,
+        );
+    }
+
     const recorder = createUsageRecorder(ctx, ocr.name === 'mock' ? 'mock' : 'platform', insert);
     const base = {
         purpose: 'ocr' as const,
