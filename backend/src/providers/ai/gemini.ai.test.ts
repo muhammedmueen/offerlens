@@ -56,10 +56,11 @@ describe('isRetryableModelError', () => {
 
 describe('model configuration', () => {
     it('lists only models verified to answer generateContent', () => {
-        // Checked live against ListModels plus real calls. gemini-2.0-flash and
-        // gemini-2.0-flash-lite do not exist; gemini-2.5-flash-lite is listed but 404s.
+        // Last verified live 2026-10-15 against ListModels on a fresh key. gemini-2.5-flash
+        // is DEAD for new keys (404s on generateContent) and was removed; gemini-3.5-flash
+        // is the owner-chosen default, with the moving `-latest` aliases as the safety net.
         expect([...GEMINI_FALLBACK_MODELS]).toEqual([
-            'gemini-2.5-flash',
+            'gemini-3.5-flash',
             'gemini-flash-latest',
             'gemini-flash-lite-latest',
         ]);

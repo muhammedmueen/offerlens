@@ -184,6 +184,11 @@ Edit `.env.production`:
 - `POSTGRES_PASSWORD` — the 24-byte value, AND paste the SAME value into the
   `__POSTGRES_PASSWORD__` slot inside `DATABASE_URL`.
 - `GEMINI_API_KEY` — the real Gemini key (OfferLens falls back to the mock without it).
+- `GEMINI_MODEL` — **optional, leave unset.** The baked-in default is `gemini-3.5-flash`
+  (verified against a live key on 2026-10-15), so a fresh key works without an override. It only
+  had to be set before because the old default (`gemini-2.5-flash`) is dead for new keys. If you
+  carried a `GEMINI_MODEL=gemini-3.8-flash` line from an earlier deploy, you can remove it after
+  redeploying.
 - **OCR (from §0.1):** set `OCR_PROVIDER=azure`, then uncomment and fill the two Azure lines with
   the values from the Azure portal:
   - `AZURE_DOC_INTELLIGENCE_ENDPOINT=https://<your-resource>.cognitiveservices.azure.com`

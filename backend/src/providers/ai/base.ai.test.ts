@@ -6,7 +6,7 @@ import type { AiProviderName } from './usage.js';
  * Model resolution, tested through the real base class.
  *
  * The bug: the enqueue path defaulted every job's `model` to DEFAULT_GEMINI_MODEL, so
- * selecting OpenAI or Anthropic handed that adapter "gemini-2.5-flash". A vendor's
+ * selecting OpenAI or Anthropic handed that adapter a Gemini id. A vendor's
  * invalid-model error is a 404 and none of the adapters classify that as retryable — rightly,
  * since retrying a malformed request elsewhere only burns quota — so `withFallback` rethrew on
  * the first attempt, the remaining models were never tried, and the analysis died with
@@ -74,9 +74,9 @@ describe('resolveModel precedence', () => {
 describe('foreign model ids', () => {
     it('ignores a requested id belonging to another vendor', () => {
         // The exact shape of the bug: a Gemini id in an OpenAI job payload.
-        expect(new TestProvider().pick('analysis', 'gemini-2.5-flash')).toBe('gpt-4.1-mini');
+        expect(new TestProvider().pick('analysis', 'gemini-3.5-flash')).toBe('gpt-4.1-mini');
         expect(warn).toHaveBeenCalledOnce();
-        expect(String(warn.mock.calls[0][0])).toContain('gemini-2.5-flash');
+        expect(String(warn.mock.calls[0][0])).toContain('gemini-3.5-flash');
     });
 
     it('ignores a foreign id in the pinned override too', () => {
@@ -88,7 +88,7 @@ describe('foreign model ids', () => {
     });
 
     it('still honours the override when the request is foreign', () => {
-        expect(new TestProvider('gpt-4o-mini').pick('analysis', 'gemini-2.5-flash')).toBe('gpt-4o-mini');
+        expect(new TestProvider('gpt-4o-mini').pick('analysis', 'gemini-3.5-flash')).toBe('gpt-4o-mini');
     });
 
     it('passes through an unrecognised prefix rather than vetoing it', () => {

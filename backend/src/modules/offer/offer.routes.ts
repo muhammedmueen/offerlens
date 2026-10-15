@@ -88,7 +88,7 @@ export async function offerRoutes(fastify: FastifyInstance) {
             currentCtc: fields.currentCtc ? Number(fields.currentCtc) : undefined,
             // Left undefined rather than defaulted to DEFAULT_GEMINI_MODEL, which is what it
             // used to do. Now that a request can select OpenAI or Anthropic, baking a Gemini
-            // model id into every job would hand "gemini-2.5-flash" to whichever provider
+            // model id into every job would hand a Gemini id to whichever provider
             // ran — a 404 from the vendor, for a reason nothing in the log would explain.
             // Each provider resolves its own default.
             //

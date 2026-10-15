@@ -71,7 +71,7 @@ the file to Docker with `--env-file`, it overrides the image's own `NODE_ENV=pro
 | `GEMINI_API_KEY` | one key for the chosen provider | none | optional | No key for the selected provider silently selects the **mock** provider (canned output) |
 | `OPENAI_API_KEY` | see above | none | optional | |
 | `ANTHROPIC_API_KEY` | see above | none | optional | |
-| `GEMINI_MODEL`, `OPENAI_MODEL`, `ANTHROPIC_MODEL` | no | built-in per-task defaults | optional | Leave blank. The OpenAI and Anthropic ids are unverified against live keys |
+| `GEMINI_MODEL`, `OPENAI_MODEL`, `ANTHROPIC_MODEL` | no | built-in per-task defaults | optional | Leave blank. The baked-in Gemini default is `gemini-3.5-flash` (verified against a live key 2026-10-15), so a fresh key needs no `GEMINI_MODEL` override — remove any carried-over `GEMINI_MODEL` after redeploy. The OpenAI and Anthropic ids are unverified against live keys |
 | `ALLOW_AI_REQUEST_OVERRIDE` | no | off | `z.coerce.boolean()` | **Leave unset.** Any non-empty value, including `false` and `0`, parses as true. Production ignores it anyway |
 | `OCR_PROVIDER` | no | `mock` | `mock` / `google` / `azure` | Which provider serves OCR. `mock` is refused in production (`OCR_UNAVAILABLE`). `azure` reads images **and** scanned PDFs; `google` reads images only. See section 5 |
 | `AZURE_DOC_INTELLIGENCE_ENDPOINT` | with `OCR_PROVIDER=azure` | none | url | Document Intelligence endpoint, e.g. `https://<name>.cognitiveservices.azure.com`. Encodes the region (Central India) |
