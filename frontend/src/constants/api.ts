@@ -62,11 +62,11 @@ export const ITEMS_PER_PAGE = 20;
 
 // Mirrors SUPPORTED_FILE_TYPES in the backend, including text/plain — pdf-extractor.ts
 // already handles it, but it was missing here so .txt was rejected before upload.
+// image/webp dropped in task 6.4 to match the backend: Azure Read does not accept webp.
 export const ACCEPTED_FILE_TYPES = [
   "application/pdf",
   "image/jpeg",
   "image/png",
-  "image/webp",
   "text/plain",
 ];
 export const MAX_FILE_SIZE_MB = 10;

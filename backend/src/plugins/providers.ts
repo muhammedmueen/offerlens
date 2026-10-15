@@ -2,7 +2,7 @@ import fp from 'fastify-plugin';
 import { FastifyPluginAsync } from 'fastify';
 import { config } from '@/config/index.js';
 import { OcrProvider } from '@/providers/ocr/ocr.provider.js';
-import { GoogleVisionOcrProvider } from '@/providers/ocr/google-vision.ocr.js';
+import { createOcrProvider } from '@/providers/ocr/ocr.factory.js';
 import { MockOcrProvider } from '@/providers/ocr/mock.ocr.js';
 import { AiProvider } from '@/providers/ai/ai.provider.js';
 import { createAiProvider, describeSelection, type AiProviderSelection } from '@/providers/ai/ai.factory.js';
@@ -40,17 +40,16 @@ declare module 'fastify' {
 
 const providersPlugin: FastifyPluginAsync = async (fastify) => {
     // ── OCR ──
-    // Typed as the interface, not the ternary's union: the two concrete classes now carry a
-    // discriminating `name`, which makes `decorate('ocr', ...)` infer the setter type from the
-    // first branch and reject the other. The decorator is declared `OcrProvider` anyway.
-    const ocrProvider: OcrProvider = config.GOOGLE_CLOUD_CREDENTIALS
-        ? new GoogleVisionOcrProvider()
-        : new MockOcrProvider();
+    // One factory, shared with the OCR worker, selects the provider from OCR_PROVIDER + creds.
+    const ocrProvider: OcrProvider = createOcrProvider();
 
     if (ocrProvider instanceof MockOcrProvider) {
-        fastify.log.warn('Using Mock OCR Provider (Set GOOGLE_CLOUD_CREDENTIALS to use real Vision API)');
+        fastify.log.warn(
+            'Using Mock OCR Provider. Set OCR_PROVIDER=azure (+ AZURE_DOC_INTELLIGENCE_ENDPOINT/_KEY) '
+            + 'for images and scanned PDFs, or OCR_PROVIDER=google (+ GOOGLE_CLOUD_CREDENTIALS) for images.',
+        );
     } else {
-        fastify.log.info('Using Google Cloud Vision OCR Provider');
+        fastify.log.info({ provider: ocrProvider.name }, 'OCR provider initialised');
     }
 
     // ── AI ──

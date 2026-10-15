@@ -345,14 +345,73 @@ Stored in `analyses.salary_comparison`:
 ```typescript
 {
   marketRange: { p25: number; p50: number; p75: number; p90: number };
-  offerPercentile: number;      // 0-100
+  offerPercentile: number | null; // 0-100; null when the letter states no CTC
   roleUsed: string;             // "Software Engineer"
   roleMatchConfidence: number;  // 0.0-1.0
-  locationUsed: string;         // "Bangalore, India"
-  dataSource: "ai_estimated" | "crowdsourced";
+  locationUsed: string;         // "Bangalore, India", "India (national)" for public_survey, or "India (national), adjusted for Mumbai" (5.1b)
+  dataSource: "ai_estimated" | "crowdsourced" | "public_survey";
   disclaimer: string | null;    // "City-level data unavailable..."
+  // Optional, set when a real benchmark was used:
+  sampleSize?: number;
+  benchmarkScope?: "role_city" | "role_experience_national" | "role_national"
+    | "role_experience_city_adjusted" | "role_city_adjusted";   // 5.1b: survey figures x a PLFS city factor
+  experienceBracket?: string;
+  // 5.6, public_survey only: set when the survey has no respondents in the offer's experience range.
+  // The range is shown but offerPercentile is null and salary is left out of the score.
+  percentileWithheld?: "no_experience_rows" | null;
+  // 5.7, crowdsourced only: which kind of pay served the number ("mixed" = pooled), and for "mixed"
+  // the data points by kind (sums to sampleSize). Absent on analyses stored before 5.7.
+  payBasis?: "offered" | "current" | "mixed" | null;
+  payMix?: { offered: number; current: number; unlabelled: number } | null;
+  // 5.1b, public_survey only, present when the survey figures were scaled by a PLFS city factor. Absent otherwise.
+  cityAdjustment?: { source: "plfs_2023_24"; city: string; cityLabel: string; factor: number; plfsSampleSize: number; period: "2023-24" };
 }
 ```
+
+`public_survey` is modelled from the Stack Overflow Developer Survey 2025 (India, ODbL) and is read
+from `salary_reference_rows`, a separate table from `salary_submissions`. The two are never pooled.
+Each row there holds `source`, `source_version`, `source_row_id`, `licence`, `collected_at`, `role`
+(a seed label), `city` (NULL = national), `experience_years`, `ctc` (annual INR), nullable
+`company_type` / `company_size`, `weight` and `created_at`; unique on
+`(source, source_version, source_row_id)`, indexed on `(source, role, experience_years)`. It has no
+user, guest or fingerprint column. Loaded by `npm run db:load-reference`.
+
+#### `city_pay_factors` (5.1b)
+
+Per-city multipliers derived from PLFS 2023-24 (MoSPI Data Access Agreement, non-commercial use only; see `data/plfs-city-factors/README.md`). At most six rows
+per `(source, source_version)`, one per metro, aggregates only: no column could hold a respondent-level value. A city with fewer than 30 sampled persons has no row, and
+no row means "no factor". Kept apart from `salary_reference_rows` (ODbL) and `salary_submissions`, so removing PLFS is a `DROP TABLE`. Created by migration `0008`
+(expand-only; its header carries the rollback); loaded by `npm run db:load-city-factors` from `data/plfs-city-factors/city_factors.csv` and `build_report.json`.
+
+| Column | Type | Notes |
+| :--- | :--- | :--- |
+| `id` | uuid PK | `gen_random_uuid()` |
+| `source`, `source_version` | text | `plfs_2023_24`, `2023-24` |
+| `city` | text | canonical metro key: `bangalore`, `mumbai`, `delhi ncr`, `hyderabad`, `pune`, `chennai` |
+| `n_respondents` | integer | unweighted sampled persons behind the factor, CHECK `>= 30` |
+| `national_n` | integer | national group size, CHECK `>= 30` |
+| `raw_ratio` | double | city weighted median / national weighted median, CHECK 0.5 to 2.0 |
+| `shrinkage_weight` | double | `n / (n + K)` with `K = 30`, CHECK between 0 and 1 (exclusive) |
+| `factor` | double | `exp(shrinkage_weight * ln(raw_ratio))` rounded to 2 dp, CHECK 0.5 to 2.0; the number shown is the number multiplied |
+| `licence` | text | `PLFS-DAA-non-commercial` |
+| `reference_period_end` | timestamptz | end of the survey period (2024-06-30) |
+| `created_at` | timestamptz | default `now()` |
+
+Unique on `(source, source_version, city)`. The salary lookup reads it per request, only on the survey tiers and only after the crowdsourced tiers have failed; any read
+problem or an unusable row means national figures. Behavioural rollback with no deploy: `DELETE FROM city_pay_factors;`.
+
+In `scoreBreakdown.components`, the salary component may carry
+`basis: { source, scope }`. Comparisons rank salary only when two offers share a basis.
+A component whose value is `null` (no data) has weight 0 and its weight is redistributed; since 5.6 it may also carry
+`unscoredReason: "no_experience_rows"`, meaning the survey has no data at the offer's experience level. The comparison
+shows such a cell as "Not scored" with no winner, and an analysis stored without the field renders as before.
+
+**`salary_submissions.pay_basis` (migration 0007, task 5.7).** `text`, nullable, `CHECK (pay_basis IN ('current','offered'))`.
+`current` = what the contributor is paid now, `offered` = a CTC from an offer letter, NULL = "Not sure" or a row stored before
+0007 (no backfill). It is an attribute of the pay, not an identifier, and is not derived from any identifier. The lookup uses
+`pay_basis = X` for the like-with-like tiers, which SQL never matches for NULL, so NULL rows count only in the pooled tier.
+Rollback: `ALTER TABLE salary_submissions DROP COLUMN pay_basis` (drops the constraint with it), delete the
+`drizzle.__drizzle_migrations` row with `created_at = 1791881699089`, and delete the Redis keys `salary:crowd:v3:*`.
 
 ### Negotiation Suggestions (JSONB)
 
@@ -439,7 +498,7 @@ npx drizzle-kit push
 | **Phase 2** | Add `users` table, add `user_id` FK to `offers`, `feature_requests`, `analytics_events` | Guest → user migration: update `offers.user_id` where `guest_id` matches fingerprint |
 | **Phase 2** | Add `payments` table (pass type, amount, status, expires_at) | Links to `users` |
 | **Phase 2** | Add `offer_comparisons` table (set of offer IDs, recommendation) | JSONB for comparison matrix |
-| **Phase 3** | Add `salary_submissions` table (anonymized salary data) | No FK to users — fully anonymous |
+| **Phase 3** | Add `salary_submissions` table (anonymized salary data) | The `user_id` column and its FK to users remain but are deprecated and never written (always NULL), as is `fingerprint`; timestamps are coarsened to the UTC day |
 | **Phase 3** | Add `forum_posts`, `forum_replies` tables | Standard forum schema |
 
 > No existing tables need structural changes. Phase 2/3 is purely additive — new tables, new FKs on existing tables.

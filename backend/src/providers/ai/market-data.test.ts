@@ -7,7 +7,7 @@ const REAL = {
     offerPercentile: 62,
     roleUsed: 'senior software engineer',
     locationUsed: 'bangalore',
-    disclaimer: 'Based on 9 verified submissions for this role and city.',
+    disclaimer: 'Based on 9 crowdsourced, unverified submissions for this role and city.',
 };
 
 const ESTIMATED = {
@@ -17,10 +17,10 @@ const ESTIMATED = {
     disclaimer: 'Estimated from general market knowledge.',
 };
 
-describe('describeMarketData — verified submissions', () => {
+describe('describeMarketData — crowdsourced submissions', () => {
     it('permits citing the figures and includes the percentile', () => {
         const out = describeMarketData(REAL);
-        expect(out).toContain('VERIFIED');
+        expect(out).toContain('CROWDSOURCED');
         expect(out).toContain('You MAY cite these figures');
         expect(out).toContain('62');
         expect(out).toContain('2400000');
@@ -30,6 +30,34 @@ describe('describeMarketData — verified submissions', () => {
         const out = describeMarketData(REAL);
         expect(out).toContain('senior software engineer');
         expect(out).toContain('bangalore');
+    });
+});
+
+const SURVEY = {
+    dataSource: 'public_survey',
+    marketRange: { p25: 1_800_000, p50: 2_300_000, p75: 2_900_000, p90: 3_500_000 },
+    offerPercentile: 48,
+    roleUsed: 'Backend Engineer',
+    locationUsed: 'India (national)',
+    disclaimer: 'Modelled from public surveys, not offers in your city. India-wide benchmark.',
+};
+
+describe('describeMarketData — public survey', () => {
+    it('names the survey, permits citing it, and is never called VERIFIED', () => {
+        const out = describeMarketData(SURVEY);
+        expect(out).toContain('PUBLIC SURVEY');
+        expect(out).toContain('Stack Overflow Developer Survey 2025');
+        expect(out).toContain('You MAY cite');
+        expect(out).toContain('Do NOT describe them as offers, submissions');
+        expect(out).not.toMatch(/VERIFIED/i);
+        expect(out).toContain('2300000');
+        expect(out).toContain('48th percentile');
+    });
+
+    it('omits the percentile line when the percentile is null, never printing "?th"', () => {
+        const out = describeMarketData({ ...SURVEY, offerPercentile: null });
+        expect(out).not.toContain('percentile of survey respondents');
+        expect(out).not.toContain('?th');
     });
 });
 
@@ -61,9 +89,9 @@ describe('describeMarketData — absent', () => {
 describe('describeMarketData — provenance is never lost', () => {
     it('every branch states where the numbers came from', () => {
         // A branch that renders bare numbers with no provenance is the bug this guards.
-        for (const input of [REAL, ESTIMATED, null]) {
+        for (const input of [REAL, ESTIMATED, SURVEY, null]) {
             const out = describeMarketData(input);
-            expect(out).toMatch(/VERIFIED|AI ESTIMATE|NONE AVAILABLE/);
+            expect(out).toMatch(/CROWDSOURCED|AI ESTIMATE|PUBLIC SURVEY|NONE AVAILABLE/);
         }
     });
 

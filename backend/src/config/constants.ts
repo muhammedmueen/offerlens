@@ -1,8 +1,10 @@
+// image/webp was dropped in task 6.4: Azure AI Document Intelligence Read does not accept webp
+// (pdf, tiff, jpeg, png, bmp, heif only), and we do not convert it. Stop accepting it at the door
+// so the API and UI agree rather than letting a webp reach the provider and be rejected there.
 export const SUPPORTED_FILE_TYPES = [
     'application/pdf',
     'image/jpeg',
     'image/png',
-    'image/webp',
     'text/plain',
 ] as const;
 
@@ -80,6 +82,14 @@ export const CAREER_PATH_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
 // Daily analysis and feature quotas are NOT here: they live in config/plans.ts and are
 // enforced by quota_counters. These are per-window request rate limits only.
+//
+// Only entries applied with `routeLimit('<name>')` are enforced; everything else shares the
+// `global` bucket. Wired: offerExtractText, offerExtractFile, accountExport, authSignup, authLogin,
+// negotiate, compare, benefits, salaryStats (plus authLoginIp and authLoginEmail through
+// `createLoginGuard`, not `routeLimit`). NOT wired (no route uses them, so they do nothing):
+// offerPolling, analysisGet, offerDelete, reportGet, metadata, featureRequestCreate,
+// featureRequestVote, corrections. Wiring offerPolling would be a mistake as written: 60/min
+// leaves little room over a 1 s poll loop (those routes ride the 100/min global instead).
 export const RATE_LIMITS = {
     // Both call paid third-party APIs (Gemini and Cloud Vision) and are reachable without
     // an account, so they are the cheapest way to run up someone else's bill. Tight (C2).
@@ -91,14 +101,24 @@ export const RATE_LIMITS = {
     accountExport: { max: 5, window: '1 hour' },
     reportGet: { max: 10, window: '1 minute' },
     metadata: { max: 30, window: '1 minute' },
+    // Public, unauthenticated Salary Explorer read; a cold call can now run up to 3 indexed queries.
+    salaryStats: { max: 30, window: '1 minute' },
     featureRequestCreate: { max: 5, window: '1 hour' },
     featureRequestVote: { max: 30, window: '1 minute' },
     authSignup: { max: 5, window: '1 hour' },
+    // POST /auth/login and /auth/google: per browser cookie (per IP when the request has no cookie).
     authLogin: { max: 10, window: '15 minutes' },
+    // POST /auth/login ONLY, enforced by `createLoginGuard` (not `routeLimit`): per client IP (30), and
+    // per normalised email, any cookie or IP (10; attempts since the last successful login). /auth/google
+    // has no email in its body, so neither applies there. `windowMs` is the same window as a number.
+    authLoginIp: { max: 30, window: '15 minutes', windowMs: 15 * 60 * 1000 },
+    authLoginEmail: { max: 10, window: '15 minutes', windowMs: 15 * 60 * 1000 },
     negotiate: { max: 10, window: '1 hour' },
     compare: { max: 20, window: '1 hour' },
     corrections: { max: 20, window: '1 hour' },
-    benefits: { max: 20, window: '1 hour' },
+    // Pure calculation, no AI call. 20 -> 60 in 5.4 (owner-approved): the drawer's open-time fetch
+    // plus each "Recalculate" costs one request.
+    benefits: { max: 60, window: '1 hour' },
     global: { max: 100, window: '1 minute' },
 } as const;
 

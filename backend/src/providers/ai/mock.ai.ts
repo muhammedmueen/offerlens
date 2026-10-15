@@ -93,9 +93,9 @@ export class MockAiProvider implements AiProvider {
         await this.meter('career');
         return {
             timeline: [
-                { year: 1, title: input.role, focus: "Onboarding & learning core stack", salaryRange: "10-15 LPA" },
-                { year: 3, title: `Senior ${input.role}`, focus: "Mentoring & system design", salaryRange: "20-30 LPA" },
-                { year: 5, title: `Staff ${input.role}`, focus: "Architecture & strategy", salaryRange: "40-60 LPA" }
+                { year: 1, title: input.role, focus: "Onboarding & learning core stack" },
+                { year: 3, title: `Senior ${input.role}`, focus: "Mentoring & system design" },
+                { year: 5, title: `Staff ${input.role}`, focus: "Architecture & strategy" }
             ],
             skillsToLearn: ["System Design", "Leadership", "Cloud Architecture"],
             potentialRoles: ["Engineering Manager", "Principal Engineer"]

@@ -14,10 +14,12 @@ interface SalaryBarProps {
   p90: number;
   /** The user's own offer, drawn as a reference line. */
   userSalary?: number;
+  /** 5.6: the offer was not ranked against this range, so no marker (a line on the bars reads as a placement). */
+  hideOffer?: boolean;
   label?: string;
 }
 
-const SalaryBar: React.FC<SalaryBarProps> = ({ p25, p50, p75, p90, userSalary, label }) => {
+const SalaryBar: React.FC<SalaryBarProps> = ({ p25, p50, p75, p90, userSalary, hideOffer, label }) => {
   const data = [
     { name: "P25", value: p25 },
     { name: "Median", value: p50 },
@@ -44,7 +46,7 @@ const SalaryBar: React.FC<SalaryBarProps> = ({ p25, p50, p75, p90, userSalary, l
             formatter={(value: number) => [`₹${value.toLocaleString("en-IN")}`, "Salary"]}
           />
           <Bar dataKey="value" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-          {userSalary ? (
+          {userSalary && !hideOffer ? (
             <ReferenceLine y={userSalary} stroke="hsl(var(--cta))" strokeDasharray="4 4" label={{ value: "Your Offer", fill: "hsl(var(--cta))", fontSize: 11 }} />
           ) : null}
         </BarChart>

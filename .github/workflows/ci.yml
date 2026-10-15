@@ -43,6 +43,14 @@ jobs:
 
       - name: Build
         run: npm run build
+      # The build rewrites the @/ path aliases (tsc-alias). Loading the compiled app fails with
+      # ERR_MODULE_NOT_FOUND if any survive. Imports only: nothing connects, so no services.
+      - name: Production build smoke
+        run: node -e "import('./dist/src/app.js').then(() => process.exit(0))"
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/unused
+          JWT_SECRET: ci-dummy-jwt-secret-not-a-real-secret-0000
+          JWT_REFRESH_SECRET: ci-dummy-jwt-refresh-secret-not-real-0000
 
   migrations:
     name: Backend — migration chain applies cleanly
@@ -85,10 +93,23 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/offerlens_test
 
+      # The seed and loader scripts import the full config, which exits unless the whole env
+      # validates, so they need the two required secrets even though they never use them.
+      # Dummy literals, not secrets.
       - name: Seed metadata
         run: npm run db:seed
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/offerlens_test
+          JWT_SECRET: ci-dummy-jwt-secret-not-a-real-secret-0000
+          JWT_REFRESH_SECRET: ci-dummy-jwt-refresh-secret-not-real-0000
+
+      # Proves the committed data/so-2025-india CSV passes the loader validation and the table CHECKs.
+      - name: Load salary reference rows
+        run: npm run db:load-reference
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/offerlens_test
+          JWT_SECRET: ci-dummy-jwt-secret-not-a-real-secret-0000
+          JWT_REFRESH_SECRET: ci-dummy-jwt-refresh-secret-not-real-0000
 
   frontend:
     name: Frontend — typecheck, lint, build

@@ -43,6 +43,27 @@
       "when": 1791715325755,
       "tag": "0005_anonymise_salary_submissions",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791797561443,
+      "tag": "0006_salary_reference_rows",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791881699089,
+      "tag": "0007_salary_pay_basis",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791890009175,
+      "tag": "0008_city_pay_factors",
+      "breakpoints": true
     }
   ]
 }

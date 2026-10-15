@@ -4,9 +4,7 @@ import { db } from '@/db/index.js';
 import { offers } from '@/db/schema/offers.js';
 import { eq } from 'drizzle-orm';
 import { OcrProvider } from '@/providers/ocr/ocr.provider.js';
-import { GoogleVisionOcrProvider } from '@/providers/ocr/google-vision.ocr.js';
-import { MockOcrProvider } from '@/providers/ocr/mock.ocr.js';
-import { config } from '@/config/index.js';
+import { createOcrProvider } from '@/providers/ocr/ocr.factory.js';
 import { analysisQueue } from '@/queue/queues.js';
 import { OCR_MIN_CONFIDENCE, MIN_EXTRACTED_TEXT_CHARS } from '@/config/constants.js';
 import { extractPdfText } from '@/providers/pdf/pdf-text.js';
@@ -15,10 +13,9 @@ import { failOfferAndRefund } from '@/modules/quota/quota.service.js';
 import { isFinalAttempt } from './attempts.js';
 import { runThenPurgeFile } from './stored-file.js';
 
-// Setup provider (should be injected or singleton, but new instance per worker process is fine)
-const ocrProvider: OcrProvider = config.GOOGLE_CLOUD_CREDENTIALS
-    ? new GoogleVisionOcrProvider()
-    : new MockOcrProvider();
+// One factory, shared with plugins/providers.ts, selects the provider from OCR_PROVIDER + creds.
+// A new instance per worker process is fine (the SDK clients hold no connection state).
+const ocrProvider: OcrProvider = createOcrProvider();
 
 /**
  * Mark an offer failed with a message written for the person who uploaded it.
@@ -190,8 +187,14 @@ async function processOcr(job: Job) {
 }
 
 // The uploaded file is deleted once extraction is over, success or failure (task 4.5).
+//
+// lockDuration (120s) is set HERE, not in defaultWorkerOptions, on purpose: only the OCR job
+// now blocks on an async Azure analyze LRO (polled, bounded to 110s in the provider), which can
+// exceed BullMQ's 30s default lock and get re-queued mid-flight. The analysis worker has no such
+// long synchronous wait, so widening the shared default would loosen its lock for no reason.
+// Concurrency and the rest of the options are inherited unchanged.
 export const ocrWorker = new Worker(
     'ocr-queue',
     (job: Job) => runThenPurgeFile(job, job.data.storedPath, () => processOcr(job)),
-    defaultWorkerOptions
+    { ...defaultWorkerOptions, lockDuration: 120_000 }
 );

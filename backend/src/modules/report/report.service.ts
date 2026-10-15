@@ -6,6 +6,8 @@ import PDFDocument from 'pdfkit';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 import { AnalysisResult } from '@/modules/analysis/analysis.types.js';
+import { ATTRIBUTION_TEXT, SO_SURVEY_URL, ODBL_URL } from '@/modules/salary/reference-source.js';
+import { PLFS_CITATION_TEXT, PLFS_URL } from '@/modules/salary/city-adjustment.js';
 
 export class ReportService {
     async generatePDF(offerId: string): Promise<PDFKit.PDFDocument> {
@@ -90,11 +92,27 @@ export class ReportService {
             doc.fontSize(10).font('Helvetica').fillColor('#333');
             doc.text(`Role Used: ${salary.roleUsed} (${Math.round(salary.roleMatchConfidence * 100)}% match)`);
             doc.text(`Location: ${salary.locationUsed}`);
-            doc.text(`Your Offer Percentile: ${salary.offerPercentile}th`);
+            // Null when the letter states no CTC to rank: omit the line rather than print "nullth".
+            if (typeof salary.offerPercentile === 'number') {
+                doc.text(`Your Offer Percentile: ${salary.offerPercentile}th`);
+            }
             doc.moveDown(0.3);
             doc.text(`Market Range: P25=${salary.marketRange.p25.toLocaleString()} | P50=${salary.marketRange.p50.toLocaleString()} | P75=${salary.marketRange.p75.toLocaleString()} | P90=${salary.marketRange.p90.toLocaleString()}`);
             if (salary.disclaimer) {
                 doc.fontSize(8).fillColor('#999').text(salary.disclaimer);
+            }
+            // ODbL attribution beside every displayed survey benchmark. Plain text, 9 pt #333:
+            // the grey disclaimer above is too faint for a legal notice.
+            if (salary.dataSource === 'public_survey') {
+                doc.moveDown(0.3);
+                doc.fontSize(9).font('Helvetica').fillColor('#333').text(ATTRIBUTION_TEXT);
+                doc.text(`Survey: ${SO_SURVEY_URL}`);
+                doc.text(`Licence: ${ODBL_URL}`);
+                // 5.1b: the PLFS citation beside every number that used a city factor (same 9 pt #333).
+                if (salary.cityAdjustment) {
+                    doc.text(PLFS_CITATION_TEXT);
+                    doc.text(`Survey: ${PLFS_URL}`);
+                }
             }
             doc.moveDown(1);
         }

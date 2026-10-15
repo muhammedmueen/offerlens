@@ -1,0 +1,234 @@
+{
+  "source": "plfs_2023_24",
+  "source_version": "2023-24",
+  "script_version": "1.0.0",
+  "reference_period": "2023-07 to 2024-06",
+  "constants": {
+    "K": 30,
+    "floor": 30,
+    "age_min": 18,
+    "age_max": 60,
+    "acws": "31",
+    "nco": [
+      "251",
+      "252"
+    ],
+    "factor_decimals": 2
+  },
+  "funnel": {
+    "persons": 418159,
+    "urban": 175613,
+    "urban_cws_31": 29833,
+    "nco_251_252": 1029,
+    "age_18_60": 1028,
+    "earnings_positive": 1028,
+    "usable_weight": 1028
+  },
+  "code_gate": {
+    "sector_codes": {
+      "1": 242546,
+      "2": 175613
+    },
+    "acws_among_earners": {
+      "31": 1028,
+      "other (<30 each)": "<30"
+    },
+    "occupation_codes_3_chars": true,
+    "passed": true
+  },
+  "weights": {
+    "branch_nss_eq_nsc_share": 0.0,
+    "no_qtr_histogram": {
+      "4": 1028
+    }
+  },
+  "geography": {
+    "district_persons": {
+      "06-18": 746,
+      "06-20": 804,
+      "07-01": 841,
+      "07-02": 222,
+      "07-03": 544,
+      "07-04": 415,
+      "07-05": 49,
+      "07-06": 41,
+      "07-07": 366,
+      "07-08": 455,
+      "07-09": 467,
+      "09-09": 1008,
+      "09-10": 740,
+      "27-21": 2728,
+      "27-22": 3807,
+      "27-25": 2391,
+      "29-18": 2407,
+      "33-01": 1184,
+      "33-02": 1621,
+      "33-03": 695,
+      "36-21": 161,
+      "36-22": 53,
+      "36-23": 3073
+    },
+    "mumbai_27_23_rows": "<30",
+    "city_quarter_coverage": {
+      "bangalore": {
+        "Q1": 47,
+        "Q2": 47,
+        "Q3": "<30",
+        "Q4": 47
+      },
+      "mumbai": {
+        "Q1": "<30",
+        "Q2": "<30",
+        "Q3": "<30",
+        "Q4": "<30"
+      },
+      "delhi ncr": {
+        "Q1": "<30",
+        "Q2": "<30",
+        "Q3": "<30",
+        "Q4": 35
+      },
+      "hyderabad": {
+        "Q1": 32,
+        "Q2": 35,
+        "Q3": "<30",
+        "Q4": "<30"
+      },
+      "pune": {
+        "Q1": "<30",
+        "Q2": 34,
+        "Q3": "<30",
+        "Q4": "<30"
+      },
+      "chennai": {
+        "Q1": 30,
+        "Q2": "<30",
+        "Q3": "<30",
+        "Q4": "<30"
+      }
+    }
+  },
+  "parse_drops": {
+    "national_share": 0.0,
+    "max_city_share": 0.0
+  },
+  "national": {
+    "n": 1028,
+    "n_fsu": 639
+  },
+  "dispersion": {
+    "national_log_sd": 0.48,
+    "implied_K_at_tau_0_15": 16.1
+  },
+  "cities": [
+    {
+      "city": "bangalore",
+      "districts": [
+        "29-18"
+      ],
+      "status": "published",
+      "n": 170,
+      "n_fsu": 74,
+      "raw_ratio": 1.042,
+      "shrinkage_weight": 0.85,
+      "factor": 1.04,
+      "factor_if_K15": 1.04,
+      "factor_if_K60": 1.03
+    },
+    {
+      "city": "mumbai",
+      "districts": [
+        "27-22",
+        "27-21",
+        "27-23"
+      ],
+      "status": "published",
+      "n": 31,
+      "n_fsu": "<30",
+      "raw_ratio": 0.625,
+      "shrinkage_weight": 0.508,
+      "factor": 0.79,
+      "factor_if_K15": 0.73,
+      "factor_if_K60": 0.85
+    },
+    {
+      "city": "delhi ncr",
+      "districts": [
+        "07-01",
+        "07-02",
+        "07-03",
+        "07-04",
+        "07-05",
+        "07-06",
+        "07-07",
+        "07-08",
+        "07-09",
+        "06-18",
+        "06-20",
+        "09-09",
+        "09-10"
+      ],
+      "status": "published",
+      "n": 86,
+      "n_fsu": 44,
+      "raw_ratio": 1.354,
+      "shrinkage_weight": 0.741,
+      "factor": 1.25,
+      "factor_if_K15": 1.29,
+      "factor_if_K60": 1.2
+    },
+    {
+      "city": "hyderabad",
+      "districts": [
+        "36-22",
+        "36-23",
+        "36-21"
+      ],
+      "status": "published",
+      "n": 124,
+      "n_fsu": 64,
+      "raw_ratio": 0.963,
+      "shrinkage_weight": 0.805,
+      "factor": 0.97,
+      "factor_if_K15": 0.97,
+      "factor_if_K60": 0.97
+    },
+    {
+      "city": "pune",
+      "districts": [
+        "27-25"
+      ],
+      "status": "published",
+      "n": 87,
+      "n_fsu": "<30",
+      "raw_ratio": 1.042,
+      "shrinkage_weight": 0.744,
+      "factor": 1.03,
+      "factor_if_K15": 1.04,
+      "factor_if_K60": 1.02
+    },
+    {
+      "city": "chennai",
+      "districts": [
+        "33-02",
+        "33-03",
+        "33-01"
+      ],
+      "status": "published",
+      "n": 90,
+      "n_fsu": 50,
+      "raw_ratio": 0.938,
+      "shrinkage_weight": 0.75,
+      "factor": 0.95,
+      "factor_if_K15": 0.95,
+      "factor_if_K60": 0.96
+    }
+  ],
+  "input": {
+    "file": "perv1.csv",
+    "size_bytes": 119224634,
+    "sha256": "b852af28508a230270b2d371e5a975230dbc363982bad97d1dc8f2601c2664f6",
+    "columns": 139,
+    "anchors_ok": true
+  }
+}

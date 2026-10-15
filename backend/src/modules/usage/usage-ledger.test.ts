@@ -3,9 +3,11 @@ import type { NewUsageLedgerRow } from '@/db/schema/usage-ledger.js';
 import type { OcrProvider, OcrResult } from '@/providers/ocr/ocr.provider.js';
 
 // These modules read config / connect to the DB at import time; neither is available under
-// `npm test`, so both are mocked the way the rest of the suite does it.
+// `npm test`, so both are mocked the way the rest of the suite does it. NODE_ENV is a mutable
+// hoisted value so the OCR-guard tests below can switch between development and production.
+const { configState } = vi.hoisted(() => ({ configState: { NODE_ENV: 'development' as string } }));
 vi.mock('@/config/index.js', () => ({
-    get config() { return { AI_PROVIDER: 'mock', GOOGLE_CLOUD_CREDENTIALS: undefined }; },
+    get config() { return { AI_PROVIDER: 'mock', GOOGLE_CLOUD_CREDENTIALS: undefined, NODE_ENV: configState.NODE_ENV }; },
 }));
 
 const guestsFindFirst = vi.fn();
@@ -21,6 +23,7 @@ const load = () => import('./usage-ledger.js');
 beforeEach(() => {
     guestsFindFirst.mockReset();
     vi.restoreAllMocks();
+    configState.NODE_ENV = 'development';
 });
 
 /** An OcrProvider whose success/failure and name are scripted per test. */
@@ -124,6 +127,91 @@ describe('meterOcr', () => {
             '/tmp/x.png', {}, async (r) => { rows.push(r); },
         );
         expect(rows[0]).toMatchObject({ billedTo: 'mock', costUsd: null, units: 1 });
+    });
+
+    // Honest OCR in production (the guard lives in meterOcr, the one shared choke point).
+    describe('production OCR guard', () => {
+        it('rejects a mock OCR call in production without running it or writing a row', async () => {
+            configState.NODE_ENV = 'production';
+            const { meterOcr } = await load();
+            const rows: NewUsageLedgerRow[] = [];
+            const extract = vi.fn(async () => okResult);
+
+            await expect(meterOcr(
+                fakeOcr('mock', extract),
+                '/tmp/scan.png', {}, async (r) => { rows.push(r); },
+            )).rejects.toMatchObject({ code: 'OCR_UNAVAILABLE', statusCode: 400 });
+
+            // No canned text handed back, no ledger row, no fabricated cost.
+            expect(extract).not.toHaveBeenCalled();
+            expect(rows).toHaveLength(0);
+        });
+
+        it('still runs the mock in development (local behaviour unchanged)', async () => {
+            configState.NODE_ENV = 'development';
+            const { meterOcr } = await load();
+            const rows: NewUsageLedgerRow[] = [];
+            const result = await meterOcr(
+                fakeOcr('mock', async () => okResult),
+                '/tmp/scan.png', {}, async (r) => { rows.push(r); },
+            );
+            expect(result).toEqual(okResult);
+            expect(rows).toHaveLength(1);
+        });
+
+        it('leaves the real provider path unchanged in production', async () => {
+            configState.NODE_ENV = 'production';
+            const { meterOcr } = await load();
+            const rows: NewUsageLedgerRow[] = [];
+            const result = await meterOcr(
+                fakeOcr('google-vision', async () => okResult),
+                '/tmp/scan.png', { offerId: 'o1' }, async (r) => { rows.push(r); },
+            );
+            expect(result).toEqual(okResult);
+            expect(rows[0]).toMatchObject({ provider: 'google-vision', success: true, units: 1 });
+        });
+
+        it('does NOT throw OCR_UNAVAILABLE for a configured azure provider in production', async () => {
+            configState.NODE_ENV = 'production';
+            const { meterOcr } = await load();
+            const rows: NewUsageLedgerRow[] = [];
+            const result = await meterOcr(
+                fakeOcr('azure-doc-intelligence', async () => okResult),
+                '/tmp/scan.pdf', { offerId: 'o1' }, async (r) => { rows.push(r); },
+            );
+            // A real (non-mock) provider is accepted: images AND scanned PDFs now work.
+            expect(result).toEqual(okResult);
+            expect(rows[0]).toMatchObject({
+                provider: 'azure-doc-intelligence', billedTo: 'platform', success: true,
+            });
+        });
+    });
+
+    describe('azure per-page billing', () => {
+        it('bills units=pageCount at the per-page rate when pages are reported', async () => {
+            const { meterOcr } = await load();
+            const { AZURE_READ_USD_PER_PAGE } = await import('@/providers/ai/usage.js');
+            const rows: NewUsageLedgerRow[] = [];
+            await meterOcr(
+                fakeOcr('azure-doc-intelligence', async () => ({ text: 'x', confidence: 0.9, pages: 3 })),
+                '/tmp/scan.pdf', { offerId: 'o1' }, async (r) => { rows.push(r); },
+            );
+            expect(rows[0]).toMatchObject({
+                provider: 'azure-doc-intelligence', model: 'prebuilt-read', billedTo: 'platform',
+                units: 3, costUsd: Number((3 * AZURE_READ_USD_PER_PAGE).toFixed(6)), success: true,
+            });
+        });
+
+        it('falls back to one unit when no page count is reported', async () => {
+            const { meterOcr } = await load();
+            const { AZURE_READ_USD_PER_PAGE } = await import('@/providers/ai/usage.js');
+            const rows: NewUsageLedgerRow[] = [];
+            await meterOcr(
+                fakeOcr('azure-doc-intelligence', async () => ({ text: 'x', confidence: null })),
+                '/tmp/scan.png', { offerId: 'o1' }, async (r) => { rows.push(r); },
+            );
+            expect(rows[0]).toMatchObject({ units: 1, costUsd: AZURE_READ_USD_PER_PAGE });
+        });
     });
 });
 

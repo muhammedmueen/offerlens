@@ -9,7 +9,7 @@ gotcha, the gotcha is stated rather than left to be discovered.
 
 | Tool | Version used | Notes |
 |---|---|---|
-| Node | 22+ | `node --version` |
+| Node | 22.13+ | `node --version`. `pdfjs-dist` needs 22.13 or newer; `backend/package.json` `engines` says so |
 | Docker Desktop | any recent | Must be **running**, not just installed |
 | An AI API key | — | Optional. Gemini, OpenAI or Anthropic — see §3.1. Without one the app uses a mock provider and returns canned analysis |
 
@@ -116,7 +116,23 @@ cd backend
 npm install
 npm run db:migrate     # build the schema
 npm run db:seed        # roles, cities, experience levels
+npm run db:load-reference  # Stack Overflow 2025 India salary rows (data/so-2025-india); safe to re-run
+npm run db:load-city-factors  # PLFS 2023-24 city factors (data/plfs-city-factors/city_factors.csv); safe to re-run
 ```
+
+The city factors are already built into data/plfs-city-factors/. Only rebuild them if you have the PLFS microdata, which
+must stay **outside the repository** (the script refuses a path inside it):
+
+```bash
+cd data/plfs-city-factors
+PLFS_DIR=/path/outside/the/repo python build_city_factors.py   # PowerShell: $env:PLFS_DIR='C:\path\outside\repo'
+python -m unittest test_build_city_factors   # fabricated fixtures only; no microdata needed
+```
+
+`PLFS_DIR` is read only by that Python script (not by the backend, not in `.env.example`). It writes two
+aggregate files, `city_factors.csv` and `build_report.json`; never paste, print or commit microdata rows.
+Details are in `data/plfs-city-factors/README.md`. Without the loader step every city simply gets the
+national survey figures.
 
 > [!WARNING]
 > Use `db:migrate`, **not** `db:push`. `drizzle.config.ts` sets `strict: true`, so `push`
@@ -154,8 +170,9 @@ The change takes effect on the next request. Nothing caches the plan.
 - **Only finished analyses count.** A slot is reserved when the upload is queued, and given back if
   the analysis ends FAILED. An offer stuck in QUEUED/PROCESSING is reaped and refunded within about
   6 minutes.
-- **Career paths are cached per offer**, so reopening the drawer is free. Correcting the extracted
-  data clears the cache, and the next open costs one.
+- **Career paths are cached per offer** (the narrative only), so reopening the drawer is free. Correcting the extracted
+  data clears the cache, and the next open costs one. The pay-by-experience table is not cached: it is recomputed
+  from the database on every open (a few indexed queries, no AI call).
 - **`POST /offers/extract-file` (Cloud Vision) is NOT on the daily autofill cap.** It only has its
   hourly route limit (10/hour). A script can call it without ever calling `/extract`, so it should
   probably share the autofill cap; that is an open owner decision.
@@ -235,8 +252,8 @@ curl http://localhost:8000/api/v1/health
 ### Unit tests — no services required
 
 ```bash
-cd backend && npm test        # 330 tests
-cd frontend && npm test       # 1 placeholder test
+cd backend && npm test        # 906 passed, 3 skipped (the skipped three are the opt-in Postgres quota proof)
+cd frontend && npm test       # 132 passed (12 files)
 ```
 
 These need no database, no Redis and no API key. They cover the pure decision logic:
@@ -261,7 +278,7 @@ npm run lint          # tsc --noEmit + eslint — passes
 ```
 
 > [!NOTE]
-> `npm run format:check` currently **fails on 69 files**. Prettier was added in `-1C` but
+> `npm run format:check` currently **fails on 157 files**. Prettier was added in `-1C` but
 > never applied to the existing code, so the config exists and the codebase predates it.
 > This is cosmetic and not enforced in CI. Fixing it is one command — `npm run format` —
 > but it rewrites nearly every file, so it deserves its own commit rather than being mixed
@@ -275,7 +292,7 @@ users and offers.
 ```bash
 cd backend
 node test-security.mjs    # 20 assertions — authorization and guest identity
-node test-m2.mjs          # 25 — auth, migration, and registered-user features
+node test-m2.mjs          # 32 — auth, migration, and registered-user features
 node test-m3.mjs          # 19 — forum, crowdsourced salary, career path
 ```
 
@@ -372,11 +389,13 @@ being a black box.
 **"How this score was reached"** — five rows, each with its own 0-100 mark, the weight
 applied, and a reason.
 
-- The weights should read 30 / 30 / 20 / 20 / 10 only when salary was scored. With no
-  verified submissions for the role and city, salary shows **"not scored"** at 0%, the others
-  scale up to 43 / 29 / 14 / 14, and the header carries *"Score based on limited market
-  data"*. Both are correct; which you get depends on whether the table has ≥5 rows for that
-  role and city.
+- The weights should read 30 / 30 / 20 / 20 / 10 only when salary was scored. Salary is scored
+  from crowdsourced submissions (10 or more for the role and city) or, for an Indian metro and a
+  developer-type role, from the Stack Overflow survey (`public_survey`, medium confidence, labelled
+  "modelled from public surveys, not offers in your city"). With neither, salary shows **"not
+  scored"** at 0%, the others scale up to 43 / 29 / 14 / 14, and the header carries *"Score based
+  on limited market data"*. Both are correct; which you get depends on the role, the city and
+  whether `db:load-reference` has been run.
 - The parts should sum to the score. If they don't, something is wrong — that is asserted in
   tests, so it should not happen.
 
@@ -497,7 +516,9 @@ Then check the dashboard shows a score distribution.
 3. Submit a salary. **Expected:** success. A second submission within the hour should be
    rate-limited. An approved submission **invalidates** the cache for that role and city, so
    the key above should disappear and the next search should reflect your submission
-   immediately rather than in an hour.
+   immediately rather than in an hour. A contribution (from the Explorer or the results-page card)
+   only shows up in a range once the role and city have 10 approved rows after outlier rejection, and
+   analyses already stored are never updated.
 
 ### 8.7 Forum
 
@@ -511,8 +532,8 @@ Things you may notice that are understood and tracked:
 
 | Behaviour | Why |
 |---|---|
-| Salary benchmarks say "estimated, not enough submissions" | Correct. Real crowdsourced data needs Phase 4 seeding |
-| Score says "Score based on limited market data" | Follows from the above. With no verified submissions for the role and city, salary is not scored and its 30 points are redistributed across the other four components — see "How this score was reached" on the results page |
+| Salary benchmarks say "estimated, not enough submissions" | Correct for an uncovered role or city, or if `npm run db:load-reference` was not run. Covered metros and developer roles get the India-wide survey benchmark instead |
+| Score says "Score based on limited market data" | Follows from the above. With no benchmark that has enough data (10 crowdsourced rows or a survey cell), salary is not scored and its 30 points are redistributed across the other four components — see "How this score was reached" on the results page |
 | Scores moved after task 10 | Expected. The old formula started every offer at 70 and nudged; the rubric builds the score from five weighted components instead. Flag-heavy offers score lower, and featureless ones no longer start at "good" |
 | An analysis completed but a whole section is missing | Task 15. The deterministic stages after the AI call — benefits checklist, take-home — now degrade to absent rather than failing the analysis, so a bug in one of them no longer throws away a paid-for AI call. Look for `[Stage] "..." threw and was skipped` in the worker or API log; every occurrence is a bug, not an expected condition. Red flags and the score are deliberately **not** degradable: a score missing its 30-point flag component would be wrong rather than partial |
 | A degraded analysis scored *higher* than you expected | Known consequence of the above. Unscored components are removed and their weight redistributed, not scored as zero — so the components that would have pulled the score down disappear with them. Measured: a letter with the checklist forced to fail scored 90/"excellent" off red flags and transparency alone. "How this score was reached" names what was not scored, and the weights shown are the ones actually applied |
@@ -542,10 +563,10 @@ Things you may notice that are understood and tracked:
 | OpenAI and Anthropic model ids are unverified | No key for either was available when the adapters were written. The ids in `src/config/constants.ts` are best-effort and flagged as such; override with `OPENAI_MODEL` / `ANTHROPIC_MODEL` if a call 404s |
 | **A job that finishes after the reaper failed it is free** | Known, rare. If one upload takes more than 5 minutes end to end, the reaper marks it FAILED and refunds the slot; if the worker then completes it anyway, that analysis cost nothing. Marked `ponytail:` in `analysis.worker.ts` |
 | **The AI negotiation stub is charged** | Known. When the provider falls back to a stub body without throwing, the negotiation unit is still used. Only a thrown error refunds it |
-| Per-user cost history disappears when an offer is deleted | Known. Tokens and cost are recorded in `analyses.aiMetadata.usage`, but `analyses` cascades from `offers` and `offers` cascades from `users`, and the cleanup worker deletes expired guest offers hourly. Task 4.1 moves it to an append-only ledger — it is the one thing here that cannot be backfilled later |
+| Per-user cost history survives an offer being deleted | Fixed in task 4.1. Every metered provider call is written to the append-only `usage_ledger` (migration 0003), which does not cascade from `offers` or `users`. `analyses.aiMetadata.usage` still carries the per-analysis figures but is deleted with the offer |
 | No admin interface | Deliberate, see Phase 7. Use `psql` against the Docker container; the panel gets built when someone other than you needs access, or when hand-written SQL becomes a daily chore |
 | No content moderation on forum or feature requests | Not built |
-| `GET /account/export` doesn't exist | Promised in the privacy policy, not implemented |
+| `GET /account/export` | Exists since task 4.7 (see `api-spec.md`); returns only the caller's own data |
 
 ---
 
@@ -558,7 +579,8 @@ Things you may notice that are understood and tracked:
 | CORS error in the browser console | `CORS_ORIGIN` doesn't match the frontend origin exactly, scheme and port included |
 | Guest features behave oddly across tabs | Expected — identity is a per-browser cookie |
 | `db:push` hangs | Use `db:migrate`. See §4 |
-| Salary stats look stale after you submit | They shouldn't — an approved submission invalidates the cache for that role and city. If it persists, check Redis is reachable: `docker exec offerlens-redis redis-cli --scan --pattern "salary:*"`. Cache failures are deliberately silent and fall back to the database, so a broken Redis shows up as slowness, not errors |
+| Salary stats look stale after you submit | They shouldn't — an approved submission invalidates the cache for that role and city. If it persists, check Redis is reachable: `docker exec offerlens-redis redis-cli --scan --pattern "salary:*"`. Cache failures are deliberately silent and fall back to the database, so a broken Redis shows up as slowness, not errors. Survey results are cached under `salary:ref:v1:*` and are not invalidated by a submission or by reloading the data: after `db:load-reference`, list them with `docker exec offerlens-redis redis-cli --scan --pattern "salary:ref:v1:*"` and `DEL` each key, or wait out the 1-hour TTL |
+| A request returns 429 `RATE_LIMIT_EXCEEDED` while testing | The rate limiter is live (limits are in `api-spec.md`). Login allows 10 tries per 15 min per browser cookie, 30 per IP and 10 per email address (attempts since the last successful login; all scripts on localhost share one IP) and signup 5 per hour, so hammering them from a script trips it. Limits live in Redis and survive an API restart; clear them with `docker exec offerlens-redis redis-cli --scan --pattern "fastify-rate-limit-*"` (and `--pattern "login-email:*"` for the per-email login counter) and `DEL` each key. Do not raise a limit to get a script through |
 | `ECONNRESET` mid-test | `tsx watch` restarted from a stray keystroke. See §6 |
 | Analysis fails with a rate-limit message | Gemini free-tier quota. Wait, set a different key, or switch provider with `AI_PROVIDER` |
 | Log says "using MockAiProvider" | No key for the selected `AI_PROVIDER`. Responses are canned sample data |
@@ -573,7 +595,7 @@ Things you may notice that are understood and tracked:
 cd backend
 docker compose down -v      # deletes all data
 docker compose up -d
-npm run db:migrate && npm run db:seed
+npm run db:migrate && npm run db:seed && npm run db:load-reference && npm run db:load-city-factors
 ```
 
 ---
@@ -582,20 +604,32 @@ npm run db:migrate && npm run db:seed
 
 Being precise about this, because "the tests pass" is not the same as "the app works".
 
-**Verified by execution:** both packages typecheck and lint clean; 330 backend unit tests;
+**Verified by execution:** both packages typecheck and lint clean; 906 backend unit tests (3 skipped) and 132 frontend tests;
 the frontend builds (177.6 KB gzip initial); all three integration suites pass against a
 live stack with a real Gemini key; extraction accuracy measured at 96.1%/82.3% over three
 passes with a 2.4% noise floor; the browser
 integration seam (CORS preflight, credentialed cookies, `HttpOnly`/`SameSite`/`Path`,
 rejection of unlisted origins); the frontend dev server serves and SPA deep routes resolve.
 
-**Not verified:** the UI has never been driven through a real browser by an automated test.
-Every backend behaviour behind the screens is covered, but rendering, form validation and
-navigation have only been checked by reading the code and confirming the data contract.
-§8 exists because a human still needs to click through it.
+**Browser coverage is one smoke spec.** `frontend/e2e/smoke.spec.ts` drives the §8 walkthrough
+in Chromium. It is not part of `npm test` and no CI job runs it. To run it:
 
-There are also **no frontend component tests** — the one frontend test is a placeholder.
-That's the largest remaining gap in coverage.
+- Once: `cd frontend && npx playwright install chromium`.
+- The full stack must be up first: Postgres, Redis, API, **workers**, and `npm run dev` (or a
+  built frontend), with a working Gemini key. The mock provider is not enough.
+- `cd frontend && npm run test:e2e`. Set `E2E_BASE_URL` if the frontend is not on `http://localhost:8080`.
+- A Playwright `globalSetup` first flushes the live rate-limit buckets (`fastify-rate-limit-*` and
+  `login-email:*`) via `docker exec offerlens-redis`, so re-running the spec does not trip the
+  signup limit (5/hour per IP) — the manual clear below. Override the container with
+  `E2E_REDIS_CONTAINER`, or set `E2E_SKIP_REDIS_FLUSH=1` and clear the keys yourself if your Redis
+  is remote or named differently.
+- It signs up an `e2e-<timestamp>@example.com` user (delete it afterwards), makes at least 4
+  Gemini calls, and takes about 1 to 4 minutes.
+
+Beyond that spec the UI is covered by unit and component tests (jsdom; 11 real files plus one placeholder) and by hand. Rendering
+in other browsers, on a phone and with a screen reader has not been checked by any test.
+§8 exists because a human still needs to click through it. The smoke spec does not exercise
+saving corrections, which is the PATCH call.
 
 > [!WARNING]
 > This gap is not theoretical. Every one of the four bugs found in the results-page drawers
@@ -613,4 +647,5 @@ That's the largest remaining gap in coverage.
 >
 > All four are fixed, and the contract test now asserts response shapes rather than only
 > paths. But the class of bug recurs, and the thing that catches it is a browser driving the
-> UI. Playwright against the §8 walkthrough is the smallest thing that would close it.
+> UI. The Playwright smoke spec now covers the main walkthrough; extending it is the way to
+> widen that net.

@@ -281,7 +281,8 @@ describe('career path response shape', () => {
             expect(milestone).toHaveProperty('year');
             expect(milestone).toHaveProperty('title');
             expect(milestone).toHaveProperty('focus');
-            expect(milestone).toHaveProperty('salaryRange');
+            // 5.5: pay figures come from survey data, never from the model.
+            expect(milestone).not.toHaveProperty('salaryRange');
             // The field the component used to require. Asserted absent so that if it is
             // ever added, this failure is a prompt to render it rather than a page crash.
             expect(milestone).not.toHaveProperty('skills');

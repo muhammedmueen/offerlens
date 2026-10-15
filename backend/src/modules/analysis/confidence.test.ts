@@ -171,14 +171,28 @@ describe('red flag provenance', () => {
 });
 
 describe('provenance and derivation', () => {
-    it('trusts a crowdsourced benchmark and distrusts an estimated one', () => {
-        expect(assessConfidence(input()).fields.salaryComparison.level).toBe('high');
+    it('rates a crowdsourced benchmark medium (never the "Verified" level) and an estimated one low', () => {
+        const crowd = assessConfidence(input());
+        expect(crowd.fields.salaryComparison.level).toBe('medium');
+        expect(crowd.fields.salaryComparison.level).not.toBe('high');
+        expect(crowd.fields.salaryComparison.reason).toMatch(/unverified/);
+        // The crowd level must not move `overall`, which is anchored on role and totalCTC only.
+        expect(crowd.overall).toBe('high');
 
         const estimated = assessConfidence(input({
             salaryComparison: { dataSource: 'ai_estimated' } as never,
         }));
         expect(estimated.fields.salaryComparison.level).toBe('low');
         expect(estimated.fields.salaryComparison.reason).toContain('Do not quote it as market data');
+    });
+
+    it('rates a public-survey benchmark medium, with a reason that is not "verified submissions"', () => {
+        const survey = assessConfidence(input({ salaryComparison: { dataSource: 'public_survey' } as never }));
+        expect(survey.fields.salaryComparison.level).toBe('medium');
+        expect(survey.fields.salaryComparison.reason).toContain('public survey');
+        expect(survey.fields.salaryComparison.reason).not.toMatch(/verified/i);
+        expect(assessConfidence(input({ salaryComparison: { dataSource: 'something_new' } as never }))
+            .fields.salaryComparison.level).toBe('low');
     });
 
     it('rates an exact take-home high and a ranged one medium', () => {
@@ -239,7 +253,7 @@ describe('OCR downgrades everything read from the page', () => {
         }));
 
         expect(report.fields.takeHome.level).toBe('high');
-        expect(report.fields.salaryComparison.level).toBe('high');
+        expect(report.fields.salaryComparison.level).toBe('medium');
     });
 
     it('adds no caveat for text the user typed in', () => {

@@ -23,8 +23,8 @@ import { normalise, detectRedFlags } from './redflag.rules.js';
  *   1. VERBATIM  — does the extracted value actually appear in the letter? A company name that
  *                  cannot be found was inferred, not read. Same trick as the red-flag
  *                  hallucination guard, applied to scalars.
- *   2. PROVENANCE — did the number come from real submissions or from the model's impression?
- *                  Already tracked on `salaryComparison.dataSource`.
+ *   2. PROVENANCE — did the number come from real submissions (high), a public survey (medium)
+ *                  or the model's impression (low)? Already tracked on `salaryComparison.dataSource`.
  *   3. DERIVATION — was it computed by us (tax slabs, set difference against a benefits list) or
  *                  produced by the model? Arithmetic does not need a confidence tag.
  *   4. INPUT QUALITY — text that went through OCR is less trustworthy than text a human pasted,
@@ -228,13 +228,29 @@ export function assessConfidence(input: ConfidenceInput): ConfidenceReport {
     }
 
     // ── Salary benchmark: provenance ──
-    fields.salaryComparison = input.salaryComparison?.dataSource === 'crowdsourced'
-        ? { level: 'high', reason: 'Benchmarked against verified salary submissions for this role and city.' }
-        : {
-            level: 'low',
-            reason: 'No verified submissions for this role and city, so the range is the model\'s '
-                + 'general impression. Do not quote it as market data.',
-        };
+    const benchmarkSource = input.salaryComparison?.dataSource;
+    fields.salaryComparison = benchmarkSource === 'crowdsourced'
+        // 'medium', not 'high' (5.4): 'high' renders the green "Verified" badge, and nobody verifies a crowd row.
+        ? { level: 'medium', reason: 'Benchmarked against crowdsourced (unverified) salary submissions for this role and city.' }
+        : benchmarkSource === 'public_survey'
+            // 'medium' either way, never 'high': a city factor is a second survey layered on the first,
+            // so the adjusted benchmark is never rated above the national one (5.1b).
+            ? input.salaryComparison?.cityAdjustment
+                ? {
+                    level: 'medium',
+                    reason: 'Modelled from a public survey (Stack Overflow Developer Survey 2025, India-wide) and scaled to your city '
+                        + 'with a factor from PLFS 2023-24. An estimate built from two surveys: real data, but not offers in your city.',
+                }
+                : {
+                    level: 'medium',
+                    reason: 'Modelled from a public survey (Stack Overflow Developer Survey 2025, India-wide). '
+                        + 'Real data, but self-reported and not specific to your city.',
+                }
+            : {
+                level: 'low',
+                reason: 'No salary benchmark with enough data for this role and city, so the range is the '
+                    + 'model\'s general impression. Do not quote it as market data.',
+            };
 
     // ── Take-home: ours, so the uncertainty is in the inputs, not the sum ──
     if (input.takeHome) {

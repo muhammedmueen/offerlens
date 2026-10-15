@@ -1,4 +1,5 @@
-import { pgTable, uuid, text, integer, timestamp, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, integer, timestamp, index, check } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { users } from './users.js';
 
 export const salarySubmissions = pgTable('salary_submissions', {
@@ -16,10 +17,14 @@ export const salarySubmissions = pgTable('salary_submissions', {
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     fingerprint: text('fingerprint'), // DEPRECATED (task 4.6): always NULL, see userId. The cooldown is in Redis.
+    // Task 5.7. NULL = stored before the column existed, or the submitter chose "Not sure". NULL rows
+    // count only in the pooled lookup tier, never as current or offered.
+    payBasis: text('pay_basis', { enum: ['current', 'offered'] }),
 }, (table) => {
     return {
         roleCityIdx: index('idx_salary_role_city').on(table.role, table.city),
         statusIdx: index('idx_salary_status').on(table.status),
+        payBasisCheck: check('salary_submissions_pay_basis_check', sql`${table.payBasis} IN ('current','offered')`),
     };
 });
 

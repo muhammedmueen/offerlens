@@ -4,6 +4,7 @@ import { ENDPOINTS } from "@/constants/api";
 import LoadingState from "@/components/common/LoadingState";
 import ErrorState from "@/components/common/ErrorState";
 import CareerTimeline from "@/components/charts/CareerTimeline";
+import CareerProgression from "@/components/offers/CareerProgression";
 import { getQuotaError, quotaExhaustedText } from "@/lib/quota";
 
 /**
@@ -42,16 +43,21 @@ const CareerPathPanel: React.FC<{ offerId: string }> = ({ offerId }) => {
 
   // The provider returns this shape with an `error` key when generation fails, rather
   // than throwing — so an empty result is not necessarily a request failure.
+  // The pay table is deterministic and does not need the model, so it still renders here.
   if (data?.error && milestones.length === 0) {
     return (
-      <p className="py-8 text-center text-sm text-muted-foreground">
-        We couldn&apos;t generate a career path for this offer. Please try again.
-      </p>
+      <div className="space-y-6 pt-4">
+        <CareerProgression progression={data?.progression} />
+        <p className="py-8 text-center text-sm text-muted-foreground">
+          We couldn&apos;t generate a career path for this offer. Please try again.
+        </p>
+      </div>
     );
   }
 
   return (
     <div className="space-y-6 pt-4">
+      <CareerProgression progression={data?.progression} />
       <CareerTimeline milestones={milestones} />
 
       {skillsToLearn.length > 0 && (

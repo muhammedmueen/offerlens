@@ -2,6 +2,7 @@ import { db } from '@/db/index.js';
 import { usageLedger, type NewUsageLedgerRow } from '@/db/schema/usage-ledger.js';
 import {
     recordSafely,
+    AZURE_READ_USD_PER_PAGE,
     VISION_TEXT_DETECTION_USD_PER_IMAGE,
     type BilledTo,
     type UsageContext,
@@ -10,6 +11,9 @@ import {
 } from '@/providers/ai/usage.js';
 import type { OcrProvider, OcrResult } from '@/providers/ocr/ocr.provider.js';
 import { GuestService } from '@/modules/guest/guest.service.js';
+import { config } from '@/config/index.js';
+import { AppError } from '@/shared/errors/app-error.js';
+import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 
 /**
  * The ledger's one and only DB write.
@@ -71,11 +75,26 @@ export async function meterOcr(
     ctx: UsageContext,
     insert: (row: NewUsageLedgerRow) => Promise<void> = insertLedgerRow,
 ): Promise<OcrResult> {
+    // Honest OCR in production. This is the one function both OCR callers reach — the
+    // /offers/extract-file route (via OfferService.extractTextFromFile) and the OCR worker's
+    // image branch — so the guard lives here once rather than at each caller. In production the
+    // mock provider would hand back canned text and a fabricated analysis, so refuse the image/
+    // scanned-document OCR request with a clear 4xx. Development and test are untouched: the mock
+    // is the expected local provider. Pasted text and text-layer PDFs never call meterOcr.
+    if (config.NODE_ENV === 'production' && ocr.name === 'mock') {
+        throw new AppError(
+            ERROR_CODES.OCR_UNAVAILABLE,
+            'Image uploads are not available on this deployment. Paste the text or upload a PDF with selectable text.',
+            400,
+        );
+    }
+
     const recorder = createUsageRecorder(ctx, ocr.name === 'mock' ? 'mock' : 'platform', insert);
     const base = {
         purpose: 'ocr' as const,
         provider: ocr.name,
-        model: 'text-detection',
+        // Model string per provider so the ledger names what actually ran, not Vision's endpoint.
+        model: ocr.name === 'azure-doc-intelligence' ? 'prebuilt-read' : 'text-detection',
         inputTokens: 0,
         outputTokens: 0,
         thinkingTokens: 0,
@@ -83,10 +102,26 @@ export async function meterOcr(
 
     try {
         const result = await ocr.extractText(filePath);
+        // Billing unit differs by provider. Vision bills per image (one unit); Azure Read bills
+        // per PAGE, so a multi-page scan is `pages` units at the per-page rate; the mock has no
+        // real spend. `null` cost, never a fabricated number, when the provider has no price.
+        //
+        // ponytail: `result.pages` is the page count the provider reported; when a provider does
+        // not report one (missing field, older response shape) we fall back to one unit. That
+        // slightly under-counts a multi-page scan with an absent page count — upgrade path is to
+        // reconcile against the Azure Cost Management export rather than trusting this field.
+        let units = 1;
+        let costUsd: number | null = null;
+        if (ocr.name === 'google-vision') {
+            costUsd = VISION_TEXT_DETECTION_USD_PER_IMAGE;
+        } else if (ocr.name === 'azure-doc-intelligence') {
+            units = result.pages && result.pages > 0 ? result.pages : 1;
+            costUsd = Number((units * AZURE_READ_USD_PER_PAGE).toFixed(6));
+        }
         await recordSafely(recorder, {
             ...base,
-            units: 1,
-            costUsd: ocr.name === 'google-vision' ? VISION_TEXT_DETECTION_USD_PER_IMAGE : null,
+            units,
+            costUsd,
             success: true,
             errorCode: null,
         });
@@ -95,7 +130,7 @@ export async function meterOcr(
         await recordSafely(recorder, {
             ...base,
             units: 0,
-            costUsd: ocr.name === 'google-vision' ? 0 : null,
+            costUsd: ocr.name === 'mock' ? null : 0,
             success: false,
             errorCode: 'provider_error',
         });

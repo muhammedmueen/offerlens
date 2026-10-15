@@ -11,6 +11,8 @@ import GuestBanner from "@/components/common/GuestBanner";
 import AuthGateModal from "@/components/common/AuthGateModal";
 import ScoreGauge from "@/components/charts/ScoreGauge";
 import SalaryBar from "@/components/charts/SalaryBar";
+import BenchmarkNotice from "@/components/salary/BenchmarkNotice";
+import ContributeSalaryCard from "@/components/salary/ContributeSalaryCard";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, Download, GitCompare, TrendingUp, Pencil, Share2, Lock, CheckCircle, ShieldQuestion } from "lucide-react";
@@ -207,18 +209,21 @@ const ResultsPage = () => {
               p75={market.p75}
               p90={market.p90}
               userSalary={extracted.compensation?.totalCTC ?? undefined}
+              hideOffer={!!a.salaryComparison?.percentileWithheld}
               label={
                 a.salaryComparison?.offerPercentile
                   ? `Your offer is at the ${a.salaryComparison.offerPercentile}th percentile`
                   : undefined
               }
             />
-            <p className="mt-2 text-xs text-muted-foreground">
-              {a.salaryComparison?.dataSource === "crowdsourced"
-                ? "Based on crowdsourced submissions"
-                : "AI-estimated range — not benchmarked against real submissions"}
-              {a.salaryComparison?.disclaimer ? ` · ${a.salaryComparison.disclaimer}` : ""}
-            </p>
+            <BenchmarkNotice
+              dataSource={a.salaryComparison?.dataSource}
+              sampleSize={a.salaryComparison?.sampleSize}
+              disclaimer={a.salaryComparison?.disclaimer}
+              payBasis={a.salaryComparison?.payBasis}
+              payMix={a.salaryComparison?.payMix}
+              cityAdjustment={a.salaryComparison?.cityAdjustment}
+            />
           </section>
         )}
 
@@ -441,6 +446,9 @@ const ResultsPage = () => {
             Calculate Full Benefits Value
           </Button>
         </section>
+
+        {/* 5.4: optional, per-offer; decides its own visibility. Never posts until Send. */}
+        <ContributeSalaryCard key={id} offerId={id!} analysis={a} />
       </div>
 
       {/* Sticky Action Bar */}

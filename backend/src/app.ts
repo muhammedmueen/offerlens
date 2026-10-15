@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
+import { config } from '@/config/index.js';
 import { registerPlugins } from '@/plugins/index.js';
 import { errorHandler } from '@/middleware/error-handler.js';
 import { registerRateLimiter } from '@/middleware/rate-limiter.js';
@@ -24,7 +25,12 @@ import providersPlugin from '@/plugins/providers.js';
 
 export function buildApp() {
     const app = Fastify({
-        logger: true, // We use custom request logger but standard logger for internals
+        // Hop count from TRUST_PROXY (audit D10). 0 means off → `false`, so request.ip stays the
+        // socket address; a positive count trusts that many X-Forwarded-For entries from the
+        // right. Behind the guide's single host nginx this is 1. The proxy must overwrite
+        // X-Forwarded-For, not append to a client-supplied one.
+        trustProxy: config.TRUST_PROXY === 0 ? false : config.TRUST_PROXY,
+        logger: { level: config.LOG_LEVEL }, // We use custom request logger but standard logger for internals
         disableRequestLogging: true, // Disable default to use ours
     });
 

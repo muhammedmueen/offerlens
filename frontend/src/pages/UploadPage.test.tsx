@@ -22,6 +22,7 @@ vi.mock("@/lib/pdf-extractor", () => ({ extractTextFromFile: vi.fn() }));
 
 const { default: UploadPage } = await import("./UploadPage");
 const { default: api } = await import("@/services/api");
+const { extractTextFromFile } = await import("@/lib/pdf-extractor");
 
 const RESET = "2026-10-10T18:30:00.000Z";
 
@@ -117,6 +118,36 @@ describe("UploadPage quota", () => {
     await screen.findByText("1 of 1 analysis left today");
     pasteLetter();
     expect(screen.getByRole("button", { name: "Analyze My Offer" })).not.toHaveAttribute("aria-describedby");
+  });
+});
+
+describe("UploadPage OCR unavailable", () => {
+  /** Drop a file on the hidden input so handleExtractAndAnalyze runs the OCR fallback path. */
+  function selectFile() {
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(["scan-bytes"], "scan.png", { type: "image/png" });
+    fireEvent.change(input, { target: { files: [file] } });
+  }
+
+  it("shows a friendly inline notice when the backend returns OCR_UNAVAILABLE", async () => {
+    // Browser extraction gives up (a scan), so the page falls back to the backend OCR call,
+    // which this deployment refuses with the distinct OCR_UNAVAILABLE code.
+    (extractTextFromFile as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      text: "",
+      success: false,
+      needsOCR: true,
+    });
+    (api.post as unknown as ReturnType<typeof vi.fn>).mockRejectedValue({
+      response: { status: 400, data: { error: { code: "OCR_UNAVAILABLE" } } },
+    });
+
+    renderPage();
+    await screen.findByText("1 of 1 analysis left today");
+    selectFile();
+
+    const notice = await screen.findByRole("alert");
+    expect(notice.textContent).toMatch(/Image uploads aren't available here/);
+    expect(notice.textContent).toMatch(/Paste the text/);
   });
 });
 

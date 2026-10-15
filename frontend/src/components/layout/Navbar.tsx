@@ -53,8 +53,8 @@ const Navbar = () => {
         </div>
 
         <div className="hidden md:flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={() => setDark(!dark)} className="cursor-pointer rounded-lg">
-            {dark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+          <Button variant="ghost" size="icon" onClick={() => setDark(!dark)} aria-label={dark ? "Switch to light mode" : "Switch to dark mode"} className="cursor-pointer rounded-lg">
+            {dark ? <Sun className="h-5 w-5" aria-hidden="true" /> : <Moon className="h-5 w-5" aria-hidden="true" />}
           </Button>
           {isAuthenticated ? (
             <>
@@ -67,8 +67,8 @@ const Navbar = () => {
               </Link>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="cursor-pointer rounded-lg">
-                    <User className="h-5 w-5" />
+                  <Button variant="ghost" size="icon" aria-label="Account menu" className="cursor-pointer rounded-lg">
+                    <User className="h-5 w-5" aria-hidden="true" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="skeu-card rounded-xl">
@@ -95,8 +95,8 @@ const Navbar = () => {
         </div>
 
         {/* Mobile hamburger */}
-        <Button variant="ghost" size="icon" className="md:hidden cursor-pointer" onClick={() => setMobileOpen(!mobileOpen)}>
-          {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+        <Button variant="ghost" size="icon" className="md:hidden cursor-pointer" onClick={() => setMobileOpen(!mobileOpen)} aria-label={mobileOpen ? "Close menu" : "Open menu"} aria-expanded={mobileOpen}>
+          {mobileOpen ? <X className="h-5 w-5" aria-hidden="true" /> : <Menu className="h-5 w-5" aria-hidden="true" />}
         </Button>
       </nav>
 

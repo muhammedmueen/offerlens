@@ -13,6 +13,26 @@
 > weighted rubric that shows its arithmetic, and every downstream feature reads real values. 443
 > backend tests. What remains is turning it into a business — see Tiers 1 and 2.
 
+> [!IMPORTANT]
+> **Project status (decided 2026-10-11): personal / portfolio project, deployed to validate the
+> idea — not a SaaS.** Plans and pricing in the UI are **display only**, there to show the thing
+> was built; no money changes hands. This reframes several assumptions baked into the phases below:
+>
+> - **"Commercial use" licence worries relax.** The product is non-commercial for now, so a source
+>   that is *free for non-commercial use* is usable. This is what revives **PLFS** (see 5.1).
+> - **Phase 6 payment work (6.1) is parked indefinitely** — there is nothing to charge for. The
+>   fake plans/pricing stay as display.
+> - **Phase 7 (admin / superadmin / dashboards) stays deferred** — it already was, until real-user
+>   triggers fire. `psql` covers the one operator.
+> - **The validation bet:** ship it, see if users engage and give good feedback, and *then* decide
+>   whether to pursue SaaS.
+>
+> **If this ever flips to SaaS, the non-commercial relaxation reverses.** Specifically: PLFS (if
+> non-commercial-only) must be removed or re-licensed; payment work (6.1) and admin ops (Phase 7)
+> re-enter scope; and the ODbL attribution + separate-table discipline (already required below for
+> the share-alike reason) must have been kept from day one. Keeping seeded data in its own table
+> makes "pull PLFS out later" a table drop, not surgery.
+
 ---
 
 ## Verified State (2026-09-09)
@@ -35,7 +55,7 @@ This section records what was confirmed by reading and running the code, not inf
 **Manual test script status**: `test-m2-results.txt` shows negotiation, benefits, and corrections all returning `OFFER_NOT_READY`, and comparison skipped, because no analysis reached `COMPLETED` during that run. Those four features have never been exercised end-to-end.
 
 > [!WARNING]
-> **`test-m3-results.txt` is partially stale.** Its salary section logs `POST /salaries` → `200 OK`; the current route is `POST /salary` → `201`. It was recorded against an older revision. Forum and career-path sections still match current routes and remain valid evidence. Treat the salary section as no evidence.
+> **`test-m3-results.txt` is partially stale.** Its salary section logs `POST /salaries` → `200 OK`; the current route returns `201` (this line named the route `POST /salary` until the 5.4 clean-up; `salary.routes.ts` registers `POST /salaries`). It was recorded against an older revision. Forum and career-path sections still match current routes and remain valid evidence. Treat the salary section as no evidence.
 
 **What was NOT verified**: no runtime behaviour. The backend was never booted — that needs Postgres, Redis, a Gemini key, and GCP credentials. Every "works" claim below rests on reading the code plus the two manual logs, not on observed execution.
 
@@ -210,14 +230,14 @@ The Salary Explorer page fails on **three independent mismatches** against the s
 
 | Layer | Frontend sends | Backend expects | Result |
 |-------|----------------|-----------------|--------|
-| Path | `POST /salaries` and `GET /salaries/stats` (`constants/api.ts`) | `POST /salary`, `GET /salary` (`salary.routes.ts`) | **404** |
+| Path | `POST /salaries` and `GET /salaries/stats` (`constants/api.ts`) | `POST /salary`, `GET /salary` (`salary.routes.ts`) | **404** (historical: fixed in -1B, the route is `POST /salaries`) |
 | Payload field | `annualCtc` | `ctc` | NOT NULL violation |
 | Payload field | *(omitted entirely)* | `companyType` is `.notNull()` | NOT NULL violation |
 
 So the crowdsourced salary DB cannot be populated through the UI at all — which compounds the Stage 2a problem: even after the analysis worker is wired to `SalaryService.getStats()`, there will be no data to read.
 
 > [!WARNING]
-> **`test-m3-results.txt` is stale and must not be trusted as evidence.** It logs `POST /salaries` → `200 OK`. The current route is `POST /salary` and returns `201`. That log was recorded against an older revision. Its forum and career-path sections still match current routes; its salary section is worthless.
+> **`test-m3-results.txt` is stale and must not be trusted as evidence.** It logs `POST /salaries` → `200 OK`. The current route is `POST /salaries` and returns `201` (this line said `/salary` until the 5.4 clean-up). That log was recorded against an older revision. Its forum and career-path sections still match current routes; its salary section is worthless.
 >
 > This is a second-order finding worth noting on its own: **the only runtime evidence this project has is two uncommitted, unversioned, manually-run scripts, and one of them has already silently gone out of date.** That is the strongest argument for Phase 0.
 
@@ -248,6 +268,8 @@ Pick one vocabulary — the DB seed is the right source of truth since it carrie
 Net effect: nothing runs until three separate values are overridden, and the file that is supposed to document them is both incomplete and, in the frontend's case, the wrong file to be tracking.
 
 ### 🟠 P1 — Per-route rate limits are dead config
+
+> **Fixed (branch `fix-rate-limiter`).** The root cause was not only unwired limits: `registerRateLimiter` was not wrapped in `fastify-plugin`, so *no* limiter, not even the global one, reached any real route. Now enforced and verified live; see "Rate limiter fix" under Phase 5 and open item 5. The text below is the original audit finding.
 
 `config/constants.ts` defines 15 per-route limits in `RATE_LIMITS`. `middleware/rate-limiter.ts` registers exactly **one**: `global` at 100/min. Only `guestUpload` is separately enforced, inside `GuestService.checkLimits`.
 
@@ -437,7 +459,7 @@ graph TD
 - **Fuzzy role matching**: synonym map (`"SDE" ≈ "Software Engineer" ≈ "Software Developer"`)
 - **Experience-level filtering**: filter salary submissions by experience bracket, not just role+city
 - **Redis caching**: `salary:{role}:{city}` key, 1-hour TTL
-- **Minimum sample size**: `n ≥ 10` (raised from 5 for noise resistance)
+- **Minimum sample size**: `n ≥ 10` (raised from 5 for noise resistance). *Code now matches: `MIN_SAMPLE_SIZE` is 10 since Phase 5 Phase A.*
 - Add `dataSource` + `sampleSize` + `dataRecency` fields for UI transparency
 - Seed DB with public salary data for bootstrapping
 
@@ -672,7 +694,7 @@ Option B is simplest and works with existing polling architecture.
 |--------|--------|
 | **Extract industry + company type** | Stage 1 extraction includes `industry` and `companyType` fields |
 | **Company-specific context** | If company is known (e.g., Google, TCS), AI uses company-specific career ladders |
-| **Salary progression with real data** | Year 1/3/5 salary ranges from crowdsourced DB filtered by experience level |
+| **Salary progression with real data** | ✅ Landed as 5.5, by experience **bracket** rather than Year 1/3/5: the survey has no 0-year rows and a bracket is what the data supports. Median and 25th-75th per bracket from the survey (or crowdsourced rows at n >= 10), thin cells show no number. See the Phase 5 task 5.5 outcome |
 | **Skills-to-learn grounded in reality** | AI generates based on actual job market trends, not generic lists |
 
 ---
@@ -710,8 +732,8 @@ than a theme list plus a separate priority list.
 | Phase | Scope | Gate |
 |---|---|---|
 | **4 — Launch Blockers** | Usage ledger, plan limits, three untrue privacy promises, one smoke spec | 4.1–4.8 ✅ done. Phase 4 is complete |
-| **5 — Salary Data** | Seed benchmarks, then fuzzy matching, outlier rejection, contribution prompt | All of it behind 5.1: which dataset, and does its licence allow commercial use |
-| **6 — Revenue & Compliance** | Payments, retention policy, correction loop, scanned-PDF OCR | Pricing; and 6.4 needs Cloud Vision billing |
+| **5 — Salary Data** | Seed benchmarks, then fuzzy matching, outlier rejection, contribution prompt | 5.1 Phase A ✅, 5.2 ✅, 5.3 ✅, 5.4 ✅, 5.5 ✅, 5.6 ✅, 5.7 ✅, 5.8 ✅, 5.9 ✅ (see "Phase 5 Phase A outcome", "Phase 5 task 5.4 outcome", "Phase 5 task 5.5 outcome" and "Phase 5 closing round outcome"). 5.1b ✅ (PLFS city factors, see "Phase 5 task 5.1b outcome"). D1 (README rider) decided: it fits. MoSPI e-mail: not needed while nothing is published (repo is private); send before the factors are loaded into any deployed instance others can use |
+| **6 — Revenue & Compliance** | ~~Payments~~ (parked), retention policy, correction loop, scanned-PDF OCR | 6.1 parked (non-commercial); 6.4 needs Cloud Vision billing |
 | **7 — Operations** | Admin auth hardening, superadmin, dashboards | One of the Phase 7 triggers firing |
 
 **4.1 through 4.8 are done** (see the Phase 4 outcome sections). Cost history lives in
@@ -745,7 +767,7 @@ forward references to numbers that were going to move.
 | 22 | **5.2** | Fuzzy role matching |
 | 24 | **5.3** | Poisoning protection |
 | 25 | **5.4** | Contribution prompt |
-| 20 | **5.5** | Career path salary progression |
+| 20 | **5.5** | ✅ Career path salary progression |
 | 32 | **6.1** | Payment integration |
 | 27 | **6.2** | PII redaction + retention |
 | 26 | **6.3** | Correction loop |
@@ -779,8 +801,8 @@ forward references to numbers that were going to move.
 | **2** | Rule engine, tax calculator, rubric, confidence, cache | ✅ Done, 6 tasks |
 | **3** | Pipeline refactor, reliability, comparison, OCR | ✅ **Closed.** Rounds 1-5 shipped 7 tasks plus half of 21c; 3 items dropped and the rest promoted into Phases 4-6 |
 | **4** | **Launch blockers** — usage ledger, plan limits, privacy promises, smoke spec | ✅ Done, 8 tasks (4.1–4.8). The results-page Compare finding was fixed in the follow-up |
-| **5** | Salary data — seeding, matching, integrity | ⬜ All behind 5.1, a dataset licence decision |
-| **6** | Revenue & compliance — payments, retention, corrections, scanned PDFs | ⬜ Not urgent while there are no users |
+| **5** | Salary data — seeding, matching, integrity | 🟡 Phase A built: 5.1 Phase A, 5.2 to 5.9 and 5.1b (PLFS city factors) done. D1 decided (fits); MoSPI e-mail due before any shared deployment loads the factors (repo is private) |
+| **6** | Revenue & compliance — ~~payments~~, retention, corrections, scanned PDFs | ⬜ 6.1 parked (non-commercial); rest not urgent while there are no users |
 | **7** | Operations — admin auth, superadmin, dashboards | ⏸ Deliberately deferred until a trigger fires |
 
 Phases -1 through 3 made the analysis correct and the pipeline survivable. **Phases 4 through 7 are
@@ -894,7 +916,7 @@ No user-visible behaviour change. Safe to defer past -1A/-1B if needed.
 
 | # | Task | Severity | Status |
 |---|------|----------|--------|
-| C1 | Wire the per-route `RATE_LIMITS` that already exist, starting with `authLogin` | 🟠 P1 | ✅ Added `routeLimit()` helper; applied to signup, login, google, negotiate, compare, benefits |
+| C1 | Wire the per-route `RATE_LIMITS` that already exist, starting with `authLogin` | 🟠 P1 | ✅ Added `routeLimit()` helper; applied to signup, login, google, negotiate, compare, benefits. **Not actually enforced until the `fastify-plugin` fix on `fix-rate-limiter`** (see "Rate limiter fix") |
 | C2 | Gate `POST /offers/extract` and `/extract-file` behind auth or a strict limit | 🟠 P1 | ✅ Kept unauthenticated by design (the upload form pre-fills before signup) but given their own tight limits — 20/hr and 10/hr — plus a 100k-char payload cap on `/extract` |
 | C3 | Sanitize `file.filename` before temp-file writes | 🟠 P1 | ✅ Plus moved scratch writes from the process CWD to `os.tmpdir()` |
 | C4 | Fix the benefits `extractNumber()` unit handling (lakh / L / LPA / Cr) | 🟠 P1 | ✅ Split into `extractMoney()` (unit-aware) and `extractCount()` (never scaled) |
@@ -1289,9 +1311,11 @@ crosses the sample threshold, which is the one case where staleness is actively 
 
 > [!NOTE]
 > **Honest about the size of this one.** With 17 rows the saved query is trivial, and the code says
-> so rather than dressing it up. What it buys: `GET /salaries/stats` is public and rate-limited at
-> 30/min, so it was a cheap way for a stranger to make the database work — and the path is ready
-> for the Phase 4 seeded dataset without revisiting.
+> so rather than dressing it up. What it buys: `GET /salaries/stats` is public, so it was a cheap
+> way for a stranger to make the database work — and the path is ready for the Phase 4 seeded
+> dataset without revisiting. *(Correction: this said "rate-limited at 30/min", which was not true
+> at the time — only the global 100/min applied. The 30/min per-route limit was added in Phase 5
+> Phase A, task B0.)*
 
 Verified live: cache flushed → first read created the key with `ttl 3599` → second read served the
 same answer → a submission invalidated it.
@@ -1780,7 +1804,7 @@ one of two ways, so that "Phase 3 remaining" stopped being a category:
 | 17 | Add prompt versioning to `aiMetadata` | Rollback + A/B testing | ✅ **Done** (round 1). See below |
 | 18 | Progressive results: store stage outputs, poll returns partial data | UX during longer processing | ❌ **Dropped** — contract change + frontend, for a ~20s wait. See **Not Planned** |
 | 19 | Update comparison to use rubric sub-scores | Dimension-by-dimension | ✅ **Done** (round 3) — the page was broken outright. See below |
-| 20 | Enhance career path with real context + salary progression | Realistic trajectories | ➡ **Now 5.5.** The context half shipped as task 7; the salary half needs benchmarks |
+| 20 | Enhance career path with real context + salary progression | Realistic trajectories | ✅ **Done as 5.5.** The context half shipped as task 7; the salary half landed with the survey benchmarks |
 | 21 | Add negotiation template library | Non-AI fallback | ✅ **Done** (round 2) — plus a measured regression from task 9. See below |
 | 21a | Stale job reaper — `PROCESSING` > 5 min → `FAILED` (use the existing `ANALYSIS_TIMEOUT_MS`) | Stuck offers currently never recover | ✅ **Done** (round 1). See below |
 | 21b | Redis-down fallback to synchronous processing | Roadmap requirement, not implemented | ❌ **Dropped** — a 20s request is worse than a clear error. See **Not Planned** |
@@ -2777,15 +2801,21 @@ untracked work. Small ones can ride along with 4.5–4.8.
 
 | # | Task | Impact |
 |---|------|--------|
-| 5.1 | **Seed the salary DB from public datasets** | Bootstrap benchmarks — **the gate for everything below** |
-| 5.2 | Fuzzy role matching (synonym map) | Better matches against real submissions |
-| 5.3 | Poisoning protection — 3σ outlier rejection, recency weighting | Data integrity |
-| 5.4 | Post-analysis contribution prompt | Grows the crowdsourced set |
-| 5.5 | Career path salary progression | The half of the old task 20 that needs benchmarks |
+| 5.1 | **Seed the salary DB from public datasets** | Bootstrap benchmarks — **the gate for everything below**. ✅ **Phase A done** (Stack Overflow, national). ✅ **Phase B done** as task 5.1b (PLFS city factors); see the Phase 5 task 5.1b outcome |
+| 5.1b | ✅ PLFS city factors for the survey benchmark | Real Indian city granularity for the six metros: survey figures scaled by a shrunk PLFS 2023-24 ratio, labelled an estimate, crowd data never adjusted - see the Phase 5 task 5.1b outcome |
+| 5.2 | ✅ Fuzzy role matching (synonym map) | Better matches against real submissions — see the Phase A outcome |
+| 5.3 | ✅ Poisoning protection — 3σ outlier rejection, recency weighting | Data integrity — see the Phase A outcome |
+| 5.4 | ✅ Post-analysis contribution prompt | Grows the crowdsourced set, opt-in, through the existing `POST /salaries` — see the Phase 5 task 5.4 outcome |
+| 5.5 | ✅ Career path salary progression | The half of the old task 20 that needs benchmarks - see the Phase 5 task 5.5 outcome |
+| 5.6 | ✅ Fresher offers: benchmark shown, no percentile | Stops Fresher scores being pushed down by a junior-skewed, all-experience comparison - see "Phase 5 closing round outcome" |
+| 5.7 | ✅ `pay_basis` column and the hybrid like-with-like lookup | Separates offered from current pay without splitting thin data - see "Phase 5 closing round outcome" |
+| 5.8 | ✅ Login limiter: per-IP plus per-email (live-checked against real Redis) | Closes the cookie-minting bypass - see "Task 5.8 outcome" and "Phase 5 closing round outcome" |
+| 5.9 | ✅ Career table: 412 px layout and dark-theme contrast check | Measured, no defect found - see "Phase 5 closing round outcome" |
 
 > [!NOTE]
-> **5.1 is blocked on a product decision, not on engineering:** which public salary dataset, and
-> whether its licence permits commercial use.
+> **5.1 was blocked on a product decision, not on engineering:** which public salary dataset, and
+> whether its licence permits commercial use. **Decided 2026-10-11** — see "5.1 decision &
+> approach" below. The gate is now open for a Stack-Overflow-only Phase A.
 >
 > Everything else here waits behind it — 5.2 has nothing to match and 5.3 has nothing to reject
 > while the table is empty. The consequence is visible on **every** analysis: the rubric
@@ -2794,20 +2824,1345 @@ untracked work. Small ones can ride along with 4.5–4.8.
 >
 > This single decision unblocks roughly a third of the remaining plan.
 
+#### 5.1 decision & approach (2026-10-11)
+
+Full research: `.agents/tasks/salary-dataset-5.1-research.md`. Findings in one line: **no open
+dataset is both commercially licensed and good at Indian tech offers by role × city × experience.**
+The two usable sources each hold half of what the benchmark needs.
+
+| Source | Gives | Missing | Licence / cost |
+|---|---|---|---|
+| **Stack Overflow Developer Survey 2025** (India, INR) | role × experience, individual rows | **city** | ODbL 1.0 — free for any use (incl. commercial); obliges attribution + publishing the derived file |
+| **PLFS unit-level** (MoSPI) | **city** (district) | role granularity, experience, CTC (reports monthly cash pay) | Reportedly **free for non-commercial use** under MoSPI's 2026 guidelines — not verified at source. **Likely free for this project** (non-commercial, see Project status), fee-based only if it later goes SaaS |
+
+> [!NOTE]
+> **Reframed 2026-10-11 for the non-commercial project status.** The original research treated this
+> as a commercial product, which made PLFS a cost risk and the reason to defer it. As a personal /
+> portfolio project (see Project status at the top), PLFS is **free for non-commercial use** and so
+> moves from "deferred, cost risk" to **"pursue — likely free."** It still needs written MoSPI
+> confirmation, but the odds are now good rather than a billing unknown. The SaaS caveat still
+> applies: if the project ever charges money, PLFS must be removed or re-licensed.
+
+**Scope decision:** limit the seed to **major Indian metros only** and **common tech roles only**
+(~8 role families: full-stack, backend, frontend, mobile, data engineer, data scientist/ML,
+DevOps, engineering manager). Thin cells outside this set stay on the AI estimate.
+
+**Cost decision:** both sources are free for this project. Stack Overflow is free for any use;
+PLFS is free for non-commercial use, which covers a portfolio deployment. Neither blocks launch.
+The ODbL "publish the derived file" obligation is low-friction here — a public GitHub repo with the
+cleaned data suits a portfolio project and costs nothing.
+
+**Combine-the-two approach (small-area estimation).** Each source is used only for what it is good
+at, and never pooled into one percentile:
+
+1. **Role × experience from Stack Overflow.** Clean India INR rows (employed only, log-salary
+   outlier trim), map DevType → the ~8 role families, fit log(CTC) by role × experience bracket;
+   sparse cells borrow strength from the shared experience curve (partial pooling) while keeping
+   their own spread for p25–p90.
+2. **City factor from PLFS (Phase B only).** For urban regular-salaried software workers
+   (NCO 251/252), compute a weighted median per metro ÷ national median; shrink each factor toward
+   1.0 by sample size. Using PLFS only as a *ratio* cancels most of its CTC-vs-cash and
+   coarse-occupation problems.
+3. **Combine.** `cell_quantile = SO_quantile × city_factor` → role × city × experience →
+   p25/p50/p75/p90, each cell tagged with an effective sample size and the method used.
+
+**A model is used only for label mapping** (DevType / NCO → role families — the start of 5.2),
+**never to produce salary numbers.** All statistics run **offline** in a one-shot Python script
+(pandas + statsmodels) that writes a versioned CSV; nothing runs at request time.
+
+> [!IMPORTANT]
+> **Known ceiling (`ponytail:`):** the combination assumes the city effect is one multiplier across
+> all roles and experience levels. Acceptable for a reference benchmark; crowdsourced data corrects
+> it as it grows. Output is **modelled, not observed** — it must carry its own `dataSource`
+> (`modelled_estimate` / `public_survey`), low–medium confidence, and an explicit "modelled from
+> public surveys, not offers in your city" disclaimer. It is **not** `crowdsourced` and must not
+> reuse the worker's "verified submissions" wording.
+
+**Storage & licence guardrails (non-negotiable):**
+
+- Seeded/modelled rows live in a **separate table** (e.g. `salary_reference_rows`), never in
+  `salary_submissions`, and are **never pooled** into the same percentile as crowdsourced rows.
+  ODbL share-alike would otherwise have a credible reading that crowdsourced submissions become
+  "additional Contents" of a derivative DB and must be published — breaking the Phase 4 privacy
+  promises.
+- Lookup order: crowdsourced (role + city, n ≥ 10) → reference table (role + experience, national;
+  then role-only, national) → AI estimate.
+- Resolve the `MIN_SAMPLE_SIZE` 5-vs-10 discrepancy (code says 5, Stage 2a says 10) **before**
+  seeding — with a seed in place, 5 is too low to defend. **Decision pending** (owner Q4 below).
+- Attribution notice beside every displayed benchmark; publish the cleaned SO-derived file (or the
+  cleaning script) publicly under ODbL. This is free — it is an obligation, not a payment.
+
+**Phasing:**
+
+- **Phase A (now, free, unblocked):** offline pipeline + `salary_reference_rows` (city nullable) +
+  Stack Overflow national values for common roles + lookup wiring + `public_survey`/`modelled`
+  dataSource + disclaimer + attribution. ~4–6 dev-days. Pairs naturally with **5.4** (now done, see its outcome section; grows the
+  crowdsourced set — the real long-term fix for city-level data OfferLens owns and keeps private).
+- **Phase B (done as task 5.1b; was gated on MoSPI data access):** add PLFS city factors, fill metro cells. Now worth doing
+  rather than deferring, since the cost blocker likely does not apply to a non-commercial project —
+  this is what gives the benchmark real Indian city granularity. Still needs **written MoSPI
+  confirmation** that non-commercial use + redistribution of the derived aggregates is permitted.
+  Table and lookup do not change. ~1 week + licence lead time.
+
+**Open owner decisions still outstanding:**
+
+1. ~~Willing to publish the cleaned SO-derived file publicly under ODbL?~~ **Resolved** — yes,
+   trivially; a public repo suits a portfolio project.
+2. ~~Should the national/modelled benchmark **feed the score**, or be shown for reference only?~~
+   **Resolved 2026-10-11 — feed it (Option A).** A modelled percentile reaches `scoreSalary()` at
+   salary's full 30% weight, same rubric path as crowdsourced data, but tagged
+   `public_survey`/`modelled` so the UI shows the "modelled from public surveys, not offers in your
+   city" disclaimer and confidence is **medium**, not high. Rationale: a score that stays mute on
+   pay undersells the product for validation, and the disclaimer keeps it honest. Build impact is a
+   single branch — the only difference from reference-only is that the modelled percentile is passed
+   to the rubric instead of left `null`. (Real crowdsourced data always feeds the score at full
+   weight once 5.4 lands; this decision is only about the modelled path.)
+3. ~~Should someone contact MoSPI about **non-commercial** use + redistribution of PLFS (Phase B)?~~ **Partly resolved (5.1b):** access was granted and used; the owner still needs to send the MoSPI copy (draft in the 5.1b outcome), D1 on the README rider is decided (it fits, owner's own reading), and written confirmation on publishing the aggregates has not been obtained.
+   *(Now likely free, so worth asking.)*
+4. ~~Raise `MIN_SAMPLE_SIZE` to 10 before, or with, the seed?~~ **Resolved in Phase A — raised to 10.**
+
+> Not legal advice. Confirm ODbL obligations (and MoSPI terms, for Phase B) before shipping — and
+> re-confirm all of it against *commercial* terms if the project ever becomes SaaS.
+
+#### Phase 5 Phase A outcome — public-survey salary benchmark (5.1 Phase A, 5.2, 5.3)
+
+**Status:** 5.1 Phase A ✅, 5.2 ✅, 5.3 ✅, `MIN_SAMPLE_SIZE` 5 → 10 ✅. **Still open:** 5.1 Phase B
+(PLFS city factors). (5.4 and 5.5 are done, see their outcomes.) Design and plan: `.agents/tasks/phase5a-design.md`,
+`.agents/tasks/phase5a-plan.md`. (Committed since: `15d0614`, `bbfdeaa`, `9a69184`, `af63361`, merged with the rate limiter fix as `ba5502d`.)
+
+##### What shipped
+
+- **A new table, not new rows.** `salary_reference_rows` (migration `0006_salary_reference_rows`,
+  expand-only) holds 662 cleaned Stack Overflow Developer Survey 2025 India rows. Reference rows are
+  never inserted into `salary_submissions` and are never pooled with crowdsourced rows in one
+  percentile, array, cache key or computation.
+- **Lookup order** (`SalaryService`): crowdsourced (role + city, n ≥ 10) → survey (role family +
+  experience bracket, national, n ≥ 10) → survey (role family only, national, n ≥ 10) → AI estimate.
+  The survey tiers are gated on an Indian-metro city, an INR offer and a role that maps to one of the
+  eight reference families; otherwise the lookup falls through to the AI estimate.
+- **`dataSource: 'public_survey'`** reaches the rubric through the same `offerPercentile` argument as
+  crowdsourced data, at salary's full 30% weight (decision 2, option A). Confidence is **medium**. The
+  stored disclaimer starts "Modelled from public surveys, not offers in your city." and never says
+  "verified" or "submissions". The model cannot claim it (`MODEL_DATA_SOURCES`; the prompt fingerprint
+  is unchanged).
+- **5.2 role matching:** exact seed label → synonym table → keyword rules, with a non-tech guard
+  (`Mobile Sales Executive` is not a Mobile Engineer). City aliases map to the six seeded metros
+  (`Bengaluru, Karnataka` → `bangalore`). Experience comes from the upload form's `experienceLevel`.
+- **5.3 outlier rejection and recency:** crowdsourced values only, at request time, in log space with a
+  robust sigma (median/MAD, floor 0.05), weighted by `1 / (1 + 0.1 × months)`. Survey rows are trimmed
+  offline by the same rule and keep weight 1.
+- **Frontend:** a `BenchmarkNotice` on the Results page and the Salary Explorer. The survey branch has a
+  visible text label ("Public survey, India-wide"; the icon is `aria-hidden`), the stored disclaimer, `n
+  = X respondents`, and the ODbL attribution with real links to the survey and to
+  `https://opendatacommons.org/licenses/odbl/1-0/`, plus a link to the derived dataset. Crowdsourced and
+  AI-estimated wording is unchanged. The Explorer's "N submissions so far, a few more" sentence now
+  shows only below 10.
+- **Attribution beside every survey benchmark** (Results, Salary Explorer, PDF). The two copies of the
+  legal text (`reference-source.ts`, `attribution.ts`) are held together by a drift test.
+- **Other docs updated:** `LOCAL_DEVELOPMENT.md` (setup, reset, score and troubleshooting rows),
+  `DEPLOYMENT.md` (`db:load-reference` and the pre-deploy gate), `API_DOCUMENTATION.md` and `api-spec.md`
+  (`GET /salaries/stats` fields and the 30/min limit, `dataSource` values), `database-design.md`
+  (`salary_reference_rows`, the widened `salaryComparison` JSON and the score `basis`).
+  `backend/API_DOCUMENTATION.md` does not describe the salary endpoints, so it is unchanged.
+- **Published dataset:** `data/so-2025-india/` (`reference_rows.csv`, `build_reference.py` and its
+  tests, `build_report.json`, `README.md`) under ODbL 1.0; the repo's MIT `LICENSE` covers code only.
+- **Comparison:** two offers whose salary scores come from different sources or scopes are no longer
+  ranked as like-for-like; the "Salary vs market" row shows no winner and says why.
+
+##### Deviations from the plan (all recorded in the design, none silent)
+
+1. **Robust 3σ, not a literal mean/σ test.** With sample σ the largest possible z-score at n = 10 is
+   2.85, so a literal 3σ test cannot reject anything below n = 11. Median/MAD in log space, with a floor.
+2. **Generic titles pool four developer families** (full-stack, back-end, front-end, mobile) inside the
+   one survey source, because "Software Engineer" / "SDE-2" has no survey equivalent. This is not pooling
+   across sources. The disclaimer names the family or the four-family group.
+3. **City and currency gate.** A letter that names a non-metro city, or an offer that is not in INR, never
+   receives a national INR benchmark. The city resolver prefers a real city in the letter over the form.
+4. **Null-percentile fix.** When the letter states no CTC, the old worker fell back to the model's invented
+   percentile and scored it. The benchmark's null is now kept and salary is redistributed.
+5. **`GET /salaries/stats` now has a per-route limit of 30/min** (`salaryStats`). Earlier docs claimed
+   30/min; only the global 100/min applied.
+6. **The disclaimer prints the range that was actually queried** (`1-2 years of experience`), not the seed
+   label, because brackets are half-open (`min <= years < max`). Fresher means 0 years only.
+
+##### Commands
+
+```
+cd backend
+npm run db:migrate          # applies 0006 (never db:push)
+npm run db:load-reference   # idempotent: deletes this source+version, reinserts in one transaction
+```
+
+Rollback (dev database; confirm first on a shared one): `DROP TABLE salary_reference_rows;` **and**
+`DELETE FROM drizzle.__drizzle_migrations WHERE created_at = 1791797561443;` (the `when` of entry 0006 in
+`backend/drizzle/meta/_journal.json`). Without the second statement a later `db:migrate` treats 0006 as
+applied and never recreates the table. Stale cached results: delete `salary:ref:v1:*` keys in Redis.
+
+##### Data coverage (from `data/so-2025-india/build_report.json`)
+
+49,191 survey rows → 2,547 India → 2,463 INR → 1,659 employed → 944 with usable pay and experience → 743
+in a role family → 665 within 1,00,000–5,00,00,000 → **662 kept** (3 removed by the trim). Rows per role:
+Full Stack 269, Backend 184, Frontend 62, Mobile 42, Data Scientist 31, DevOps 27, Data Engineer 25,
+Engineering Manager 22. Cells with n ≥ 10: Backend and Full Stack in five brackets, Frontend in four,
+Mobile in two (Mid, Senior), Data Scientist in one (Junior), Engineering Manager in one (Principal).
+Data Engineer and DevOps get the role-wide benchmark only. **No kept row has 0 years of experience, so a
+Fresher offer is always benchmarked against the whole role** (at the time of Phase A; since 5.6 the range is still shown but the offer is not ranked against it).
+
+##### Verified live
+
+Docker Postgres 16 + Redis 7, real data, real Gemini key.
+
+- `npm run db:migrate` applied; `npm run db:load-reference` loaded 662 rows (counts per role as above).
+  *(Recorded by the backend coder; I did not re-run them.)*
+- `SalaryService` against the real DB and Redis: Backend Engineer / Bengaluru with `Mid-Level (3-5 yrs)`
+  → tier 2, n = 39. "SDE-2" Mid → four-family pool, n = 134. Product Manager, Jaipur and a USD offer →
+  null. *(Backend coder, throwaway script, deleted.)*
+- **A full end-to-end analysis through the API and workers** (the first Playwright run, which got as far
+  as the results page): the stored analysis has `dataSource: 'public_survey'`, disclaimer "Modelled from
+  public surveys, not offers in your city. India-wide benchmark from the Stack Overflow Developer Survey
+  2025 (n = 184, Backend Engineer respondents, all cities, all experience levels).", `offerPercentile` 62,
+  a salary component at **weight 30**, value 62, `basis` `public_survey` / `role_national`, and
+  `scoring_method` `standard` (no redistribution). This was tier 3 because the spec picks the first
+  experience option, and Fresher has no rows.
+- Frontend, run by me in `frontend/`: `npx tsc --noEmit -p tsconfig.app.json` → clean; `npm run lint` → 0
+  errors (18 warnings, none from the new files); `npm test` (`vitest run`) → 4 files, **20 passed** (18
+  before, plus 2 for `BenchmarkNotice`); `npm run build` → succeeds. Gzip: `ResultsPage` 16.48 kB,
+  `SalaryExplorerPage` 2.40 kB (the added component is a few hundred bytes; I did not record a "before"
+  build, so the delta is not measured).
+- Backend, run by me: `npx vitest run src/modules/salary/reference-source.test.ts` → 5 passed (the
+  attribution drift test). Recorded by the backend coder: `npx tsc --noEmit` clean, `npx eslint src`
+  clean, `npx vitest run --maxWorkers=3` → 692 passed, 3 skipped (baseline 582 + 3).
+- **Playwright smoke spec: did NOT pass.** `cd frontend && npx playwright test` was run four times
+  against the full stack (API, workers, Vite) with the real Gemini key, and failed each time on a wait
+  for live Gemini output, not on an assertion about the benchmark: runs 1 and 3 got through sign-up,
+  analysis and the results page (the "Red Flags" heading and a non-placeholder `h1` were found) and then
+  timed out at the 90 s wait for the Negotiation Script's Copy button (the ledger shows that call
+  eventually failing with `provider_error` in run 1, and succeeding about 91 s after the click in run 3);
+  run 2 and run 4 timed out at the 150 s wait for the analysis to finish (the ledger shows
+  `provider_503` on the first model in the same window, and a worker that was still busy). I did not
+  isolate the cause beyond the ledger; slow or failing Gemini calls are the likeliest explanation, but
+  that is a guess, and the earlier 4.8 runs (2.0 min) were at a time when Gemini was faster. So the
+  Phase 4 smoke result is **not re-confirmed** on this change. The four `e2e-*@example.com` users it
+  created were deleted afterwards. **Superseded by the review-fix pass below, which re-ran it green.**
+
+##### Verified live (review-fix pass, frontend; API :8000, workers, Vite :8080, real Gemini key)
+
+- **Playwright smoke spec: PASSED.** `cd frontend && npx playwright test` → `1 passed` (35.1 s, spec
+  total 37.8 s) against the full stack with this change in the tree. The four earlier failures were all at
+  Gemini-dependent waits; this run's Gemini calls returned in time, which fits the provider-latency
+  explanation recorded above (it does not prove it: I did not capture a ledger for the green run). The
+  one `e2e-*@example.com` user it created was deleted afterwards. The spec still does not assert on the
+  benchmark notice.
+- Frontend after the pass: `npx tsc --noEmit -p tsconfig.app.json` → clean; `npm run lint` → 0 errors,
+  18 warnings (unchanged); `npx vitest run` → 4 files, 20 passed.
+- **Bundle delta (clean `git archive HEAD` build vs working tree, `npm run build`, gzip):**
+  `SalaryExplorerPage` 2.26 → 2.40 kB (+0.14), `ResultsPage` 16.52 → 16.48 (−0.04), entry chunk
+  178.09 → 178.09. Well inside the 1 kB design budget.
+- **Lighthouse on `/salaries`** (Lighthouse 12, installed Chrome, headed window at 412 px wide, default
+  mobile emulation and throttling, `vite preview` of each build; the headless modes returned `NO_FCP` on
+  this machine). Accessibility: **0.94 for both HEAD and this change**. The only failing audit is
+  `button-name` (an icon button with no accessible name), which exists at HEAD and is not in the new
+  code; it sits **below the design's 95 floor, so it is an open item**, not something this change
+  introduced. Performance score, HEAD: 0.84, 0.80, 0.86, 0.85; this change: 0.79, 0.67, 0.84. Runs differ
+  by up to 0.19 on the same build (the first run after starting the preview server is the slowest, and
+  the machine was also running Postgres, Redis and Chrome), so the floor (baseline minus 3, or 85,
+  whichever is lower, which is 81) **cannot be called pass or fail from these runs**. The code change
+  (+0.14 kB, one `aside` of text and links) gives no mechanism for a regression of that size; the
+  one run taken after the server had warmed up scored 0.84 against HEAD's 0.85. CLS 0 on every run.
+  Run on a quiet machine before relying on the number.
+- **Not measured:** Lighthouse on a results page (it needs a signed-in session with a stored analysis, and
+  Lighthouse starts a clean profile). Contrast was calculated by hand from the theme tokens (about 5:1
+  light, 4.7:1 or better dark), not measured with a tool.
+
+##### Verified live (review-fix pass, backend; Docker Postgres 16 + Redis 7, API on :8000, workers, real Gemini key)
+
+- `npm run db:migrate` → "migrations applied successfully" (0006 already present, so a no-op);
+  `salary_reference_rows` holds 662 rows.
+- Fix for review finding 5: `tester` and `testing` added to the QA rule in `role-matching.ts`
+  ("Software Tester", "Senior Software Testing Engineer", "Manual Tester" → `QA Engineer`, no reference
+  families; "Software Engineer" unchanged); one test added in `role-matching.test.ts`.
+- Backend after the fix: `npx tsc --noEmit` clean; `npm run lint:eslint` clean; `npm test` → 56 files
+  passed, 1 skipped; **698 passed, 3 skipped**.
+- `node test-security.mjs` → **20 passed, 0 failed** (analysis COMPLETED in ~27 s).
+- `node test-m3.mjs` → **19 passed, 0 failed, 0 known-blocked** (stats median from 29 submissions).
+- `node test-m2.mjs` → **32 passed, 0 failed, 0 known-blocked** (no `OFFER_NOT_READY`, so no re-run needed).
+- `npm run eval -- --runs 3 --save` (`eval/results/2026-10-12T11-32-45-235Z.json`): structured **94.4%**
+  (range 92.9 to 95.2), nuanced **85.6%** (83.7 to 86.6); last saved baseline
+  (`2026-09-20T11-22-20-544Z.json`, 3 runs): structured 93.5%, nuanced 83.7%. Both targets pass; no
+  regression. (A single un-saved run earlier read nuanced 74.4% and a second 80.1%; the harness itself
+  warns single runs swing about 5 points, so only the 3-run figure is used.)
+- `GET /salaries/stats` live: `Backend Engineer` / Pune → `dataSource: "public_survey"`,
+  `scope: "role_national"`, `count` 184, p25 887500, p50 2050000, p75 4080000, p90 6500000; `SDE-2` /
+  Bangalore → `Software Engineer`, count 557 (four-family pool); `Wizard` / Pune → `count` 0,
+  `dataSource` null.
+- **The 31-call 429 on `salaryStats` did NOT reproduce at the time.** The global and per-route
+  limiters were not applied at all at that commit (open item 5). **Since fixed and re-verified live:**
+  30 x 200 then a 429 (see "Rate limiter fix").
+
+##### Not verified
+
+- **Only reasoned, not run:** Lighthouse on a results page; a tool-measured 4.5:1 contrast in both
+  themes (the survey notice uses `text-foreground` at `text-sm`, not the muted colour, and the links are
+  underlined and carry a `focus-visible` ring; `/salaries` Lighthouse accessibility is 0.94, same as
+  HEAD, see the review-fix pass above); keyboard walk through the new links. *(Since run: see the 5.4 outcome for Lighthouse on a results page, tool-measured contrast, a real-browser keyboard walk and the real PDF check.)*
+- **The Results page and Salary Explorer rendering with real survey data in a browser.** The component is
+  unit-tested with jsdom and the data shape is confirmed in the database, but I did not screenshot it. The
+  Playwright spec does not assert on the benchmark notice.
+- **The PDF** containing the attribution text (the report builder is unit-tested; a real PDF download of
+  a survey-sourced result was not checked: the analyses in the regression scripts resolved to the
+  crowdsourced tier). The 31-call 429 on `salaryStats` (open item 5; verified later by the rate limiter fix).
+- **Crowdsourced precedence** at n = 10 versus 9 with real rows is covered by `salary.lookup.test.ts`
+  (mocked database), not by live inserts.
+- The attribution text rendered inside a deployed instance: `DATASET_URL` points at a GitHub path that
+  resolves only once the repo is public and pushed.
+
+##### Open items
+
+1. **Tier-3 skew risk.** The role-wide benchmark pools all experience levels, so a senior offer is
+   compared with a population that includes juniors, and a Fresher offer (no 0-year rows) always lands
+   here (**since 5.6, a Fresher offer, or an offer whose bracket has zero survey rows, is shown the range but not ranked**).
+   The note says "across all experience levels", but the percentile can still mislead at the
+   extremes for the other brackets. Phase B or partial pooling is the fix.
+2. **Low-tail share.** Kept rows below 3,00,000 a year: Frontend 8.06%, Full Stack 5.95%, Backend 4.89%,
+   Mobile 2.38%, others 0%. Frontend and Full Stack are above 5%; some of these may be monthly pay typed
+   into the annual field, some may be real fresher pay. The 1,00,000 floor was **not** raised; the owner
+   decides.
+3. **Percentile wording.** The score note reads "62th percentile" (ordinal suffix); cosmetic, pre-existing
+   pattern.
+4. **Pre-deploy gate (reworded by the deployment readiness round).** Do not load the reference data into a deployed database until
+   `DATASET_URL` resolves for an anonymous visitor. With the repo private it does not: an open owner decision, see "Deployment readiness
+   round outcome". The service-account key in git history (follow-up F1) is a separate key-rotation item.
+5. **RESOLVED on branch `fix-rate-limiter` (see "Rate limiter fix" below).** Was: rate limiters inert at
+   HEAD (pre-existing, found during the review-fix pass). `registerRateLimiter` in `middleware/rate-limiter.ts` is registered with
+   `app.register(...)` but is not wrapped in `fastify-plugin`, so `@fastify/rate-limit` lives in a child
+   scope and never sees the real routes. Evidence: no `x-ratelimit-*` header on any response; with the
+   plugin wrapped in `fp()` the headers appear (`x-ratelimit-limit: 100`) and 32 calls to
+   `/salaries/stats` with one cookie jar return 30 x 200 then 429, 429. That means `RATE_LIMITS.global`
+   (100/min), `authLogin` (10 per 15 min) and the other per-route limits are dead config today, and the
+   `salaryStats: 30/min` limit added in B0 is too. The one-line fix turns all of them on at once, which
+   changes behaviour app-wide, so it was tried, reverted, and not applied. (The owner then decided to
+   fix it; the fix, the audit of every limit and the live evidence are in "Rate limiter fix" below.)
+6. **Lighthouse accessibility on `/salaries` is 0.94 at HEAD and after this change** (design floor 95):
+   one icon `button` with no accessible name, not in the new code. Not fixed here; a one-line `aria-label`
+   once the button is identified. **Fixed in the 5.4 clean-up:** the Navbar icon buttons have accessible names; Lighthouse accessibility on `/salaries` is 1.00 (see the 5.4 outcome).
+7. **Not done, by design:** Phase B (PLFS city factors), 5.5 (career-path
+   salary progression; landed afterwards, see its outcome), a route limit on `POST /salaries`, `company_type` / `company_size` on reference rows. (5.4, the contribution prompt, landed afterwards: see its outcome. The route limit stays "not done, by design" and its gap is open item 2 there.)
+
+#### Rate limiter fix (branch `fix-rate-limiter`, resolves Phase 5 open item 5 and the "dead config" audit item)
+
+**Root cause.** `registerRateLimiter` was an ordinary async plugin. `@fastify/rate-limit` (10.3.0, read in
+`node_modules`) enforces limits through an `onRoute` hook, and that hook only sees routes registered in the
+same Fastify context. The routes live in the sibling `/api/v1` context, so the hook never saw one: no
+`x-ratelimit-*` header, no 429, ever, for the global 100/min, `authLogin`, the Gemini and Vision routes and
+`salaryStats`. Fix: wrap it in `fastify-plugin` (`rate-limiter.ts`), with
+`dependencies: ['redis', 'guest-identity']` so boot fails if either is registered after it. `fastify-plugin`
+5.1.0 was already imported by six files under `src/plugins` and sits in the lockfile as a transitive
+dependency; it is not in `package.json`. I did not add it (no dependency change); declaring it is a
+one-line follow-up. Registration order was already right: the guest cookie hook (`guest-identity`) is a
+root-level `onRequest`, and the limiter's check is a route-level `onRequest`, which Fastify runs after the
+root ones, as does `authenticate`.
+
+**Key generator.** Was `guestId || ip`. Two problems found once it was live, both fixed in the same function:
+1. `guestIdentifier` mints a fresh token for any request without a valid cookie, so a cookie-less client
+   (curl, a script) got a brand-new bucket per request and bypassed every limit, `authLogin` included. Now
+   a request that arrived without a valid cookie is keyed by IP (`request.guestIsNew`, a new field set in
+   `guest-identifier.ts`). Browsers are still per-cookie, so users behind one NAT do not share a bucket
+   (ADR-001 is not regressed).
+2. A signed-in user was keyed by whichever cookie they happened to send. Now `u:<userId>` first, so clearing
+   cookies or switching browser does not reset a budget, and a Bearer-only client is not lumped in by IP.
+Order is user, then guest cookie, then IP; prefixes `u:` `g:` `ip:` keep the namespaces apart.
+
+**Audit of every limit** (all counted per caller as above; a route with its own limit does not also count
+against the global 100/min, because the plugin picks one or the other per route):
+
+| Limit | Value | Enforced? | Verdict |
+|---|---|---|---|
+| `global` | 100/min | yes, every route without its own limit (polling, `POST /offers`, analysis, report, delete, metadata, forum, feature requests, `/auth/refresh`, `/health`) | Kept. Measured headroom below |
+| `authLogin` | 10 / 15 min | `POST /auth/login`, `/auth/google` (each its own bucket), per cookie, per IP when cookie-less | Kept. Counts successes too; a real user does not log in 10 times in 15 min |
+| `authLoginIp` | 30 / 15 min | `POST /auth/login` only, per client IP whatever the cookie (added by 5.8, see "Task 5.8 outcome") | New. Binds only cookie-minting clients, since cookie-less traffic hits the 10-per-IP `authLogin` fallback first |
+| `authLoginEmail` | 10 / 15 min | `POST /auth/login` only, per normalised email (sha256) whatever the cookie or IP (added by 5.8) | New. Attempts since the last successful login; same behaviour for registered and unregistered addresses |
+| `authSignup` | 5 / hour | yes | Kept. Validation failures count |
+| `offerExtractText` | 20 / hour | yes | Kept. One call per upload attempt |
+| `offerExtractFile` | 10 / hour | yes | Kept |
+| `negotiate` | 10 / hour | yes | Kept. Each click is a Gemini call |
+| `compare` | 20 / hour | yes | Kept |
+| `benefits` | ~~20~~ **60** / hour | yes | **Raised from 20 to 60 in the 5.4 clean-up (owner-approved, deliberate loosening).** It is a pure calculation, not an AI call, and the panel's "Recalculate" button plus the open-time fetch each spend one, so 20 was the limit most likely to bite. 60/hour is one a minute on average |
+| `accountExport` | 5 / hour | yes | Kept |
+| `salaryStats` | 30 / min | yes | Kept. The Explorer queries only on an explicit Search click |
+| `offerPolling` 60/min, `analysisGet`, `offerDelete`, `reportGet`, `metadata`, `featureRequestCreate`, `featureRequestVote`, `corrections` | various | **no route uses them** (never wired, same as before) | Left unwired and now commented as such in `constants.ts`. Wiring `offerPolling` as written would be a mistake (60/min leaves little room over a 1 s poll loop). Their routes ride the global 100/min |
+
+**No limit was changed, and none was loosened or exempted.** The polling endpoint (`GET /offers/:id`) has no
+route limit; the frontend polls every 3 s (about 20/min), and the global 100/min leaves room for it plus the
+other calls on the page.
+
+**Collision with the daily quota 429.** None. They are different codes (`RATE_LIMIT_EXCEEDED` versus
+`UPLOAD_LIMIT_EXCEEDED` / `QUOTA_EXCEEDED`), different sources (the plugin's thrown error versus
+`QuotaExceededError`) and the frontend already tells them apart (`isRateLimited()` versus `getQuotaError()`).
+The rate-limit body is `{ success: false, error: { code, message } }` plus `Retry-After` and `x-ratelimit-*`,
+which is the repo's actual error shape. The repo's errors carry no `meta.requestId` anywhere; the request id is
+the `x-request-id` header. I did not add a `meta` object to every error.
+
+**Frontend (minimal).** `UploadPage` already showed a "Slow down" toast for a rate-limit 429. Two pages did
+not, and became misleading once the limiter is live: `LoginPage` / `SignupPage` told a rate-limited user
+"Invalid email or password" / "Signup failed", and `SalaryExplorerPage` showed "No data for this combination
+yet" on a stats 429. They now show a rate-limit message (`RATE_LIMITED_AUTH_TEXT` and `RATE_LIMITED_TEXT` in
+`lib/quota.ts`). `ProcessingPage` polling needed no change: a 429 on one poll is retried on the next
+interval, and only a persistent failure shows "Could not load status" with a retry button.
+
+**Tests.** New `backend/src/middleware/rate-limiter.test.ts` (6 tests): boots Fastify with the same
+order as `app.ts` (identity, limiter, then routes in a sibling `/api/v1` context) and asserts the
+`x-ratelimit-limit` header, a 429 in the standard shape with `Retry-After`, `routeLimit()` applied across the
+context boundary, independent buckets per cookie and a shared one per cookie, per-account keying, and that a
+cookie-less client cannot dodge the limit. Redis is stubbed with `null`, which makes the plugin use its
+in-memory store. **Red before, green after:** against the unfixed `registerRateLimiter` (plain async
+function) the file failed 6 of 6 (no header, no 429, no buckets; the reviewer re-ran it and confirmed 6 of 6); with the `fp` wrap and key change 6 of 6 pass.
+(The three encapsulation tests fail on the wrap alone; the key-generator tests also needed the key change.)
+
+##### Verified live (Docker Postgres 16 + Redis 7, `db:migrate`, API on :8000, workers, Vite on :8080, real Gemini key)
+
+- (a) Ordinary routes now send `x-ratelimit-limit: 100` and `x-ratelimit-remaining`.
+- (b) 31 calls to `GET /salaries/stats` from one cookie jar (cookie obtained first): **30 x 200 then 429**,
+  with `retry-after: 60`, `x-ratelimit-limit: 30`, `x-ratelimit-remaining: 0` and the body
+  `{"success":false,"error":{"code":"RATE_LIMIT_EXCEEDED",...}}`. So the "30/min" claim in `API_DOCUMENTATION.md`
+  and `api-spec.md` is now **true** and kept. (A cookie-less first call is keyed by IP, so a fresh jar's call 1
+  does not count toward its own bucket; the run above warmed the cookie first.)
+- (c) A second cookie jar right after: 200, `remaining: 29`. Unaffected.
+- (d) Login: 10 wrong passwords gave 401 x 10, then **429** with `retry-after: 900` and the standard body, from a
+  cookie jar and also from a client that sends no cookie (fresh token each time). With a real account, jar A
+  (locked out) got 429 even with the correct password, and **jar B logged in fine (200)**. I did not wait out the
+  15-minute window, so "works again after the window" is the plugin's documented behaviour, not something I saw.
+- Per-account keying: `GET /account/export` (5/hour) through two different cookie jars with the same
+  Bearer token: 5 x 200 then 429.
+- (e) Realistic flow, as the frontend does it (quota and three metadata calls, extract, `POST /offers`, 3 s
+  polling until COMPLETED, results page loads): 14 requests, peak 14 in any 60 s; lowest remaining 88 of the
+  global 100, and 19 of 20 on the extract route. That analysis finished in about 6 s, so I also ran the worst
+  case for the global bucket: 1 s polling for 60 s plus the page calls = **66 requests in the minute, no 429,
+  lowest remaining 37**. A 20-60 s analysis at 3 s polling is about 20 polls.
+- Regression suites against the final code: `node test-security.mjs` **20 passed, 0 failed**; `node test-m3.mjs`
+  **19 passed, 0 failed**; `node test-m2.mjs` **32 passed, 0 failed**; `cd frontend && npx playwright test`
+  **1 passed** (33 s). No script needed changing and no limit was raised or disabled for them.
+- `backend`: `npx tsc --noEmit` clean, `npx eslint src` clean, `npx vitest run` **704 passed, 3 skipped**
+  (baseline 698 + 3 skipped, plus the 6 new). `frontend`: `npx tsc --noEmit -p tsconfig.app.json` clean,
+  `npx eslint` on the touched files 0 errors (1 existing `any` warning), `npx vitest run` 20/20.
+
+##### Not verified / only reasoned
+
+- **One vitest failure, not reproduced.** The first full backend run after the limiter change showed 1 failed
+  test; I did not capture its name. Four later full runs were clean (704 passed each). The run overlapped with
+  the live API and workers, so a timing-sensitive test is the likeliest cause, but that is a guess.
+- **The new UI messages were not rendered in a browser.** Typechecked and linted only; the Playwright spec covers
+  the normal path, not a 429.
+- **Reasoned from the plugin source, not run:** an unreachable Redis makes limited routes error rather than skip
+  the limit (`skipOnError` is off); the browser cannot read `Retry-After` cross-origin (not exposed in CORS, and
+  the frontend does not use it); the limiter does not touch the `OPTIONS` preflight route (registered before it).
+- **Behind a proxy:** the app does not set `trustProxy`, so there cookie-less clients would share the proxy's IP
+  bucket. Documented in `DEPLOYMENT.md`; not changed.
+- **Known ceiling (closed for login by 5.8, see "Task 5.8 outcome"; what remains is listed there):** a client can still mint many cookies (each costs one IP-keyed request, up to 100/min per IP)
+  and get a bucket per cookie. That weakens `authLogin` in particular; the upgrade path is a per-route IP or
+  email key for login. Not done because keying login by IP alone would make one office NAT share 10 attempts per
+  15 minutes, which is a behaviour decision for the owner.
+- **`salary.service.ts` cache-key comment** said cache-key cardinality is "bounded by the 30/min route limit".
+  That was not true even with a working limiter (each new cookie gets its own 30/min), so the comment now says
+  the limit slows but does not cap it.
+- Throwaway test accounts from the live runs (`e2e-*`, `m3-*`) remain in the local database, as they did before.
+
+##### Docs changed
+
+`api-spec.md` (per-route lines and the summary table now match the real config; the old table listed per-IP limits
+for routes that never had one), `API_DOCUMENTATION.md`, `DEPLOYMENT.md` (Redis dependency, proxy note),
+`LOCAL_DEVELOPMENT.md` (troubleshooting row for tripping a limit while testing), `roadmap.md` (M5 status), and
+this plan (open item 5, the audit item, the C1 row, the before/after table).
+
+##### Task 5.8 outcome: login limiter, per-IP plus per-email
+
+Design: `.agents/tasks/phase5-closing-design.md` section 3. Code: `createLoginGuard` in `middleware/rate-limiter.ts`
+(wired as the `preHandler` of `POST /auth/login` only), `RATE_LIMITS.authLoginIp` and `authLoginEmail`. No new dependency.
+
+- **Three limits on `POST /auth/login`, independent buckets.** The per-cookie `authLogin` (10 / 15 min, kept), a per-IP limit
+  (30 / 15 min, keyed on `req.ip` alone) and a per-email limit (10 / 15 min, any cookie or IP). Any can answer the standard
+  `RATE_LIMIT_EXCEEDED` 429 with `Retry-After`; the body is the same for all three and for every address, so it reveals
+  neither which limit fired nor whether the account exists. `POST /auth/google` has no email in its body, so it keeps only
+  the per-cookie bucket.
+- **Mechanism (read against `@fastify/rate-limit` 10.3.0).** The plugin's key generator runs at `onRequest`, before the body
+  is parsed; a route has one `config.rateLimit` (the cookie bucket); and a second `fastify.rateLimit()` preHandler never
+  runs (all handlers from one plugin share a `rateLimitRan` flag). So the guard is a `preHandler` (body parsed and validated)
+  that calls `fastify.createRateLimit` for the IP and keeps an atomic Redis counter (`INCR` + `PEXPIRE NX` + `PTTL`) for the email.
+- **Failed attempts, not all attempts.** The email counter increments before the password is checked (parallel guesses cannot
+  slip past a read-then-increment) and a successful login deletes it, so it holds the attempts since the last success.
+  A 400 (invalid body) never reaches the guard; a request stopped by one check spends none of the later ones.
+- **Email handling.** Trimmed, lower-cased, sha256-hashed (`node:crypto`) before it enters any Redis key (`login-email:<64 hex>`)
+  or log. The raw address is never logged. Unregistered and registered addresses count, lock and answer identically.
+- **Accepted trade-offs (not removed):** people behind one shared network share the 30-per-IP allowance; anyone can lock
+  another person's login by failing 10 times against their email, and while locked even the right password gets 429. The lock
+  is on this route only, never on the account, Google login, refresh or an issued token. The pre-existing
+  `POST /auth/signup` 409 `EMAIL_IN_USE` still reveals that an address is registered; 5.8 adds no new enumeration channel.
+- **What remains (`ponytail:` comment in `rate-limiter.ts`):**
+  1. **`trustProxy` is unset: set it before deploying.** Behind a proxy or load balancer every client shares one IP, and the
+     login IP limit (which ignores cookies) becomes a site-wide cap of 30 logins per 15 minutes for ALL users, browsers included.
+  2. Many IPs can still try 10 passwords per email per 15 minutes each (about 960 a day per account).
+  3. `/auth/google` is covered only by the per-cookie bucket.
+  4. The email hash is plain sha256, so someone with Redis read access can confirm a guessed address (upgrade: HMAC with a server secret).
+  5. Cookie-less login traffic is stopped by the existing 10-per-IP `authLogin` fallback long before 30, so the new per-IP limit only binds cookie-minting clients.
+- **Fail closed.** A failed or missing Redis reply to the email counter throws (a 500), as for every limited route. Needs Redis 7 (`PEXPIRE ... NX`; compose pins `redis:7-alpine`).
+- **Frontend.** `LoginPage` already maps a `RATE_LIMIT_EXCEEDED` 429 to the existing `RATE_LIMITED_AUTH_TEXT`; no code change, now pinned by a test.
+- **Tests.** `modules/auth/auth.login-limits.test.ts` (15) and `pages/LoginPage.test.tsx` (2); see `.agents/tasks/phase5-5.8-login-limiter.md` for the commands and results.
+  **Not covered by automated tests:** window expiry against real timers (not run live either: the closing round did not wait out a window), and the Redis commands against a real Redis (run live in the closing round, see "Phase 5 closing round outcome").
+
+#### Phase 5 task 5.4 outcome — post-analysis salary contribution prompt, plus the clean-up round
+
+Branch `phase5a-salary-reference-seed` (one branch per phase; committed on it). Design (revision 4) and
+its three review rounds: `.agents/tasks/phase5-5.4-design.md`, `.agents/tasks/phase5-5.4-design-review.md`.
+Throwaway live-check scripts and their raw output are in `.agents/tasks/` (`live54-*.mjs`, `lh/`, `eval-output.txt`).
+
+> [!NOTE]
+> **`.agents/` is now gitignored** (any `.agents/` directory, including `docs/.agents/`). Every
+> `.agents/tasks/...` path cited in this plan (designs, reviews, research, live-check scripts) is a
+> **local working note, not part of the repository**; a fresh clone will not have them. Anything that
+> must outlive a session is in this plan. The Phase 5 design and research notes were never committed,
+> so only their conclusions, recorded above, are durable.
+
+##### What was built
+
+- **A dismissible card on the results page, after the Benefits section** (`ContributeSalaryCard`). It offers to send
+  ONE salary data point through the **existing** `POST /salaries`. No new endpoint, table, column, migration or
+  dependency; `salary.routes.ts`, `salary.schema.ts` and the schema are untouched. Prefilled from `extractedData`
+  (role, city, CTC rounded to the nearest ₹10,000, company type when it maps), every field editable, years never
+  guessed, never auto-sent, opt-in per offer. Dismissal ("No thanks") and a successful send are remembered per offer in
+  `localStorage` and never leave the browser. Guests can contribute (the route has no auth guard; none was added or removed).
+- **One shared form.** The Explorer's inline form was extracted into `SalaryContributeForm` + `ContributionFields`;
+  the card and the Explorer dialog both render it. Validation, the payload builder, the gate (`shouldOfferContribution`),
+  the prefill and the company-name guard live in `frontend/src/lib/salary-contribution.ts`. The Explorer lost every
+  "anonymous" string (toast, title, description, privacy line) and gained label/`htmlFor` pairs.
+- **Company-name guard** (client side only; the server never sees the company name): the first significant word of the
+  company name in the role or city blocks the submit; a later word, a 2-letter brand or the company's initials need a
+  "this is a general term" confirmation.
+- **Backend:** `dayStartUtc` (stored `created_at` / `updated_at` are the UTC day, D6); the cooldown 429 now carries
+  `details.reason = "ALREADY_SUBMITTED"` (D7); the five overstating "verified" strings reworded; the AI-estimate
+  fallback disclaimer moved to an exported `AI_ESTIMATE_DISCLAIMER`; crowd benchmark confidence `high` → `medium`;
+  `RATE_LIMITS.benefits` 20 → 60 per hour.
+- **Frontend clean-up:** accessible names on the three Navbar icon buttons; `<meta name="referrer" content="strict-origin">`.
+
+##### Privacy properties and how each was verified
+
+| Property | Evidence |
+|---|---|
+| The request has only the allowlisted keys and never the offer id or company name | jsdom test (`Object.keys(body)` plus a `JSON.stringify` search for the offer id and company). **Live:** the captured browser request body was exactly `{"role":"Backend Engineer","city":"Hyderabad","experienceYears":4,"ctc":2400000,"companyType":"product"}` (company size blank, so absent). A curl `POST /salaries` that also carried `offerId` and `companyName` stored neither (row inspected) |
+| The stored row has NULL `user_id` and `fingerprint`, canonical role/city, day-level timestamps | `salary.anonymous.test.ts` (exact column list, no guest token or offer text anywhere in the values, fixed clock at 23:59:59.999Z gives 00:00:00.000Z). **Live:** `select *` on the contributed row: `user_id` and `fingerprint` empty, `created_at` and `updated_at` `2026-10-12 00:00:00+00`, no offer or company column exists |
+| Nothing is sent before "Send data point" | jsdom: no POST on render, expand, Cancel, No thanks, or an invalid submit. **Live** (Playwright request listener): zero POSTs after page load, after expanding, and after a blank submit |
+| The API log carries no request body | **Live:** restarted the API with stdout to a file, POSTed a body containing a unique marker string and a unique role; **0** occurrences of either in the log. The line has method, url, status, duration, guest id and ip only (`request-logger.ts`) |
+| The offer URL is not sent as a `Referer` | `index.html` meta present (asserted live). A same-origin `fetch` from `/offers/<id>` carried `Referer: http://localhost:8080/` (origin only), and so did the contribution POST. The same-origin case was shown with a probe request to the SPA's own origin, not with a deployment that serves the API from the SPA's origin |
+| Guests may contribute; auth is not weakened | Route untouched. Live curl `POST /salaries` from a cookie-only client (no token) returned 201 |
+
+Residuals are as stated in the design (3.2): anyone with direct database access can still join a salary row to an analysis
+row on role, city and CTC; a role or city that matches no family is stored verbatim lowercased; the guard cannot know a team
+or product codename; the cooldown key in Redis (hash of the guest cookie) is the one allowed linkage.
+
+##### Offered versus verified (D5): copy-only, plus the confidence change
+
+Nothing in the system verifies a submission, and the card adds offered (unaccepted) figures to the same pool, so the
+product stopped saying "verified". Five strings: `benchmark-comparison.ts` (now "Based on N crowdsourced, unverified
+submission(s) for this role and city. Some may be offered, not current, pay."), `confidence.ts` reason,
+`score.rubric.ts` note, `market-data.ts` prompt header ("CROWDSOURCED, unverified") and the worker's AI-estimate fallback
+(now `AI_ESTIMATE_DISCLAIMER`). The acceptance greps are clean: `git grep -n -i -P "\bverified (submission|salary|market)" -- backend/src frontend/src`
+returns only `analysis.prompt.ts:41`, `confidence.test.ts:189` and `score.rubric.test.ts:82` (absence assertions and a
+correct caution); `git grep -n -P "\bVERIFIED\b" -- backend/src/providers` returns only the absence assertions, the
+`market-data.ts` comment and the unrelated `google-vision.ocr.ts` comment.
+
+**Confidence level (owner-approved, review finding F1).** The crowdsourced branch of `assessConfidence` now returns
+`medium` instead of `high`; `public_survey` was already `medium`. Why: `ConfidenceBadge` renders `high` as a green "Verified",
+which sat next to copy saying the data is unverified. `ConfidenceBadge.tsx` is untouched. `overall` is derived from role and
+totalCTC only, so it did not move (asserted: crowd case still `overall: 'high'`). `confidence.test.ts` now expects `medium` at
+both former `high` assertions, asserts the level is never `high`, and asserts the reason matches `/unverified/`.
+**Live:** a results page in a crowd cell renders the badge with the accessible name `Salary benchmark: Check this.
+Benchmarked against crowdsourced (unverified) salary submissions for this role and city.` and no "Verified".
+
+**Existing analyses keep the old text.** `analyses.salary_comparison` is a snapshot, so analyses stored before this change still
+show "verified submission(s)" (and the old AI-estimate sentence). No render-time rewrite was added; re-running an analysis
+picks up the new wording. I did not render an old analysis to look at it.
+
+**Open item — `pay_basis`. RESOLVED by 5.7** (see "Phase 5 closing round outcome"): nullable `pay_basis` column (migration 0007),
+`payBasis` in `salary.schema.ts`, `'offered'` sent from the card, and the hybrid lookup with cache keys `salary:crowd:v3`. Rows
+stored before 0007 stay NULL (unlabelled) and count only in the pooled tier, so they cannot be relabelled later.
+
+##### Cache-delay behaviour
+
+`submit()` already deletes `salary:crowd:v2:<role>:<city>` (v2 at the time of 5.4; v3 since 5.7, which deletes three keys, one per basis) after an approved insert, so the cell refreshes on write. The delay that
+matters is the n ≥ 10 floor after outlier rejection, and analyses already stored never change. The success copy says so ("It will not
+show up in anyone's benchmark right away: we only show a range for a role and city once we have at least 10 data points, and
+analyses already done are not updated."). **Live** (see the precedence check below): with 9 rows the cell served `public_survey`; the
+10th row through the real `POST /salaries` made the very next `GET /salaries/stats` return `crowdsourced`, `count` 10, which also
+shows the write-path invalidation working (the cell key held the 9-row array).
+
+##### Lighthouse (Lighthouse 12.8.2 Node API, installed Chrome headed at 412 × 915, default mobile emulation and throttling, `vite preview` of the production build on :8080)
+
+Lighthouse was installed in a temp directory outside the repo (no repo dependency changed). **The machine was not quiet**: the
+owner's browser, Docker (Postgres, Redis), the API, the workers and Chrome were all running. Scores below are ranges, not a verdict.
+
+| Page | Valid runs | Performance | Accessibility | Notes |
+|---|---|---|---|---|
+| `/salaries` | 6 valid (plus 2 `NO_FCP` runs with no score, discarded) | 0.76, 0.80, 0.81, 0.83, 0.85, 0.86 | **1.00 on all 6** | The `button-name` failure from Phase A (0.94) is gone. LCP 3.5 to 3.9 s, CLS 0 |
+| Results page (signed-in profile attached over the debug port, offer with the card shown) | 11 | 0.72, 0.75, 0.81, 0.83, 0.84, 0.87, 0.88, 0.90, 0.90, 0.96, 0.96 | **0.96 on all 11** | LCP 1.9 to 2.4 s; TBT 206 to 1342 ms |
+
+- **Performance floor (81 on `/salaries`):** not claimed either way. Six runs span 0.76 to 0.86 on the same build; four are at or above 0.81.
+  Earlier Phase A runs on the previous build were 0.67 to 0.86. A quiet-machine run is still owed.
+- **Accessibility floor 0.95: met** on both pages in every valid run. The results page's one failing audit is `color-contrast`
+  on 5 nodes that **pre-date this task** and are not in the card: the red-flag severity label (`text-yellow-600` on yellow-50,
+  2.84:1) and four footer/muted links and paragraphs (4.48:1 against 4.5). Recorded as an open item, not fixed.
+- **CLS:** 0 in 9 of 11 results-page runs; **0.133 in two runs**, attributed by Lighthouse to the footer being pushed down as the
+  page loads. That is above the design's 0.1 target in 2 of 11 runs. The card is mounted in the first pass with the data, but
+  I did not prove it contributes nothing to that shift. Cause unconfirmed.
+- **Contrast of the new card, measured with a tool** (computed colours of every text node in the card, light and dark, 412 px):
+  the first pass **found two real failures that I then fixed**: error text used `text-destructive` (3.61:1 light, 1.98:1 dark) and
+  the default and gradient buttons put white text on the primary blue (about 3.6:1 in dark). Errors are now `text-foreground` with
+  `font-medium` (plain text next to the field, not colour only) and the card's buttons use the outline variant with
+  `text-foreground`. After the fix the lowest text ratio was **17.08:1 (light) and 17.84:1 (dark)**. Caveat: the script takes the
+  first solid ancestor background and the card has a background image, so the ratios are approximate; borders and focus rings
+  were not measured. Lighthouse's `color-contrast` audit did not flag the collapsed card (light theme only; it never saw the error text, which is why the script above was needed).
+
+##### Benefits rate limit (D13, owner-approved loosening)
+
+`RATE_LIMITS.benefits` is now `60 / hour` (was 20): it is a pure calculation, not an AI call, and the drawer's open-time fetch
+plus each "Recalculate" spend one request each. Changed in `constants.ts`, asserted in `salary.routes.test.ts`, and updated in
+`docs/api-spec.md` (summary row) and in the rate limiter audit table above. `git grep -n -E "benefits.{0,40}(20|60)"` shows no
+other place that states the old number.
+
+##### Live-path checks that were mock-only until now (12(c)); local Docker Postgres 16 and Redis 7 only
+
+`DATABASE_URL` host `localhost` and `REDIS_URL` `127.0.0.1` were confirmed before the first write; pre-counts were taken and rows
+were deleted by logged id.
+
+1. **PDF ODbL attribution (real report, `public_survey` analysis).** Backend Engineer in Chennai (no crowd rows) completed on the
+   survey tier (`role_experience_national`, n = 33). `GET /offers/:id/report` returned a 2-page PDF; text extracted with `pdfjs-dist`
+   (already a frontend dependency) contains "Contains information from the Stack Overflow Developer Survey 2025 (Stack Exchange
+   Inc.), made available under the Open Database License (ODbL). Survey: https://survey.stackoverflow.co/2025 Licence:
+   https://opendatacommons.org/licenses/odbl/1-0/". Control: the PDF of a crowdsourced analysis (1 page) contains none of those strings.
+2. **Crowdsourced precedence with real rows.** Cell `backend engineer` / `chennai`, starting count **0**. Nine approved rows inserted by SQL
+   (ids logged in `.agents/tasks/live54-inserted-ids.txt`), cell cache key deleted by hand (SQL bypasses the write-path `DEL`):
+   `GET /salaries/stats` → `public_survey`, scope `role_national`, count 184. The 10th row through the real `POST /salaries` (fresh
+   cookie jar) → 201, and the next stats call → `crowdsourced`, `role_city`, count 10, p50 2,410,000, immediately. An analysis in that
+   cell stored the disclaimer "Based on 10 crowdsourced, unverified submissions for this role and city. Some may be offered, not
+   current, pay." with salary confidence `medium` ("...crowdsourced (unverified)...") and `overall` still `high`; its PDF has no survey
+   attribution. The optional 50× outlier step was **not** run. **Cleanup:** 15 salary rows deleted by id (10 Chennai, 3 Hyderabad from
+   the UI runs, 2 log-probe rows), both Redis cell keys and all cooldown keys deleted, the 3 throwaway users and their offers removed.
+   Remaining `salary_submissions` rows are `senior software engineer`/`bangalore` (32) and `backend engineer`/`pune` (1): the regression
+   scripts' own rows, as before (`test-m3.mjs` adds one per run now that the cooldown is live).
+3. **`BenchmarkNotice` in a browser with real anchors.** On a survey-tier results page and on the Explorer's survey result, the three
+   `<a>` elements have `href` equal to `SO_SURVEY_URL`, `ODBL_URL` and `DATASET_URL`, `target="_blank"` and `rel="noopener noreferrer"`.
+   A programmatically focused link shows a 2 px outline (read from computed style; I did not Tab through the notice). `DATASET_URL`
+   resolves only once the repo is public (Phase A open item 4); the check is the href string.
+4. **The card, in Chromium (Playwright), keyboard only for the main path: 51 checks, 51 passed.** Tab from the Benefits button reaches
+   "Review and share"; Enter opens the form with focus on the first empty required field (years); Enter with years and company type
+   blank posts nothing, the live region reads "2 fields need attention", focus returns to years, Send has no `disabled` attribute;
+   typing, Tab to the company type select, Enter/ArrowDown/Enter to choose, Tab to Send; with the POST delayed 1.5 s the focused Send
+   keeps focus, has `aria-disabled="true"` and `aria-busy="true"`, and a second Enter produces no second POST (one POST total, 201);
+   focus lands on the acknowledgement paragraph and the live region stays empty; reload: the card is gone for that offer. On a second
+   offer in the same browser: a role carrying the company's first word is blocked, nothing posted, focus on the role field, "Remove
+   the company name"; a second send is **429** with `error.details.reason: "ALREADY_SUBMITTED"` and the friendly cooldown text appears
+   in the live region (not the limiter's text), focus stays on Send, entered values are kept, no marker is written and no `role="alert"`
+   is shown. On a third offer "No thanks" by keyboard moves focus to the acknowledgement; after reload that offer is hidden, the second
+   offer still shows its card and the first stays hidden (per-offer persistence). The Explorer dialog's inputs all have labels and the
+   dialog contains no "anonymous".
+
+##### Regression and verification record (everything below was run, not read)
+
+- Backend: `npx tsc --noEmit` clean; `npx eslint src` clean; `npm test` → **710 passed, 3 skipped** (baseline 704 + 6 new: row keys,
+  day coarsening, `dayStartUtc`, cooldown reason, `RATE_LIMITS.benefits`, `AI_ESTIMATE_DISCLAIMER`). One earlier full run showed 2 failing
+  tests (`pdf-text.test.ts` and `usage-ledger.test.ts`, both unusually slow at 7.8 s and 5.8 s); I did not diagnose them, a timing
+  failure under load is the likeliest cause, and two further full runs were clean (710 passed).
+- Frontend: `npx tsc --noEmit -p tsconfig.app.json` clean; `npm run lint` 0 errors (17 warnings, all pre-existing, none in the new files);
+  `npx vitest run` → 7 files, **89 passed** (20 before, plus 56 in `salary-contribution.test.ts`, 11 in `ContributeSalaryCard.test.tsx`,
+  2 in `Navbar.test.tsx`); `npm run build` succeeds.
+- **Bundle (vite's gzip figures):** `ResultsPage` **17.34 kB** (was 16.48, +0.86 kB, under the +2.5 kB budget), `SalaryExplorerPage`
+  **1.80 kB** (was 2.40, the form moved out), entry chunk 178.16 kB (was 178.09). **But the real route cost is higher than the page
+  chunk suggests:** the form is imported by both pages, so the bundler placed it in the shared chunk that also holds recharts and
+  `BenchmarkNotice`. A clean `git archive HEAD` build against this tree (same gzip method on both) gives shared chunk 99.8 → 103.5 kB
+  (+3.7) and `ResultsPage` 16.06 → 16.9 kB (+0.84), so opening a results page downloads about **+4.5 kB gzip** more, and `/salaries`
+  about **+3.1 kB**. The design's budget was stated per page chunk, which holds; the route total is above it.
+- Regression scripts from `backend/`, no script changed and none hit a limiter: `node test-security.mjs` **20 passed, 0 failed**;
+  `node test-m3.mjs` **19 passed, 0 failed**; `node test-m2.mjs` **32 passed, 0 failed**. No script pinned the old "Verified" badge or copy.
+- Playwright smoke spec: `cd frontend && npx playwright test` → **1 passed (32.1 s)**, run against the production build served by
+  `vite preview` on :8080 (not the dev server), full stack up, real Gemini key.
+- Phase 0 eval harness, `npm run eval -- --runs 3` (not saved): structured **96.3%** (94.4 to 97.2), nuanced **87.2%** (86.0 to 88.8),
+  merged red-flag F1 **88.0%** (86.2 to 90.3), noise floor 2.8%. Caveat: Gemini answered "all models busy" 8 times, so only **12 of 17**
+  cases completed in all 3 passes. The last saved 3-run baseline was structured 94.4% / nuanced 85.6% on all 17 cases. Nothing moved beyond the
+  noise floor, which is expected: the confidence change is in `assessConfidence`, after extraction, and the eval scores extraction.
+- Gemini and Google credentials were present; no live check was blocked.
+
+##### Not verified / only reasoned
+
+- **A guest in a browser.** The browser run used a signed-in user (token injected); the guest path is covered by a cookie-only curl
+  `POST /salaries` (201) and by the route having no guard, not by driving the card as a guest.
+- **The "later word needs the confirm checkbox" path in a real browser.** It is covered by unit and jsdom tests (including focus on
+  the checkbox); the live company had one significant word, so only the block path ran live.
+- **Assistive technology.** No screen reader was used; the live-region and focus behaviour is asserted from DOM state and
+  `document.activeElement`. Only Chromium was used; not Firefox or Safari, and no phone.
+- **A same-origin deployment** for the `Referer` check (probe request only), and any hosted deployment.
+- **The 50× outlier step** of the precedence check, and an old (pre-change) analysis rendered with its old "verified" text.
+- Lighthouse on a **quiet** machine, and what in the page causes the two CLS 0.133 runs.
+- Contrast of borders and focus rings in the card, and exact ratios on the card's background image.
+
+##### Open items (owner decisions; none were touched)
+
+1. **`pay_basis`** (above): **RESOLVED by 5.7.**
+2. **G1: the cookie-less bypass of the 1 h cooldown.** A script that sends no cookie gets a fresh guest id per request, so the cooldown
+   never triggers and only the global 100/min applies; `POST /salaries` has no route limit ("not done, by design"). Upgrade path:
+   `...routeLimit('salarySubmit')` with `{ max: 10, window: '1 hour' }` (the limiter keys cookie-less clients on IP).
+3. **The login limiter's cookie-minting gap** (from the Rate limiter fix: a client can mint cookies and get a bucket each). **RESOLVED by 5.8** (per-IP and per-email login limits); what remains is in "Task 5.8 outcome".
+4. **Fresher offers are scored against all experience levels** (tier-3 skew; Phase A open item 1). **RESOLVED by 5.6** (range shown, no percentile).
+5. **Phase B (PLFS city factors), Phase 6 and Phase 7.** (Task 5.5 has since landed, and Phase B landed as task 5.1b.)
+6. **Pre-existing contrast failures** Lighthouse found on the results page: the severity label (2.84:1) and footer/muted text (4.48:1).
+7. **Route-level JS cost** of the shared form (+4.5 kB gzip on a results page) and the footer CLS spike.
+8. G3 (ten consistent fake values pass the floor) and G4/G5 (a rejected row still returns 201; the same person can resubmit after an hour)
+   remain accepted at personal-project scale.
+
+##### Docs changed
+
+`docs/api-spec.md` (benefits 60/hour; crowd confidence note), `docs/API_DOCUMENTATION.md` (`POST /salaries` body, privacy, the 429
+`ALREADY_SUBMITTED` reason), `docs/LOCAL_DEVELOPMENT.md` (a contribution needs 10 rows before a range shows), `docs/database-design.md`
+(the `user_id` FK is deprecated, not absent), `docs/roadmap.md` and `docs/PLAN-ui-phase1.md` (stale `/salary`, "127 verified submissions",
+fingerprint and 5-row wording tagged historical), and this plan (status tables, open items, stale wording, the rate limiter audit row).
+
 ---
+
+#### Phase 5 task 5.5 outcome — career-path salary progression grounded in real benchmarks
+Branch `phase5a-salary-reference-seed` (one branch per phase; the work is in the working tree, not yet committed). Design and its
+review: `.agents/tasks/phase5-5.5-design.md`, `.agents/tasks/phase5-5.5-design-review.md`; the verification note is
+`.agents/tasks/phase5-5.5-verification.md`. Throwaway live-check scripts and raw output: `.agents/tasks/live55*.mjs`, `live55-*.txt/json`.
+> [!NOTE]
+> **`.agents/` is gitignored and local only.** Every `.agents/tasks/...` path above is a working note, not part of the repository.
+> Everything that has to outlive the session is in this section.
+
+##### What was built
+- **A pay-by-experience table, computed in code.** `SalaryService.getProgression` returns one cell per `EXPERIENCE` bracket (the
+  same half-open brackets lookup tier 2 uses, so the career view and the offer benchmark agree): median, 25th-75th, sample size,
+  source, and the change in median from the previous bracket. It reuses `matchRole`, `bracketFromLabel`, `refRows` (and its cache),
+  `summarise()`, `rejectOutliers()` and the `n >= 10` floor. No statistic is re-implemented. Pure assembly (`addSteps`,
+  `progressionNotes`) is in the new `salary/progression.ts`.
+- **Per cell: crowdsourced role + city + bracket if n >= 10 after outlier rejection, else the survey role family + bracket
+  (India-wide) if n >= 10, else "not enough data" with the n and no number.** Each source is summarised by its own call and never
+  pooled. A step is computed only between adjacent cells that both have numbers from the same source.
+- **Additive API.** `GET /offers/:id/career-path` gains a top-level `progression` (always present on a 200). The narrative is
+  cached on its own under `career-path:v2:<id>` (the narrative only); the table is recomputed on every open and never cached, so it
+  stays fresh against `db:load-reference` and crowd growth. On a cache miss the progression runs concurrently with the AI call and
+  after `reserve()`, so a 429 spends no progression reads. The one non-additive point: `timeline[].salaryRange` is gone.
+- **The model no longer authors pay.** The prompt moved to a pure `buildCareerPathPrompt` (`providers/ai/career.prompt.ts`): no
+  `salaryRange` in the template, and an explicit rule forbidding any salary, CTC, rupee, LPA, lakh, crore or percentage-of-pay
+  figure. The service whitelists the response (`toNarrative`: `timeline[{year,title,focus}]`, `skillsToLearn`, `potentialRoles`),
+  which drops any unrequested key. That is shape hygiene; it does not inspect prose.
+  **Review fix (prose scan):** a deterministic `containsPayFigure(text)` (`career.prompt.ts`) now scans every narrative string
+  (milestone year/title/focus, `skillsToLearn`, `potentialRoles`). If any trips, the whole narrative is dropped exactly like an
+  unusable result (quota unit released, nothing cached, error shape returned) and the pay table is kept. The guarantee is now
+  prompt + key whitelist + scan. The scan looks for: a currency marker next to digits (`₹`, `Rs`, `INR`, rupee(s)); digits with a
+  pay unit (LPA, lakh(s), lac(s), crore(s), cr, `p.a.`, per annum); a percentage tied to a pay word (salary, pay, CTC,
+  compensation, hike, increment, raise); an Indian-grouped number (`12,00,000`); and, only when a pay word is also present, `Nk`
+  or a 5+ digit / comma-grouped number. Years, `Year 3`, `5 years`, `(L5)`, team sizes and a bare `30%` do not trip it.
+  **Limit:** it is a regex heuristic, not a parser or a proof. It deliberately favours an occasional miss over dropping good
+  narratives, so it will not catch figures written in words ("two lakh"), other currencies, or a number split across fields.
+- **Task 20's first half was already done** (checked in the code, not assumed): task 7 extracts `industry` / `companyType` and
+  `CareerService` passes them to the prompt (`extracted.industry || 'Unknown'`); nothing is hardcoded to `'Technology'`.
+  `career.prompt.test.ts` now pins that the prompt uses the extracted values.
+- **UI.** New `CareerProgression.tsx`, rendered first in the career drawer: a real `<table>` (column and row headers, a screen-reader
+  caption, "(your level)" as text), the survey note through the existing `BenchmarkNotice` (so the attribution links are real anchors),
+  the disclaimer "Modelled from public surveys, not offers in your city.", a "Based on" cell stating the scope as text ("39 survey
+  respondents, India-wide" or "12 crowdsourced submissions, <city>"), and a single spanning "Not enough data (6 survey respondents;
+  at least 10 needed)" cell for thin rows. Figures use the app's existing `en-IN` grouping (`₹23,40,000`); **there is no lakh/LPA
+  helper in the codebase to reuse and none was added**. The crowd note is its own `text-foreground` paragraph, because
+  `BenchmarkNotice`'s crowdsourced branch is `text-muted-foreground` (4.48:1, under the 4.5:1 floor); `BenchmarkNotice` is untouched.
+  If the AI fails the panel shows the table and the existing message together. The two existing lists and their behaviour are unchanged.
+- **Fallbacks, no made-up data.** `applicable:false` with a `reason`: `non_inr`, then `role_not_covered`, then `city_not_covered`
+  (a pinned order; each returns before any query), or `lookup_error` (logged as a fixed string, the error class and the Postgres code,
+  never `err.message`, which carries the bound role and city). No migration, table, column or dependency.
+
+##### Thin-cell behaviour with the real cell sizes (survey rows loaded by `db:load-reference`, 662 rows, national)
+| Role family | Fresher | Junior | Mid | Senior | Staff/Lead | Principal | Numeric rows |
+|---|---|---|---|---|---|---|---|
+| Backend Engineer | 0 | 37 | 39 | 33 | 43 | 32 | 5 |
+| Full Stack Engineer | 0 | 60 | 70 | 54 | 51 | 34 | 5 |
+| Frontend Engineer | 0 | 19 | 12 | 10 | 13 | 8 | 4 |
+| Mobile Engineer | 0 | 7 | 13 | 10 | 8 | 4 | 2 |
+| Data Scientist | 0 | 10 | 9 | 7 | 2 | 3 | 1 |
+| Engineering Manager | 0 | 0 | 0 | 2 | 6 | 14 | 1 |
+| Data Engineer | 0 | 6 | 5 | 2 | 7 | 5 | 0 |
+| DevOps Engineer | 0 | 3 | 8 | 5 | 5 | 6 | 0 |
+
+**Fresher is "Not enough data (0 survey respondents)" for every role**: no kept survey row has 0 years. This is the existing Fresher
+open item showing up in a new place; the table says so instead of hiding the row. Data Engineer and DevOps show the "not enough
+data" table with no number at all and a sentence saying so. A generic title (`SDE-2`) pools the four developer families per cell,
+with the same wording as the offer benchmark. Crowd cells are close to dormant (a role + city + bracket cell needs 10 approved rows).
+
+##### Honesty properties and how each was verified
+| Property | Verified by |
+|---|---|
+| No number below n = 10 (after outlier rejection); the n is shown | Unit: n = 10 gives a number, n = 9 does not, and a 9 + poison set cannot pass on its raw count. **Live:** a Data Engineer offer in Bengaluru returned six `null` cells with n = 0, 6, 5, 2, 7, 5, and the browser table showed no `₹` anywhere |
+| No interpolation across gaps | Unit: a thin cell between two numeric cells leaves both without a step. The API returns `marketRange: null`, never an estimate |
+| Never pooled | Unit: a crowd median is computed from crowd rows only; no step between a survey and a crowd cell; the survey is not even queried for a cell the crowd wins. **Mock-only:** no live cell reaches n = 10 crowd rows |
+| Figures are right | **Live:** Backend Engineer in Bengaluru, API versus an independent computation over `salary_reference_rows` (rows pulled by SQL, midpoint-quantile written separately): n = 37/39/33/43/32 match exactly and p25/p50/p75 match to the rupee. `percentile_cont` in SQL agrees on every median and n but differs on p25/p75 by up to 5% (Senior p75 4,800,000 vs 5,050,000), because `summarise()` uses the existing midpoint-position quantile, not linear interpolation. That convention is the existing one and was not changed |
+| The AI states no pay figure | Prompt pinned by `career.prompt.test.ts` (forbid wording, no `salaryRange`, injected newlines collapsed). **Live sample:** 12 real Gemini narratives over 4 roles (Backend Engineer, Data Scientist, Registered Nurse, Product Manager), every string scanned for a currency symbol, LPA, lakh, crore, CTC, percent, `Nk`, "salary" or "pay": **0 matches**; four strings with digits were standards names (OAuth2, HL7, 510(k)). A clean sample is evidence, not a guarantee. **Review fix:** `containsPayFigure` now also scans the prose and drops a narrative that trips it (unit tests: 20 strings that must trip, 17 that must not, and service tests for title, focus, skill and role fields). A heuristic, not a proof |
+| The progression renders when the AI fails | Unit (soft error, malformed output, provider throw). **Live:** API restarted with an invalid Gemini key: HTTP 200 with `error` set, an empty timeline and the full `progression`; the browser showed the table and "We couldn't generate a career path"; the unit was given back (the user's `career` counter stayed at 1 after one success and two failures) and nothing was cached |
+| Unmapped roles get the honest fallback | **Live:** a Product Manager offer returned `applicable:false, reason: role_not_covered` and the drawer showed the sentence with no table and no `₹`; a Jaipur Backend Engineer offer returned `city_not_covered` |
+| Experience axis = lookup tier-2 brackets | `getProgression` iterates `EXPERIENCE`; unit pins `yearsRange` (Fresher 0-0, Junior 1-2, Principal open-ended) |
+| Attribution and disclaimer | **Live (Chromium):** the three links are real anchors (`SO_SURVEY_URL`, `ODBL_URL`, `DATASET_URL`, `rel="noopener noreferrer"`), the disclaimer is on screen, and Tab reaches the scroll region and the survey links |
+
+##### Regression and verification record (everything below was run, not read)
+- Backend: `npx tsc --noEmit` clean; `npx eslint src` clean; `npm test` → **751 passed, 3 skipped** (baseline 710 + 41 new).
+- Frontend: `tsc --noEmit -p tsconfig.app.json` clean; `npm run lint` 0 errors (17 warnings, the same count as before, none in the new files);
+  `npx vitest run` → 8 files, **103 passed** (89 + 14 new); `npm run build` succeeds.
+- **Bundle (vite gzip, clean `git archive HEAD` build versus this tree):** `ResultsPage` **17.34 → 18.35 kB (+1.01 kB**, under the +1.5 kB
+  budget); the shared form chunk and the entry chunk are unchanged. (The design quoted 16.48 kB, the pre-5.4 figure; 17.34 is the HEAD figure.)
+- `node test-security.mjs` **20 passed, 0 failed**; `node test-m3.mjs` **19 passed, 0 failed** (its career-path section passes);
+  `node test-m2.mjs` **32 passed, 0 failed**; `cd frontend && npx playwright test` → **1 passed (1.6 min)** against the production build on :8080.
+- **The login limiter bit my own check script, once.** The live UI script logged in on every run and passed the 10 logins per 15 minutes
+  (`authLogin`). Diagnosed from the Redis key (`fastify-rate-limit-POST/api/v1/auth/login-ip:127.0.0.1`, ttl about 12 minutes); I waited for
+  the window and changed no limit. The regression scripts never hit a limiter.
+- **After the review fixes (prose scan, step signs, trailing newlines):** backend `tsc` and `eslint src` clean, `npm test` **793 passed,
+  3 skipped** (751 + 42 new; one run showed a single failure in a PDF-upload test that passed on the immediate re-run, not in files
+  touched here); frontend `tsc -p tsconfig.app.json` clean, `npm run lint` 0 errors (same 17 warnings), `npx vitest run` **108 passed**
+  (103 + 5), `npm run build` succeeds (ResultsPage 18.38 kB gzip). Live: API + workers + Gemini + Postgres/Redis up, an uploaded
+  Backend Engineer offer returned a normal 3-milestone narrative (not dropped) with `progression` (6 cells, 5 numeric) on both the miss
+  and the cache hit, and `test-m3.mjs` 19 passed.
+- Phase 0 eval harness: **not run**, because extraction and scoring were not touched (the career prompt is not part of the eval).
+- Gemini and Google credentials were present; no live check was blocked.
+
+##### Not verified / only reasoned
+- **A live crowdsourced cell.** No role + city + bracket has 10 approved rows, so the crowd path (crowd beats survey, the crowd note,
+  the "12 crowdsourced submissions, <city>" scope text) is covered by mocked unit tests and jsdom only.
+- **Latency targets.** I took single samples, not p50/p95: a narrative-cache-hit request (which includes the progression) took 32 to 43 ms
+  warm; a cold request is dominated by the model (2.5 s to 46 s). The "p95 under 100 ms / 300 ms" targets were not measured.
+- **Contrast.** Computed colours in Chromium (light theme): table, row-header and survey-note text are `rgb(15,23,41)` on `rgb(248,250,252)`,
+  far above 4.5:1. The dark theme and the crowd note were **not** measured live; the crowd note's `text-foreground` class is asserted in jsdom.
+- **Lighthouse** on the open drawer (it starts a clean profile), **assistive technology** (no screen reader; the table semantics are
+  asserted from the DOM), Chromium only, and **a hosted deployment**.
+- **That the model obeys the prompt: fixed to a degree.** A pinned prompt only proves the instruction exists, and the 12-narrative
+  sample is clean evidence, not a guarantee. The prose scan (`containsPayFigure`) now drops a narrative that carries a pay figure
+  and keeps the table. It is a regex heuristic: a figure written in words, another currency, or one split across fields can still
+  get through, and a live Gemini narrative that trips it was not provoked (only mocked outputs exercise the drop path).
+- **Mismatched step signs: fixed.** `CareerProgression.stepText` derives both signs from the absolute change; a step that rounds to
+  0% prints unsigned (`−₹1,000 (0%)`), and a zero step prints "No change". The numeric `step` fields are untouched.
+- **Observation, not investigated:** on the Product Manager test letters the extracted `industry` came out as something the letter does not
+  state (apparel in one run, healthcare in another), so those narratives were about that industry. That is the extraction stage, not 5.5.
+
+##### Open items (owner decisions; none were touched)
+1. **Fresher** shows "Not enough data (n = 0)" in the table. (The scoring half was **resolved by 5.6**: a Fresher offer is no longer ranked against all experience levels.)
+2. **`pay_basis`** (offered versus current pay, mixed and unlabelled in crowd rows). **Resolved by 5.7.**
+3. **The login limiter's cookie-minting gap.** Resolved by 5.8 (see "Task 5.8 outcome").
+4. **Phase B (PLFS city factors)** stayed open here; it has since landed as task 5.1b.
+5. Not done: company-specific career ladders and market-trend skills (no data behind them), and an un-gated progression endpoint
+   (at the daily career cap the 429 hides the table too).
+
+##### Docs changed
+`docs/api-spec.md` (new `GET /offers/:id/career-path` section), `docs/API_DOCUMENTATION.md` (career row), `docs/LOCAL_DEVELOPMENT.md`
+(the pay table is recomputed on every open, not cached), and this plan (the Career Path row, the Phase 5 and What Happens Next tables,
+stale "5.5 open" wording).
+
+#### Phase 5 closing round: decisions (2026-10-11)
+
+Settled with the owner after 5.5 shipped. It turned the open items from the 5.1, 5.4 and 5.5 reviews into tasks
+5.6 to 5.9, plus the PLFS step. **5.6 to 5.9 are built; see "Phase 5 closing round outcome" below.** The PLFS step (Phase B) was not; it has since landed as task 5.1b.
+
+**5.6 Fresher offers (decision: show the range, no percentile).** The survey has no 0-year rows, so a Fresher
+offer is compared with every experience level for the role, which pushes the score down. Instead: show the
+benchmark range for information, pass **no percentile** to the rubric, and let the score redistribute salary's
+weight exactly as it does when there is no data. The disclosure says why.
+
+**5.7 `pay_basis` and the hybrid lookup (decisions: add the column; hybrid like-with-like).**
+- Add a nullable `salary_submissions.pay_basis` (`'current'` or `'offered'`) by an expand-only migration with a
+  rollback note, as for 0006. Add an optional `payBasis` to `salary.schema.ts`. The 5.4 card sends `'offered'`;
+  the Salary Explorer form asks the user. Rows stored before the column exists stay `null`.
+- **Lookup (like-with-like when there is enough data, pooled otherwise).** Each tier is its own computation;
+  nothing is averaged across tiers.
+  - Analysing an offer: offered rows for the role + city with n >= 10 after outlier rejection, else all rows
+    pooled with n >= 10 and the mix shown ("12 of 15 data points are offered pay"), else the survey tiers, then
+    the AI estimate.
+  - Salary Explorer: current-pay rows with n >= 10, else the pooled set with the mix.
+  - `null` rows count only in the pooled tier, never as current or offered.
+- Cache keys move to a new version (`salary:crowd:v3`) with the basis in the key. The UI says which tier served
+  the number.
+- **Limit that this does not fix:** the survey measures current pay, so an offer compared with the survey tier
+  is always offer versus current pay. Add "survey figures describe current pay" to the disclaimer.
+- Early on almost every cell will be under 10 per basis, so behaviour starts as pooled-and-labelled and becomes
+  like-with-like as rows build up, with no later code change.
+
+**5.8 Login limiter (decision: both).** Keep the per-cookie `authLogin` bucket. Add a generous per-IP limit on
+login attempts (starting point 30 per 15 minutes) and a per-email limit on the login route only (starting point
+10 failed attempts per 15 minutes, whatever the cookie or IP). Known trade-offs, accepted: people behind one
+shared network share the per-IP allowance, and someone can lock another person's login by failing attempts
+against their email. Keep the lockout on the login route, never on the account elsewhere. Needs a live check of
+the 429 shape and that a legitimate login still works from another bucket.
+
+**5.9** Re-screenshot the career table at 412 px after the last `whitespace-nowrap` change, and measure
+dark-theme and crowd-note contrast. Report the numbers; claim nothing unmeasured.
+
+**5.1 Phase B (PLFS city factors).** The owner registers on `microdata.gov.in` and submits the access request.
+The Data Access Agreement says the data must not be used for commercial purposes, is limited to the applicant,
+must be used only for the stated purpose, must not be used for proprietary purposes, must not be used to
+identify anyone, requires security measures, requires citation of the source, and requires an electronic copy
+of any publication to `nssunit.dsdd@mospi.gov.in`. Consequences for the build:
+- Only derived aggregates (city-to-national ratios, with small cells suppressed) may leave the owner's machine.
+  Raw rows stay out of the repository and out of any cloud model's context; the pipeline runs locally and agents
+  see only the code and the aggregate output.
+- The stated intended use binds the owner. If the project becomes a paid SaaS, the PLFS-derived factors must be
+  removed. The intended-use text must stay accurate (it says the plan and pricing screens are mock-ups).
+- Cite "PLFS 2023-24, National Statistics Office, MoSPI" in the data README and the UI note.
+- Phase B was blocked until the owner had the data. **It is done** as task 5.1b (see its outcome below); it was never part of 5.6 to 5.9.
+
+#### Phase 5 closing round outcome (tasks 5.6 to 5.9)
+
+Branch `phase5a-salary-reference-seed`, uncommitted at the time of writing. Design: `.agents/tasks/phase5-closing-design.md`.
+Build notes: `.agents/tasks/phase5-closing-area1-5.6-5.7-backend-notes.md`, `...area2-5.7-frontend-5.9-notes.md`,
+`phase5-5.8-login-limiter.md`. Live-check scripts and raw output: `.agents/tasks/live-closing-*` and `closing-*.txt`.
+**`.agents/` is gitignored and local only**; a fresh clone does not have these files, so every figure that matters is in this section.
+
+**Review nits fixed afterwards:** the offer marker is hidden on the results chart when the percentile is withheld (`SalaryBar` `hideOffer`); the pay-basis radio group is a `radiogroup` with `aria-invalid`; the 5.4 cache-key text and an indentation slip are corrected.
+
+##### What was built
+
+- **5.6 Fresher offers.** `SalaryService.lookup` tier 3 (role-wide survey range) is still returned when the offer's bracket has no survey rows,
+  but the offer is not ranked: `offerPercentile` is null and `Benchmark.percentileWithheld = { reason: 'no_experience_rows', yearsRange }`.
+  The rule is data-driven: `bracket.minYears === 0 || bracketRows.length === 0`, evaluated only after the bracket tier failed. From the 662
+  loaded survey rows that is **Fresher for every role family** (0 rows) and **Engineering Manager at Junior and Mid** (0 and 0). Every other
+  thin bracket (1 to 9 rows, for example Data Engineer and DevOps) keeps a percentile; this was not generalised. The rubric
+  (`score.rubric.ts`) gives salary `value: null`, so its weight is redistributed by the existing path, with a reason-specific note and
+  `unscoredReason`. The comparison matrix shows `Not scored` (no winner, row excluded from the common basis). The survey disclaimer gains
+  "Survey figures describe current pay." and, when withheld, a plain sentence that the range is for information and the offer is not ranked.
+  `confidence.ts` is unchanged.
+- **5.7 `pay_basis` and the hybrid lookup.** Migration `0007_salary_pay_basis.sql` (expand-only, no backfill): nullable `pay_basis text`
+  with `CHECK (pay_basis IN ('current','offered'))`. `salary.schema.ts` accepts `payBasis` `current` | `offered` | absent (null, `''` and anything else is a 400).
+  The 5.4 card sends `offered`; the Salary Explorer form asks with three native radios (Current pay, Offered pay, Not sure), nothing preselected,
+  and "Not sure" omits the key (stored NULL). Cache keys are `salary:crowd:v3:<basis>:<role>:<city>` for `offered`, `current` and `all`;
+  `submit()` deletes all three on every approved insert and none on a rejected one. The stored row gained only `pay_basis`: still no user,
+  guest, fingerprint, offer or company, and timestamps are still day-coarsened. The 5.4 open item is closed.
+- **5.8 login limiter.** See "Task 5.8 outcome" for the mechanism (per-cookie 10, per-IP 30 and per-email 10, each per 15 minutes, on
+  `POST /auth/login` only; email sha256-hashed before it reaches Redis or a log; an atomic `INCR` + `PEXPIRE NX` + `PTTL` counter; fail closed).
+  The cookie-minting gap for login is closed.
+- **5.9 career table checks.** Measured, no defect, no code change (numbers below).
+
+##### Honesty properties and how each was verified
+
+| Property | Verified by |
+|---|---|
+| A Fresher offer is not ranked against a population that has no Fresher in it | Unit tests (lookup, rubric, matrix, disclaimer). **Live:** Backend Engineer, Bengaluru, Fresher, CTC 12,00,000: `offerPercentile: null`, `percentileWithheld: "no_experience_rows"`, `sampleSize` 184, range p25/p50/p75/p90 8,87,500 / 20,50,000 / 40,80,000 / 65,00,000; the PDF contains no "percentile"; the results page shows no "th percentile" label |
+| The score explains the redistribution, and the weight is spread, not zeroed | **Live:** score breakdown redFlags 85 (weight 43), salary `null` (weight 0, `unscoredReason` set), benefits 75 (29), growth 0 (14), transparency 80 (14); weights sum to 100; `scoringMethod: fallback`; overall note "salary vs market (no survey data at your experience level) could not be scored, so the remaining factors carry more weight"; the page renders it |
+| A covered, non-Fresher offer still scores salary | **Live:** the same role and CTC at "Mid-Level (3-5 yrs)": tier 2, n = 39, percentile 45, salary weight 30, `scoringMethod: standard`, score 60 |
+| Withholding is a survey gap, not a verdict, in a comparison | **Live:** comparing the two offers: salary row `Not scored` / `45 / 100`, no winner, row note says it is a gap in the survey and "not a lower or higher salary", Overall (comparable basis) 69 vs 66, note "Salary vs market is excluded because the survey has no data at one offer's experience level" |
+| No number below n = 10, no mixing across sources | Unit tests plus the live tier run below; the survey and crowd rows are never pooled |
+| Nothing is averaged across tiers; the mix is the mix of the rows shown | Unit tests; **live:** at every stage the `payMix` returned equals the SQL counts of the rows in the cell and sums to `sampleSize`, and every quantile equals an independent computation (below) |
+| NULL rows are never counted as current or offered | **Live (real Postgres):** in the S2 stage the 2 unlabelled rows appear only in the pooled (`mixed`) result; the offered-only and current-only results ignore them |
+| `pay_basis` is validated at both layers | **Live:** `INSERT ... pay_basis = 'x'` fails with `salary_submissions_pay_basis_check`; the unit test pins the 400s at the API |
+| No identity on the row | **Live:** the four rows submitted through the UI have `user_id` NULL, `fingerprint` NULL and a UTC-midnight `created_at` |
+| Login limits do not reveal whether an account exists, and no address or hash is exposed | **Live:** registered and unregistered addresses answer the same 401 shape for the first 10 and the same 429 (status, body, header names) on the 11th; every `login-email:*` key matches `^login-email:[0-9a-f]{64}$`; a scan of all Redis keys and the API log finds no address or local part |
+
+##### Migration 0007 (live, `npm run db:migrate`; `db:push` was not used)
+
+Applied cleanly on a database that already held 36 salary rows, 662 reference rows and migrations 0000 to 0006 (it became `__drizzle_migrations`
+id 8, `created_at` 1791881699089). After it: 36 rows, 0 with a `pay_basis` (all earlier rows are NULL), the CHECK constraint exists and rejects `'x'`.
+**Rollback** (not executed): `ALTER TABLE salary_submissions DROP COLUMN pay_basis;` (the CHECK goes with it), then
+`DELETE FROM drizzle.__drizzle_migrations WHERE created_at = 1791881699089;`, then delete the Redis keys `salary:crowd:v3:*`. The rows keep their other columns.
+
+##### The hybrid lookup, with live numbers
+
+Cell: Backend Engineer, Bengaluru (stored `backend engineer` / `bangalore`), which held 0 rows before. Four rows were submitted through the real UI in four
+separate browser contexts (the card: offered; the Explorer: current, offered, "Not sure"); the rest through `POST /salaries` with a fresh cookie each.
+Each stage ran a real Explorer request right after the last write (so it also proves the three-key invalidation) and a real offer analysis
+(Backend Engineer, Bengaluru, Mid-Level, CTC 12,00,000, real Gemini). "Independent" = quantiles recomputed from the SQL rows by separate code.
+
+| Stage (SQL counts) | Explorer (`GET /salaries/stats`) | Offer analysis |
+|---|---|---|
+| S1: offered 2, current 1, unlabelled 1 (n = 4) | survey, role-wide, n = 184, p50 20,50,000 | survey tier 2, n = 39, percentile 45 |
+| S2: offered 9, current 4, unlabelled 2 (n = 15) | `crowdsourced`, `mixed`, n = 15, mix 9 / 4 / 2, p25 22,25,000, p50 26,00,000, p75 31,50,000 (independent: same) | `crowdsourced`, `mixed`, n = 15, mix 9 / 4 / 2, percentile 0 (12,00,000 is below every row); "9 of 15 data points are offered pay, 4 are current pay, 2 are not labelled" |
+| S3: offered 10, current 4, unlabelled 2 (n = 16) | still `mixed`, n = 16, mix 10 / 4 / 2, p50 25,50,000 | **offered wins:** `payBasis: offered`, n = 10, `payMix` null, p25 / p50 / p75 21,00,000 / 22,50,000 / 25,00,000 (independent: same); "All 10 are offered pay: what employers offered, not necessarily what people are paid now" |
+| S4: offered 10, current 10, unlabelled 2 (n = 22) | **current-first:** `payBasis: current`, n = 10, p25 / p50 / p75 32,00,000 / 34,50,000 / 37,00,000 (independent: same); the pooled median would have been 29,00,000 | offered still wins (n = 10, p50 22,50,000), unchanged by the 6 new current rows |
+
+So: offered at 10 or more wins for an offer lookup (S3, S4); pooled with the mix below 10 (S2); current-first in the Explorer once current reaches 10 (S4) and pooled
+with the mix before that (S2, S3); the survey tiers when the cell has under 10 of anything usable (S1). The Redis keys after S4 were exactly the three
+`salary:crowd:v3:{all,offered,current}:backend%20engineer:bangalore`. All 22 rows were deleted afterwards by role and city, after confirming the cell held 0 rows before.
+In the UI: the Explorer dialog shows the legend "What kind of pay is this?" with three radios, none checked; pressing Send without a choice posts nothing, shows
+"Choose current pay, offered pay or not sure" and focuses the first radio; the bodies posted were `payBasis: offered` (card), `current`, `offered` and no `payBasis` key ("Not sure").
+
+##### Login limiter, live (real Redis 7, API on 127.0.0.1 and on the host's LAN address as a second source IP)
+
+Each login call carried its own freshly minted `ol_guest` cookie (a cookie-less client is stopped earlier, see below). 25 checks, 25 passed:
+- Registered address, 10 wrong passwords: 401 x 10, the 11th is 429 `RATE_LIMIT_EXCEEDED`, `Retry-After` 896 to 900 s; the right password is also 429 while locked (accepted trade-off). The key's PTTL was about 898 s (a fixed window; `PEXPIRE NX`).
+- Unregistered address: the same 401 x 10 then the same 429, with the same body and header names. An upper-case variant of the locked address shares its bucket.
+- Another account logs in (200) from a new cookie while the first is locked.
+- Success clears the counter: 9 wrong, then the right password (200) removed that address's `login-email` key; then 10 wrong are 401 and the 11th is 429.
+- Per IP: 30 distinct addresses from 127.0.0.1, each with its own cookie, are all 401; the 31st is 429 with `x-ratelimit-limit: 30`. A second source IP (192.168.0.193) still logs in (200).
+- Cookie-less: 11 logins from one IP give 401 x 10 then 429 with `x-ratelimit-limit: 10` (the existing `ip:` bucket), long before the 30-per-IP limit.
+- Browser: `LoginPage` for a locked address shows "Too many attempts. Please wait a while before trying again." and not "Invalid email or password."
+- Redis keys: `login-email:<64 hex>` and `fastify-rate-limit-undefinedundefined-login-ip:<ip>` (the plugin builds that prefix from route data the call does not have; harmless and unique). No key and no API log line contained an address.
+- **Script, not limit, was wrong, twice.** My first runs failed because (a) I cleaned the wrong Redis key pattern for the IP bucket (the `undefinedundefined` name above) and (b) 24 failed attempts from one IP in sections (a) to (d) used up the 30-per-IP budget of the later sections. The limit behaved as designed; I changed the script to clear the IP key between sections and changed no limit. The three regression scripts below never tripped a limit.
+- **Left open (unchanged, see "Task 5.8 outcome"):** set `trustProxy` before any deploy (behind one proxy every user shares one IP and the 30-per-IP login limit becomes a site-wide cap), many IPs can still try 10 passwords per email per 15 minutes each, `/auth/google` has only the per-cookie bucket, and the email hash is plain sha256 (upgrade: HMAC). Window expiry was not tested live (no limit was waited out).
+
+##### 5.9 career table numbers (412 px, Chromium; API mocked with the real captured 5.5 response, so "live data" means that response)
+
+Contrast (WCAG formula, computed colours, alpha composited), light / dark: column and row headers, median, step, based-on, thin-cell text, survey note paragraph
+**17.08:1 / 17.84:1**; survey note links **4.84:1 / 5.37:1**; crowd note paragraph **17.08:1 / 17.84:1**. All at or above 4.5:1. Overflow: the page and the drawer do not
+scroll sideways (scrollWidth 412 = clientWidth 412 and 411 = 411), 0 elements sit outside the table region, and the table region scrolls inside itself (client 361, scroll 529 survey / 536 crowd);
+scrolled to the end the last column is reachable. 12 screenshots `live59-{light,dark}-{survey,crowd}-{drawer,table,scrolled}.png`. Not measured: borders, focus rings, hover states, the sheet's close
+button, a real phone, other browsers, a screen reader. The crowd cell was a mocked edit of the real response, not a live crowd cell.
+
+##### Regression and verification record (everything below was run in this round)
+
+- Backend: `npx tsc --noEmit` clean; `npx eslint src` clean; `npm test` **848 passed, 3 skipped** (62 files passed, 1 skipped; baseline 793 + 3 skipped, so +55 new tests: 5.6/5.7 +40, 5.8 +15).
+- Frontend: `tsc --noEmit -p tsconfig.app.json` clean; `eslint .` 0 errors, 17 warnings (same count as before, none in new files); `npx vitest run` **11 files, 127 passed** (baseline 108, +19); `npm run build` succeeds
+  (`ResultsPage` **18.42 kB gzip** vs 18.38 at 5.5, +0.04 kB; `SalaryExplorerPage` 1.79 kB; the shared form chunk 106.79 kB, no earlier figure recorded).
+- `node test-security.mjs` **20 passed, 0 failed**; `node test-m2.mjs` **32 passed, 0 failed**; `node test-m3.mjs` **19 passed, 0 failed** (each run adds one row to the `senior software engineer` / `bangalore` cell: 35 to 36 rows; this is the script's existing behaviour and that row was left in place);
+  `cd frontend && npx playwright test` (production build on :8080) **1 passed (30.3 s)**. No limit was raised and no test-only escape hatch was added.
+- Phase 0 eval, `npm run eval -- --runs 3` (not saved): structured **95.1%** (93.8 to 95.8), nuanced **83.5%** (82.7 to 84.2), red-flag F1 84.7% (83.4 to 86.5), noise floor 2.1%; both targets pass.
+  One case errored in pass 3 ("All AI models are currently busy"), so **16 of 17** cases were scored in all passes. **No score moved, by construction:** the harness measures extraction (company, role, CTC, benefits, clauses, red flags) and
+  never calls the rubric, so it cannot show a score change from 5.6. What changes a score is shown by the live Fresher/Mid pair above and by the rubric unit test that pins identical weights, values and score to the plain-null case.
+  Reasoned counterfactual (not run): before 5.6 the Fresher offer above would have been ranked at about the 34th percentile of the 184 all-experience rows (unweighted count; the service uses weights), giving a salary component of about 34 and an overall score near 59 instead of 69.
+  Only Fresher offers with a role-wide benchmark, and Engineering Manager Junior/Mid, are affected.
+- Gemini and Google credentials were present; no live check was blocked.
+
+##### Observations (not changed)
+
+- The Fresher results chart used to draw the dashed "Your Offer" line on the all-experience range. **Fixed after review**: the marker is now hidden when the percentile is withheld (see the review-nits line above).
+- The API's per-request log line carries the client IP and the guest id. That predates this round and is why the stored salary timestamps are day-coarsened (4.6). This round adds no log line that carries an address, a hash or a payBasis, and the login guard logs nothing on a failure beyond a fixed string.
+- `POST /auth/signup` still answers 409 for an existing address (unchanged; 5.8 adds no enumeration channel).
+
+##### Verified live versus only reasoned
+
+- **Live:** migration 0007 on existing data; the CHECK constraint; all three `pay_basis` values via the Explorer form and the card; stored rows have no identity; the four lookup stages with independent quantile checks;
+  cache invalidation on write (the next Explorer call after each batch reflected it); the Fresher and 3-year analyses, PDF text, results page and comparison; every login-limiter check above including the browser message; the regression scripts, the smoke spec and the eval.
+- **Only reasoned or unit-tested:** the outlier-rejection interaction with the mix at n near 10 (unit only; the live data had no outliers); the 400 paths for `payBasis` (unit only); the limiter's window expiry and reset; Redis outages (fail closed, unit only); `trustProxy` behaviour behind a proxy;
+  the Engineering Manager Junior/Mid withheld case (unit only; no live run); the 5.9 crowd cell (mocked edit); a real phone, other browsers, screen readers, Lighthouse; the model's compliance with prompts.
+
+##### Not done, by decision
+
+- Phase B (PLFS city factors) was open at the time of writing and has since landed as task 5.1b; none of 5.6 to 5.9 depends on it.
+- `confidence.ts` is unchanged: a crowd number is still "medium, self-reported", whatever the pay basis.
+- No "pay_basis" backfill or relabelling of older rows, no per-IP limit on `POST /salaries` (G1 stays as recorded), and the survey is still current pay: an offer compared with the survey tier is offer versus current pay, now stated in every survey disclaimer.
+
+##### Docs changed
+
+`docs/api-spec.md` (rate-limit summary and the login limits; the `salaryComparison` optional fields), `docs/API_DOCUMENTATION.md` (login row, `POST /salaries` `payBasis`, `/salaries/stats` response),
+`docs/database-design.md` (the `salary_comparison` fields, `unscoredReason` and the `pay_basis` column with its rollback), `docs/DEPLOYMENT.md` (the `trustProxy` pre-deploy requirement), `docs/LOCAL_DEVELOPMENT.md` (the 429 troubleshooting row), and this plan (the Phase 5 and What Happens Next tables, the 5.4 `pay_basis` open item, the Phase A Fresher item, the decisions block).
+
+---
+#### Phase 5 task 5.1b outcome — PLFS city factors for the survey benchmark
+
+Branch `phase5a-salary-reference-seed`, uncommitted at the time of writing. Design: `.agents/tasks/phase5-5.1b-design.md` (and its review);
+build notes: `.agents/tasks/phase5-5.1b-areaC-note.md`; live evidence: `.agents/tasks/phase5-5.1b-areaDE-note.md` and `live51b*`.
+> [!NOTE]
+> **`.agents/` is gitignored and local only** (any `.agents/` directory). A fresh clone does not have the notes named above, so every
+> figure that matters is in this section. The data directory is `data/plfs-city-factors/` (the design called it `plfs-2023-24-city-factors`).
+
+##### What it does
+
+The Stack Overflow survey benchmark (5.1 Phase A) is national. For the six metros, 5.1b multiplies those survey figures by one
+**city factor** derived from PLFS 2023-24 monthly cash earnings, so a Mumbai offer is ranked against a Mumbai-scaled distribution instead
+of the India-wide one. It is an estimate: **national survey figures scaled by a city factor, not offers or pay data from the city**, and it
+is never shown as verified. PLFS rupees never reach a user; only the ratio does.
+
+- **Offline pipeline** `data/plfs-city-factors/build_city_factors.py` (Python standard library): reads one file, `perv1.csv`, from a folder outside
+  the repo (`PLFS_DIR`, no default; the script refuses a path inside the repo), prints and writes aggregates only.
+- **Table `city_pay_factors`** (migration `0008`, expand-only, rollback block in the file): at most six rows, CHECKs on n >= 30, ratio and
+  factor in [0.5, 2.0]. Loaded by `npm run db:load-city-factors` (validate-before-write, one transaction, idempotent, no Redis).
+- **Lookup** (`SalaryService.lookup`): the factor is read only on the survey tiers, after the crowd tiers have failed, and multiplies the
+  survey values; scopes `role_experience_city_adjusted` / `role_city_adjusted`; `locationUsed` "India (national), adjusted for <City>";
+  additive `cityAdjustment` `{ source, city, cityLabel, factor, plfsSampleSize, period }`. `getStats` (Explorer) passes it through.
+  The factor is read per request, so `salary:ref:v1:*` (raw survey rows) is unchanged and a load or a removal needs no cache flush.
+- **Honesty rules**, unchanged by the factor: crowd rows are never scaled or pooled; a Fresher (or a role with no rows in the bracket) still gets
+  the range but **no percentile**; n >= 10 floors; confidence is **medium**, never high; `source` stays `public_survey`.
+- **Career table (5.5): applies the same factor, and says so.** Two views of the same offer in the same city must not show two medians, so survey
+  cells are scaled (crowd cells never are), the note names the city, factor and PLFS n, and rows read "N survey respondents, India-wide, scaled to
+  <City>". Step percentages are unchanged (the factor cancels); step amounts scale.
+- **Frontend**: `BenchmarkNotice` takes an optional `cityAdjustment` and shows the text label "Public survey, adjusted for <City>", the stored
+  disclaimer, the survey n, "City factor x<f> from PLFS 2023-24 (n = <m>)", the unchanged ODbL paragraph, and the sentence "City adjustment derived
+  from the Periodic Labour Force Survey 2023-24, National Statistics Office, MoSPI." with real links to the PLFS catalogue entry and to the
+  published factors. Results, Salary Explorer and the career drawer pass it. The Explorer's fixed "India-wide benchmark across all cities" sentence is replaced
+  for an adjusted result. The PDF adds the same citation and link under the ODbL lines. New constants `PLFS_URL`, `PLFS_DATASET_URL`,
+  `PLFS_CITATION_TEXT` live in `city-adjustment.ts` and `frontend/src/constants/attribution.ts`; the drift test now covers them.
+- **API**: additive only (see `api-spec.md`, `API_DOCUMENTATION.md`, `database-design.md`).
+
+##### Method
+
+PLFS is used only as a ratio. First-visit person file only (revisit files would double-count). Keep: urban, age 18 to 60, current weekly
+status 31 (regular salaried/wage), current-week occupation NCO-2015 251 or 252 (the group named in the Data Access Agreement application,
+never broadened), earnings from that activity > 0. Weight per person from the PLFS README note (`MULT/100` if `NSS == NSC`, else `MULT/200`,
+divided by the number of quarters; computed as an exact integer). Weighted median of monthly earnings per metro divided by the weighted median of the
+same group nationally; then **shrunk toward 1.0** in log space, `lambda = n/(n+30)`, `factor = exp(lambda * ln(raw ratio))`, published to
+two decimals. A city with fewer than 30 sampled persons is suppressed (no row, no number). Safety gates stop the run on a header or code mismatch,
+an invalid weight, more than 1% unparseable values, an implausible national median or a ratio outside 0.5 to 2.0.
+The metro-to-district grouping is a judgement call (edit `CITY_DISTRICTS` and rebuild to change it).
+
+##### The aggregate table (what is published; `data/plfs-city-factors/city_factors.csv`)
+
+National group: n = 1,028 sampled persons. Counts are unweighted sampled persons; every count is at least 30.
+
+| City | n | Raw ratio (city median / national median) | Shrinkage weight | Factor (shrunk ratio, as shown to users) |
+|---|---|---|---|---|
+| Bangalore | 170 | 1.042 | 0.850 | 1.04 |
+| Mumbai | 31 | 0.625 | 0.508 | 0.79 |
+| Delhi NCR | 86 | 1.354 | 0.741 | 1.25 |
+| Hyderabad | 124 | 0.963 | 0.805 | 0.97 |
+| Pune | 87 | 1.042 | 0.744 | 1.03 |
+| Chennai | 90 | 0.938 | 0.750 | 0.95 |
+
+**Owner decision, 2026-10-11: keep Mumbai's factor as built (0.79), with the "estimate" wording; do not suppress it.** Suppression (or a minimum distinct-sampling-unit rule, design L6) was offered and declined; revisit if a Mumbai result looks wrong in use.
+
+Caveats the numbers carry (also in `build_report.json`): Mumbai rests on n = 31, just over the floor, with fewer than 30 distinct sampling units, so its
+factor is the least certain; Delhi NCR 1.25 is the largest adjustment; the factor depends on the shrinkage constant (K = 15 / 60 give Mumbai 0.73 / 0.85 and
+Delhi NCR 1.29 / 1.20). One multiplier per city is applied to every role and experience level (`ponytail:` ceiling: the true effect differs by role and
+seniority; crowdsourced data corrects it as it grows and is never adjusted). PLFS 2023-24 is July 2023 to June 2024; the Stack Overflow side is mid-2025; the
+ratio is not re-based for that gap.
+
+##### Verified live (Docker Postgres 16 + Redis 7 from `backend/docker-compose.yml`, API :8000, workers, Vite preview :8080, real Gemini key)
+
+- `npm run db:migrate` applied `0008` to the dev database cleanly (the previous migration was `0007`); `npm run db:load-city-factors` loaded the six rows.
+- **Explorer** (`GET /salaries/stats`, Backend Engineer, survey n = 184): national p50 is 20,50,000. Mumbai p50 16,19,500 (= x0.79), Delhi NCR 25,62,500
+  (= x1.25), Bangalore 21,32,000 (= x1.04), each with scope `role_city_adjusted`, label "India (national), adjusted for <City>", the factor, the PLFS n and the new
+  disclaimer. A Jaipur request and a crowd-served request (Senior Software Engineer, Bangalore, n = 36) carry no `cityAdjustment` key at all.
+- **Offer analyses**, same CTC (INR 24,00,000), Backend Engineer, Mid-Level, survey bracket n = 39: Mumbai (x0.79) **92nd percentile**, Delhi NCR (x1.25)
+  **67th**, and the same Mumbai offer with the factor rows removed (national) **79th**. So the percentile moves in the right direction for each factor.
+  Scope `role_experience_city_adjusted`, `public_survey`, confidence medium.
+- **Behavioural rollback proven**: `DELETE FROM city_pay_factors` made the next Mumbai analysis national (`role_experience_national`, p50 13,00,000,
+  percentile 79, no `cityAdjustment`, no PLFS text in the PDF) with no cache flush; the six rows were reloaded afterwards.
+- **Fresher in a factored metro** (Mumbai, 0-1 yrs): range shown (scope `role_city_adjusted`, adjusted disclaimer plus the "not ranked" sentence), **percentile null**,
+  `percentileWithheld: no_experience_rows`.
+- **Non-metro** (Jaipur, Backend Engineer): no survey tier exists for a non-metro city (unchanged since 5.1 Phase A), so the offer is AI-estimated as before
+  5.1b, with no factor, no PLFS text and no ODbL block. Nothing about it changed.
+- **Crowd precedence** (Senior Software Engineer, Bangalore): crowdsourced, `role_city`, n = 36, percentile 49, no `cityAdjustment`, no PLFS text in the PDF.
+- **PDF**: the three adjusted reports (Mumbai Mid-Level, Delhi NCR Mid-Level, Mumbai Fresher) contain the exact PLFS citation sentence, the
+  `microdata.gov.in` link and the ODbL attribution (text extracted with `pdfjs`). The rolled-back national report has the ODbL text and no PLFS text; the Jaipur
+  (AI-estimated) and crowd reports have neither.
+- **Career drawer** (Mumbai Mid-Level): survey medians equal national x0.79 (Mid 13,00,000 -> 10,27,000), five rows read "..., India-wide, scaled to Mumbai", the note
+  names the city, factor and n, and the drawer carries the PLFS citation and ODbL.
+- **Browser** (Chromium via playwright-core, `live51b-ui.mjs`, 21 checks passed): label as text, factor line with the PLFS n, citation sentence, all four
+  links real with `rel="noopener noreferrer"` and keyboard-focusable, Explorer sentence swapped, career rows and link; **text contrast minimum 4.84:1 (light) and
+  5.37:1 (dark)** over the 11 text elements of the notice.
+- **Regression**: `node test-security.mjs` 20/20; `test-m2.mjs` 32 passed, 0 failed; `test-m3.mjs` 19 passed, 0 failed; Playwright smoke 1 passed (48 s).
+  The rate limiter did not trip and no limit was changed.
+- **Static / unit**: backend `tsc --noEmit` and `eslint src` exit 0; backend `vitest` 899 passed, 3 skipped (64 files, 1 skipped); frontend `tsc --noEmit -p
+  tsconfig.app.json` exit 0, `eslint` 0 errors (17 warnings, all pre-existing), `vitest` 12 files, **132 passed** (baseline 129, +3), `vite build` ok; Python
+  `unittest` 36 tests OK, also under `python -O` (one test skipped there).
+- **Phase 0 eval** (`npm run eval -- --runs 3`, 17 of 17 cases, 51 model calls): structured 95.4% (94.1-96.1), nuanced 82.6% (79.1-84.4), red flags F1 83.9%
+  (79.4-86.1), noise floor 5.3%. The previous round was 95.1 / 83.5 / 84.7. The harness does not call the rubric, so it cannot show a score move; the scoring path
+  is touched only through the percentile input.
+
+##### Reasoned, not run
+
+- The full builder run on the real `perv1.csv` happened in the earlier build step (its output is the aggregate above); this step re-ran only the builder's
+  unit tests and its repository-path guard and did not open any microdata file.
+- `PLFS_URL` was fetched in this step and opens the NADA catalogue entry "Periodic Labour Force Survey (PLFS), July 2023-June 2024". `PLFS_DATASET_URL` points at
+  `main/data/plfs-city-factors` on GitHub, which resolves only once that directory is pushed.
+- Not run: a real phone or other browsers, a screen reader, Lighthouse, the 412 px layout of the new notice paragraph, window expiry of the rate limits, a Redis outage.
+- The "stored snapshots" rule is by design, not tested live: analyses created before 5.1b keep their national figures and wording.
+
+##### Hygiene audit (microdata and the repository)
+
+Run over the working tree (785 files, including `data/`, `docs/`, `.agents/` notes, logs and test fixtures; `node_modules` and `.git` excluded):
+
+- **No per-respondent record or value.** No line with 60 or more comma-separated fields exists anywhere (a 139-column microdata row would have 138); no file larger than
+  1 MB of type csv/txt/dat/tsv/xlsx/zip/sav/dta exists outside `node_modules`; the PLFS field names appear only in the design and its review, the builder, its tests, the
+  README and `build_report.json` (aggregate keys such as `acws_among_earners`, with counts), never with a data value next to them. The builder's tests use synthetic sentinel values only.
+- **Raw files absent and ignored.** No file named `perv1`, `perrv`, `hhv1` or `hhrv` (any extension) and no `pfls` or `CSV_data_PLFS*` directory is in the tree; `git ls-files`
+  lists none; `git check-ignore` confirms `.gitignore` covers `perv1.*`, `perrv.*`, `hhv1.*`, `hhrv.*`, `pfls/`, `build_report.counts.json` and `__pycache__/`. The microdata lives in
+  `C:\Users\mueen\pfls`, outside the repo. Note: on a case-sensitive file system the `perv1.*` ignore does not match `PERV1.TXT` (Windows git ignores case); the stem-based
+  `git ls-files` test in the builder's suite is what catches an upper-case name.
+- **Guard works.** With `PLFS_DIR` set to the data directory inside the repo, to the same directory spelled with `..` and a trailing separator, and to an upper-case spelling of a
+  parent inside the repo, the script exits 2 with "PLFS_DIR must be outside the repository" before any file is opened; unset gives exit 1. Unit tests: 36, normal and `-O`.
+
+##### Licence compliance checklist (Data Access Agreement)
+
+| Obligation | Status |
+|---|---|
+| Non-commercial use only | **Holds today.** Plans and pricing are display only. If anything starts charging, run the removal steps below first. |
+| Access limited to the applicant | **Done.** The raw file stays in `C:\Users\mueen\pfls`, outside the repo; audit above found no copy in the tree. |
+| Only the stated purpose | **Done in code**, listed filter by filter in the method above (urban, age 18-60, status 31, NCO 251/252, earnings > 0, survey multipliers, ratio to the national median, shrinkage, n >= 30). **Owner to do:** re-read the submitted form text against this method before sending the e-mail. |
+| README rider: unit-level data should not be used for variables other than the employment and unemployment indicators (decision **D1**) | **DECIDED by the owner, 2026-10-11: the use fits the rider.** Earnings of regular salaried workers is a PLFS indicator at national and state level; the owner's reading, reached after discussing it with another person, is that city-level earnings ratios for the stated occupation group are within the README's wording. This is the owner's own judgement and not a written confirmation from MoSPI; the pipeline's full run was made before this decision was recorded (the design had made D1 a gate on that run), and the outputs were not committed or published in the meantime. If MoSPI ever says no, run the removal steps and the product keeps national figures. |
+| No proprietary use; no law-enforcement use | **Done** (open repository, aggregates published openly; not applicable). |
+| No attempt to identify anyone | **Done.** Aggregates only, floor of 30, `<30` text for small counts, the sampling-unit number is used only for a distinct count; the table has no respondent-level column; no linkage to other data. |
+| Security measures | **Done.** Raw data outside the repo, repo-path guard, one file opened read-only, no network, `.gitignore` entries, stdout/stderr sentinel tests. |
+| Cite the source | **Done and checked live.** README, the Results notice, the Explorer notice, the career drawer and the PDF carry "City adjustment derived from the Periodic Labour Force Survey 2023-24, National Statistics Office, MoSPI." with links. |
+| Send MoSPI a copy of publications (`nssunit.dsdd@mospi.gov.in`) | **OPEN, owner action.** Send before or alongside the first public publication of `city_factors.csv` (nothing has been pushed yet). Draft below. Record the date here when sent. |
+| No claim of MoSPI responsibility | **Done.** README and the UI call the figures an estimate and say they are not offers in the user's city. |
+| Terms for the data directory | **Done.** The README says: aggregates derived under the Data Access Agreement, non-commercial only, not ODbL, not covered by the repo's MIT licence. |
+| Residual risk | MoSPI's written confirmation about publishing the derived aggregates in a public repo has not been obtained. The agreement text supplied does not prohibit publishing aggregates and asks for a copy. Not legal advice. |
+
+##### Draft e-mail to MoSPI (for the owner to send)
+
+To: nssunit.dsdd@mospi.gov.in
+Subject: PLFS 2023-24: aggregate table and project link (software professionals, city factors)
+
+> Dear Sir or Madam,
+>
+> I obtained the PLFS 2023-24 unit-level data through the National Data Archive (request reference: [request reference]) for a non-commercial personal project,
+> OfferLens, which helps job seekers compare offers. As the Data Access Agreement asks, I am sending a copy of what has been derived from the data.
+>
+> The project uses the first-visit person file only, for urban persons aged 18 to 60 who are regular salaried or wage workers (current weekly status 31) in NCO-2015
+> occupation groups 251 and 252. For six metropolitan areas it computes the weighted median monthly cash earnings as a ratio to the national weighted median for the same
+> group, shrinks the ratio toward 1.0 by sample size, and publishes only that factor and the sampled-person count. No unit-level record, identifier or rupee amount is published,
+> and cities with fewer than 30 sampled persons are suppressed.
+>
+> | City | Sampled persons (n) | Raw ratio | Shrinkage weight | Published factor |
+> |---|---|---|---|---|
+> | Bangalore | 170 | 1.042 | 0.850 | 1.04 |
+> | Mumbai | 31 | 0.625 | 0.508 | 0.79 |
+> | Delhi NCR | 86 | 1.354 | 0.741 | 1.25 |
+> | Hyderabad | 124 | 0.963 | 0.805 | 0.97 |
+> | Pune | 87 | 1.042 | 0.744 | 1.03 |
+> | Chennai | 90 | 0.938 | 0.750 | 0.95 |
+>
+> (National group: 1,028 sampled persons.) The files `city_factors.csv` and `build_report.json` are attached. Project link: [PROJECT LINK].
+>
+> The factors are shown beside a salary benchmark as an estimate (national survey figures scaled by a city factor, not pay data from the city), with this citation:
+> "City adjustment derived from the Periodic Labour Force Survey 2023-24, National Statistics Office, MoSPI."
+>
+> The project is non-commercial and will stay so; if that changes, the factors will be removed. Please let me know if any part of this use needs to change.
+>
+> Regards,
+> [Your name]
+
+Before sending: fill the two placeholders, attach the two files from `data/plfs-city-factors/`, and make sure the sentences above still match the form you submitted.
+
+##### Removal if the project turns SaaS
+
+1. `DELETE FROM city_pay_factors;` (no deploy; the Explorer, offers and the career table serve national figures at once; proven live above). 2. Decide about stored analyses whose
+`salary_comparison->>'benchmarkScope'` ends in `city_adjusted` (a data decision). 3. A forward migration `0009` that drops the table. 4. One cleanup commit removing the
+directory, `city-adjustment.ts`, the schema, parser and loader files and the `cityAdjustment` branches (`grep` for `cityAdjustment` and `isCityAdjustedScope` finds every
+site) and the frontend strings. 5. The aggregate CSV stays in git history; whether to purge it is an owner and MoSPI question then. 6. Update the intended-use statement and tell MoSPI.
+
+##### Owner actions still open
+
+D1 (README rider) is **decided: it fits** (owner, 2026-10-11, own reading, see the licence table). **Owner position, 2026-10-11:** the repository is private and will stay private, so the repo does not count as a publication and the MoSPI e-mail is not treated as required for it. The agreement's "send a copy of any publication" duty is triggered when the factors reach other people, that is when a deployed instance that others can use shows adjusted benchmarks or PDF reports (the PLFS citation is displayed there). Send the e-mail before that happens; it is also the cheapest route to the written answer on D1. Still open: re-reading the intended-use text against the method, and (optional) written confirmation on publishing aggregates. Nothing in the code waits on them; a "no" from MoSPI would mean removing the factors.
+
+##### Docs changed
+
+`docs/PLAN-analysis-pipeline.md` (this section, task tables, the PLFS paragraphs), `docs/database-design.md` (`city_pay_factors`, `salaryComparison.cityAdjustment`),
+`docs/api-spec.md` and `docs/API_DOCUMENTATION.md` (new scopes and the optional `cityAdjustment` on `/salaries/stats`, `salaryComparison` and the career `progression`).
+
+#### Deployment readiness round outcome (pre-deploy audit of the docs, `.env.example` and the production build)
+
+Branch `phase5a-salary-reference-seed`, uncommitted at the time of writing. Audit and working notes: `.agents/tasks/deploy-docs-env-audit.md`
+(24 findings, D1 to D24) and `.agents/tasks/deploy-code-fixes-note.md` (commands, counts, before/after logs).
+> [!NOTE]
+> **`.agents/` is gitignored and local only.** A fresh clone does not have those notes; everything that has to outlive the session is in this section.
+
+##### What was audited
+
+`docs/DEPLOYMENT.md`, `backend/.env.example` and `frontend/.env.example`, `docs/LOCAL_DEVELOPMENT.md`, `frontend/README.md`, and the code those documents
+describe: `env.schema.ts` against every `process.env` read, the Dockerfile and compose file, CI, CORS, cookie options, the health route, Swagger, the queue
+connection and the loaders. Starting verdict: `DEPLOYMENT.md` was out of date (6 of 21 variables, no workers, no migrate/seed path, and neither Docker nor PM2 could
+start the compiled app).
+
+##### What was fixed
+
+| Area | Findings | Change |
+|---|---|---|
+| Production build (code) | D1, D4, D5, D6, D21 | `build` is `tsc && tsc-alias` (`tsc-alias` pinned at 1.9.7), new `start:workers`, `engines.node >=22.13`, Dockerfile on `node:22-alpine` with `NODE_ENV=production` and `node dist/src/server.js`, new `backend/.dockerignore`. Before: both processes failed with `ERR_MODULE_NOT_FOUND` on `@/` aliases |
+| CORS (code) | D15 | `PATCH` added to the allowed methods (the corrections panel saves with PATCH); new `cors.test.ts`, failing before the fix |
+| `.env.example` (code) | D2, D13, D20, `LOG_LEVEL` | `COOKIE_SECRET` and `ALLOW_AI_REQUEST_OVERRIDE` commented out with notes, `NODE_ENV` and `postgres:postgres` warnings, `GOOGLE_CLIENT_SECRET` removed from the example (nothing reads it), `LOG_LEVEL` now actually sets the Fastify logger level |
+| CI (code) | D8 | The seed and `load-reference` steps get dummy JWT secrets (they failed with only `DATABASE_URL`); new "Production build smoke" step |
+| `DEPLOYMENT.md` (docs) | D3, D5, D6, D7, D11, D14, D16, D17, D18, D19, D20, D24 | Rewritten for the whole app: requirements, the full 21-variable backend table plus the two `VITE_` variables, an ordered checklist, API and workers as two processes on one volume, frontend build and SPA fallback, cookies/CORS/HTTPS, log lines to look for (`using MockAiProvider` must not appear), plans and quotas, Swagger and health-check caveats, compose warnings, `docker compose` v2 spelling, 27 escaped fences and one unclosed fence fixed |
+| `LOCAL_DEVELOPMENT.md`, `frontend/README.md` (docs) | D22, D23 | Test counts (backend 906 passed + 3 skipped, frontend 132; `test-m2.mjs` 32), the Playwright smoke spec and how to run it, the usage-ledger and account-export rows, Node 22.13+, `format:check` 69 → 157 files; frontend README says Fastify, Node 22.13+ and "no proxy" |
+
+##### Deliberately left (docs only, by decision)
+
+- **D9 dataset links** (below), **D10 `trustProxy`** and **D12 BullMQ TLS/username**: documented with the exact snippet or limitation; no `TRUST_PROXY` variable and no change to the queue connection code.
+- The compose file is untouched (default credentials, published ports, obsolete `version:` key); the guide warns instead.
+- The `GOOGLE_CLIENT_SECRET` schema line stays (harmless; documented as unused).
+- Migrate, seed and the loaders still run from a repo checkout with dev dependencies, not from the runtime image (they need `tsx`, `drizzle-kit`, `drizzle/` and the repo-level `data/`).
+
+##### Verified live (step 1, Windows host with Linux containers, scratch Postgres 16 / Redis 7)
+
+- `npm start` returns `/api/v1/health` 200 and `npm run start:workers` registers its repeat jobs in Redis, both with no module errors. The Docker image builds, and two containers (API and workers) sharing one named volume pass `test-security.mjs` 20/20, `test-m2.mjs` 32/0 and `test-m3.mjs` 19/0 through the container in production mode.
+- The CI seed and loader steps pass from an empty database with the added dummy secrets. The `.env.example` as written fails only on the two blank JWT secrets, and boots with just those filled in.
+- Backend `tsc` and `eslint` clean; backend `npm test` 906 passed, 3 skipped (baseline 901 + 5 new CORS cases). A PATCH preflight against the running server returns `GET, POST, PUT, PATCH, DELETE, OPTIONS`.
+- Docs step: frontend `vitest` 132 passed (12 files); the Playwright smoke spec passed (1 test, 57 s) against the compiled API (`npm start`), the compiled workers, the Vite dev server on :8080 and a real Gemini key; its `e2e-<timestamp>@example.com` user was deleted afterwards. `DEPLOYMENT.md` was checked mechanically: every fence closed, none escaped, every `npm run` script it names exists in `backend/package.json`, every variable it names exists in `env.schema.ts` (or the frontend example).
+
+##### Reasoned, not run
+
+- A Linux host; a host bind-mounted `./uploads` (may not be writable by the image's `node` user); the exact `docker run` and PM2 commands in the guide as written (the equivalent two-container run was tested with scratch infrastructure and a named volume); the nginx `try_files` and `trustProxy: 1` snippets; browser cookie behaviour behind HTTPS and across sites (inferred from the cookie options and the preflight, no hosted deployment exists); the `ci.yml` changes on a real GitHub run (parsed as YAML and simulated locally only); the failure of a TLS/username Redis URL against BullMQ (read from the connection code); Node 20 failing on the pinned dependencies (inferred from their declared engines).
+- The smoke spec does not exercise the corrections Save, so the PATCH fix is proven by the unit test and the live preflight, not by a browser.
+- `frontend/README.md`: the audit said Vite 7; the installed Vite is 5.4.19, so the README states the repo-wide Node 22.13+ rather than a Vite-specific minimum.
+
+##### Open items (none touched by this round)
+
+1. **D9: RESOLVED by the VPS-prep round (`.agents/tasks/vps-prep-code-notes.md`).** The four constants (`reference-source.ts`, `city-adjustment.ts`, the two in `frontend/src/constants/attribution.ts`) now point at the deploy's own static host — `https://offerlens.mueens.tech/datasets/so-2025-india/` and `.../datasets/plfs-city-factors/` — instead of the private `github.com/.../tree/main/data/...` URL that 404s for an anonymous visitor. The host is hardcoded (a `ponytail:` comment on each constant names the full change-list: all four plus the nginx `location /datasets/` block in `deploy/`). The drift test (`reference-source.test.ts`) pins the new host and rejects a `github.com` URL. The attribution TEXT is unchanged. Owner still serves `data/so-2025-india/` at its path before loading reference rows, and serves the PLFS path **only after** the MoSPI e-mail gate.
+2. **D10: RESOLVED by the VPS-prep round.** `TRUST_PROXY` is now an env var (hop count 0-5, default 0, parsed as an integer not `z.coerce.boolean`) wired to Fastify `trustProxy` in `app.ts` (0 → `false`). Behind this guide's single host nginx set `TRUST_PROXY=1`; no code edit or rebuild. Unit tests cover the parsing (unset/`0`/`1`/`2`, `abc` and `10` rejected) and a Fastify inject proves `request.ip` follows `X-Forwarded-For` with 1 and does not with 0.
+3. **D12: BullMQ ignores TLS, username and database index in `REDIS_URL`**, and does not URL-decode the password. A managed Redis that requires them breaks the queues until the connection options are built from the full URL.
+4. **D19: the health check does not touch Postgres or Redis**, and **Swagger UI is public in production** at `/api/v1/docs` (no `NODE_ENV` gate, `servers` says `http://localhost:8000`). Decide whether to gate or block it; the guide suggests blocking it at the proxy.
+5. **F1: the Cloud Vision service-account key is still in git history.** Rotation cannot be confirmed from the repo. The guide tells deployers to issue a new key. Rewriting history is only needed if the repo ever becomes public.
+6. `ALLOW_AI_REQUEST_OVERRIDE` still parses `false` as true (F6); production ignores it, and the example leaves it commented out.
+7. `npm run format:check` fails on 157 backend files (cosmetic, not enforced in CI).
+8. No CI job runs the Playwright smoke spec, and nothing has been run on a Linux host or a hosted deployment.
+9. **Honest OCR in production (fixed by the VPS-prep round).** With `GOOGLE_CLOUD_CREDENTIALS` unset the OCR provider is the mock, which returned canned fixture text. In production an image/scanned-document OCR request is now refused with `400 OCR_UNAVAILABLE` at the one shared choke point (`meterOcr` in `usage-ledger.ts`), reached by both `POST /offers/extract-file` and the OCR worker's image branch; development and test keep the mock. Pasted text and text-layer PDFs never call OCR and are unaffected. The upload page maps the code to a friendly inline notice.
+10. **OPEN: the AI provider still falls back to the mock silently.** Unlike OCR, a missing key for the selected `AI_PROVIDER` still selects `MockAiProvider` with only a console warning (`ai.factory.ts`); there is no production guard, so analyses would be canned sample data. Deliberately not changed by the VPS-prep round (brief scope was the OCR guard only). The existing mitigation stands: the deploy guide says to confirm the logs do not contain `using MockAiProvider` and to set the key for the chosen provider.
+
+#### VPS deployment preparation round outcome
+
+Branch `phase5a-salary-reference-seed`, uncommitted at the time of writing. Target decided with the owner: a single public URL
+`https://offerlens.mueens.tech` on the shared Ubuntu VPS (`72.61.245.134`) that already runs host nginx, host MySQL, host Redis, PHP-FPM
+and other Docker/Postgres containers, with ~3.4 GB of 7.8 GB free and 2 vCPU. Working notes: `.agents/tasks/vps-prep-code-notes.md`
+(items 1-3, the code) and `.agents/tasks/vps-prep-artifacts-notes.md` (items 4-5, this round). `.agents/` is gitignored; everything
+that must outlive the session is here.
+
+##### What was added
+
+| Area | File(s) | What |
+|---|---|---|
+| Compose (prod) | `deploy/docker-compose.prod.yml` | Project `offerlens`, own bridge network, four services: `api` (build `../backend`, image `offerlens-api`, `node dist/src/server.js`, published `127.0.0.1:8100:8000`), `workers` (same image, `node dist/src/workers/index.js`, same uploads volume), `postgres` (`postgres:16-alpine`, named volume, healthcheck, NO published port), `redis` (`redis:7-alpine`, `--maxmemory 96mb --maxmemory-policy noeviction`, appendonly + named volume, healthcheck). `mem_limit`/`cpus`/`oom_score_adj: 500` on every service, json-file log rotation, `restart: unless-stopped`, shared `uploads` volume at `/app/uploads` |
+| Compose (migrate) | `deploy/docker-compose.migrate.yml` | Override publishing postgres on `127.0.0.1:5433:5432` for the tunnelled migration step, with a prominent warning to stop it afterwards |
+| Env example | `deploy/.env.production.example` | Every backend variable with placeholders + comments; `.env.production` added to the root `.gitignore` with a `!`-exception keeping the example tracked |
+| nginx | `deploy/nginx/offerlens.mueens.tech.conf` | Server-block-only (no `default_server`, no http-level directives): `root /var/www/offerlens/dist` with SPA `try_files`, `location /api/` proxy to `127.0.0.1:8100` with the forwarded headers + `client_max_body_size 11m` + `proxy_read_timeout 90s`, `location /datasets/` static alias with sensible text types and `autoindex off`, nosniff/frame/referrer headers (no CSP), per-vhost gzip, a commented `limit_req`, separate access/error logs, and the final certbot TLS shape as comments |
+| Scripts | `deploy/scripts/backup-postgres.sh`, `restore-postgres.sh` | `set -euo pipefail`, pg_dump/psql via `docker exec` (no secrets in the scripts), gzip + 7-day retention with a fixed glob, restore behind a typed-confirmation prompt |
+| Runbook | `docs/DEPLOY_VPS.md` | Ordered, command-by-command, each labelled laptop/server/sudo: Namecheap A record, server prep + read-only pre-flight, scp of `deploy/`+`backend/`, `.env.production` (mode 600) with openssl secret generation, `up -d --build`, SSH-tunnel migrations/seed/loaders with the migrate override (city-factors GATED on the MoSPI gate), laptop frontend build (`VITE_API_BASE_URL=/api/v1`) + dataset copy, nginx install + certbot, smoke test, updates/rollback/backups/restore/logs/"stop OfferLens"/"what not to touch", plus security-isolation and known-limits sections |
+| Docs pointers | `docs/DEPLOYMENT.md` | A note at the top pointing at `DEPLOY_VPS.md` for this box and summarising the `TRUST_PROXY=1` and `OCR_UNAVAILABLE` behaviours from the code round |
+
+##### Decisions (from the brief and the repo, not guessed)
+
+- **One origin.** Host nginx serves the SPA and proxies `/api/` to the API container on `127.0.0.1:8100`; the frontend is built with
+  `VITE_API_BASE_URL=/api/v1` so there is no cross-site cookie problem and `CORS_ORIGIN` is the single site URL.
+- **Loopback-only publishing** on every port, because published Docker ports bypass UFW on this box (UFW allows only 22/80/443/6001 + coturn).
+- **Resource caps via `mem_limit`/`cpus`/`oom_score_adj`,** the top-level keys that apply in plain `docker compose` — the swarm-only
+  `deploy.resources` block would be silently ignored. `oom_score_adj: 500` makes OfferLens the kernel's first OOM victim, protecting production.
+- **Uploads volume mounted at a FIXED `/app/uploads`** rather than interpolating `${STORAGE_PATH}` (which `env_file` does not feed into compose
+  interpolation); `.env.production` sets `STORAGE_PATH=/app/uploads` to match, so api and workers agree.
+- **No frontend build/push scripts** (documented as PowerShell in the runbook, per the brief — the server has no Node).
+- **Migrations run from a laptop checkout** over an SSH tunnel to a temporary `127.0.0.1:5433`, because the runtime image has no
+  `tsx`/`drizzle-kit`/`drizzle/`/`data/`.
+
+##### Verified locally vs only reasoned
+
+- **Verified:** `docker compose -f deploy/docker-compose.prod.yml config` resolves `mem_limit` (api 536870912 / workers 402653184 /
+  postgres 536870912 / redis 134217728), `cpus`, and `oom_score_adj: 500` on all four services — proving the caps actually apply outside swarm.
+  The API port and the migrate override's DB port both resolve to `host_ip: 127.0.0.1` (8100 and 5433). The `.gitignore` rules were checked with
+  `git check-ignore`: `.env.production` is ignored, `.env.production.example` is not. (Docker Compose v5.5 / Engine 29.7 on the laptop.)
+- **Reasoned, not run:** nothing was executed on the server (no SSH this round). The `up -d --build`, the SSH-tunnel migration flow, the nginx
+  `nginx -t`/`certbot --nginx` steps, the backup/restore scripts, the 10 MB upload through nginx, and the actual OOM/memory behaviour under the
+  caps are all written from the compose/nginx semantics and the surveyed server state, not from a live deploy.
+
+##### Open items
+
+1. **MoSPI e-mail gate.** `npm run db:load-city-factors` and copying `data/plfs-city-factors/` to the public dataset path must wait until the
+   owner has sent the MoSPI e-mail and decided to publish PLFS on a public site (D1 / `DEPLOYMENT.md` section 6). The runbook marks both as gated.
+2. **Image uploads off until Vision.** `GOOGLE_CLOUD_CREDENTIALS` is unset in the example and no key is mounted; production image/scanned OCR is
+   refused with `400 OCR_UNAVAILABLE` (open item 9 above). Mounting a Vision key into the containers is left for when billing is enabled.
+3. **AI mock fallback is silent** (open item 10 above) — no production guard; the runbook's smoke test says to confirm the logs do not contain
+   `using MockAiProvider`.
+4. **Pending OS restart / 76 updates** on the server — the owner's decision when to apply.
+5. **Shared box with production.** One machine, no HA; OfferLens shares CPU/RAM/disk with live production services. Documented in the runbook's
+   "known limits".
+6. **CI and backups unverified on the server.** The backup/restore scripts, the cron line, and the whole deploy have not been exercised on the
+   live box; no CI job builds or deploys this stack.
+7. **Old Cloud Vision key in git history** (F1) still stands — issue a new key for the deploy.
 
 ### Phase 6: Revenue & Compliance
 
 | # | Task | Impact | Blocked on |
 |---|------|--------|-----------|
-| 6.1 | Payment integration | Revenue | Settled pricing. A different size of job from the rest of this phase |
+| 6.1 | Payment integration | Revenue | **Parked indefinitely** — see Project status. Nothing to charge for; plans/pricing are display only. Re-enters scope only if the project goes SaaS |
 | 6.2 | PII redaction + retention policy | Compliance at scale | Needs 4.1 first — billing records currently live in the row being deleted |
 | 6.3 | User correction loop → improve extraction rules | Self-improving extraction | Correction volume that does not exist yet |
 | 6.4 | Scanned-PDF OCR via `files:annotate` | Photographed letters work | Cloud Vision billing. No bucket needed — see the Phase 3 round 5 outcome |
 
-Phase 4 stops the bleeding; this phase turns metering into money and makes the data handling
-defensible at volume. None of it is urgent while there are no users, and **6.4 is the only item here
-a user would notice**.
+> [!NOTE]
+> **Reframed 2026-10-11:** this phase was written as "turn metering into money." Under the
+> non-commercial project status, **6.1 (payments) is parked** — there is no revenue to integrate.
+> 6.4 is the only item here a user would notice, and it is gated on Cloud Vision billing (a cost the
+> owner would pay, unrelated to charging users). 6.2 and 6.3 remain real but un-urgent while there
+> are no users. If the project ever becomes SaaS, 6.1 and the "defensible at volume" framing return.
 
 ---
 
@@ -2895,7 +4250,7 @@ slower would revive 18, and a genuine need to test the worker's stages in isolat
 | **Measurement** | None | Test corpus + field-level accuracy tracking |
 | **Authorization** | Ownership enforced on 5 feature modules; absent on offer read/delete/report | Single guard covering ownership for every offer-scoped route |
 | **Guest identity** | Collapses to MD5(IP + User-Agent) — quota and migration shared across users | Per-browser identity, no cross-user inheritance |
-| **Rate limiting** | One global 100/min; 15 per-route limits defined but unused | Per-route limits actually registered |
+| **Rate limiting** | One global 100/min; 15 per-route limits defined but unused. In fact none were enforced (plugin encapsulation) | 9 per-route limits and the global one enforced and verified live; 8 `RATE_LIMITS` entries remain unwired (listed in "Rate limiter fix") |
 
 ---
 
@@ -3034,4 +4389,71 @@ All P0/P1 findings in this document are therefore **pre-production defects with 
 
 | # | Question | Blocks |
 |---|----------|--------|
-| 12 | **Public salary dataset choice** — which source, and is its licence compatible with commercial use? | Task 5.1 — gates all of Phase 5 |
+| 12 | ~~**Public salary dataset choice** — which source, and is its licence compatible with commercial use?~~ **Resolved 2026-10-11 (5.1 decision):** Stack Overflow Developer Survey 2025 (ODbL) for Phase A, PLFS for Phase B | Task 5.1 — gates all of Phase 5 |
+
+---
+
+#### Task 6.4 outcome — Azure AI Document Intelligence OCR (`backend/src/providers/ocr/azure-doc-intelligence.ocr.ts`)
+
+**What was built.** A second real OCR provider behind the existing `OcrProvider` seam, selected by
+a new `OCR_PROVIDER` env (`mock` | `google` | `azure`, default `mock`). `AzureDocumentIntelligenceOcrProvider`
+builds the `@azure-rest/ai-document-intelligence` REST client (pinned exactly at **1.1.0**) from an
+endpoint + key, reads the temp file as base64, POSTs to `prebuilt-read`, polls the long-running
+operation with a bounded 110s timeout, and maps the result to `{ text, confidence, pages }`. A small
+`createOcrProvider()` factory (mirroring `ai.factory.ts`) replaced the duplicated selection ternary in
+both `plugins/providers.ts` and `workers/ocr.worker.ts`. All Azure SDK types stay confined to the one
+provider file, so the rest of the app still sees only the `OcrProvider` contract.
+
+**This closes two items.** Unlike Cloud Vision's `textDetection` (an image endpoint that rejects PDFs),
+`prebuilt-read` accepts images **and scanned PDFs** in one call — so the scanned-PDF audit finding is
+fixed. And it resolves the **`OCR_UNAVAILABLE`** open item for configured deployments: once
+`OCR_PROVIDER=azure` is set with the two Azure vars, images and scanned PDFs are accepted; the guard
+remains the correct refusal when no real provider is configured.
+
+**Owner decisions (made, not reopened):** tier **S0** pay-as-you-go (funded by Azure startup credits;
+no F0 2-page cap, so multi-page scans are handled correctly); region **Central India** (the endpoint URL
+encodes it, so submitted documents stay in-region); **keep** the Google Vision provider behind the switch
+(not removed); **drop** `image/webp` from accepted upload types (Azure Read does not accept webp and we do
+not convert it); budget cap set by the owner in the Azure portal (nothing in code).
+
+**Confidence mapping, and why.** Azure Read reports confidence per **word** (`pages[].words[].confidence`),
+not one document figure, and the field is not guaranteed meaningful on every token. `deriveAzureConfidence`
+averages every *usable* per-word reading (finite, `0 < c <= 1`) across all pages into one figure comparable
+to `OCR_MIN_CONFIDENCE = 0.6`, and returns **`null`** — never a default number — when none are usable.
+This mirrors the Google provider's deliberate design exactly: `null` means "unknown", which the gate treats
+as neither pass nor fail. Substituting a default would reintroduce the `|| 0.85` bug that made the gate inert.
+
+**Per-page billing.** Vision billed per image; Azure Read bills per **page**. `meterOcr` now records
+`units = pageCount` at `AZURE_READ_USD_PER_PAGE` (~$0.0015/page) for an Azure call, falling back to one unit
+when the result reports no page count (marked with a `ponytail:` comment on the assumption). The mock stays
+`billedTo='mock'`, cost `null`; the one-row-per-call contract is unchanged.
+
+**Worker lock.** The async Azure poll can exceed BullMQ's 30s default lock, so the OCR worker gets an explicit
+`lockDuration: 120000` (set only on the OCR worker — the analysis worker has no such long synchronous wait).
+The provider's 110s poll timeout sits just under it, so a stuck LRO fails cleanly inside the lock.
+
+**Privacy / data egress.** Sending offer letters (names, employers, salaries) to Azure is new third-party
+egress — Cloud Vision implied the same, so it is not a regression. Azure Read **transiently stores** the
+document + result in regional Azure Storage to run the async job, then returns the result; Central India keeps
+that copy in-region. The app deletes its own **local** temp file after extraction (the provider only reads the
+path); Azure's transient copy is Microsoft's, removed per their retention. No product copy was changed; if any
+"we delete your file" wording is added later it must mean the local temp file only.
+
+**Verified with mocks (offline, no live Azure key):** the provider (single-page success, multi-page PDF text
+concatenation + one aggregated confidence, low-confidence still returned, no-usable-confidence → null, 429 →
+retryable classification, stuck LRO → clean timeout, generic error with no leaked Azure body), `deriveAzureConfidence`
+and `joinAzureText` unit tests, the `createOcrProvider` selection matrix (mock default; azure/google when
+env+creds; named-but-missing-creds → mock + warning), the guard (production + azure does NOT throw, production +
+mock still throws `OCR_UNAVAILABLE`, dev unchanged), webp now rejected by multipart validation, and the Azure
+ledger row (units/cost/provider/billedTo). The mock SDK is never a real network call. Backend `tsc`/eslint clean,
+frontend `tsc -p tsconfig.app.json`/eslint/build clean; regression scripts `test-security.mjs` 20/20,
+`test-m2.mjs` 32/0, `test-m3.mjs` 19/0.
+
+**Could NOT be verified without a live Azure key** — a real scanned PDF and a real photo end to end against a live
+S0 resource. The exact JSON field path for word confidence and whether a document-level confidence scalar is ever
+returned are from the SDK types/API reference, not an observed response. **Owner manual smoke checklist** (run once
+the S0 resource exists): create the Document Intelligence resource in Central India (S0); set `OCR_PROVIDER=azure`
++ `AZURE_DOC_INTELLIGENCE_ENDPOINT` + `AZURE_DOC_INTELLIGENCE_KEY` in `.env.production`; set a Cost Management budget
+alert; upload one scanned PDF and one JPG photo; confirm text is returned, pages concatenate, `ocrConfidence` is
+populated, latency from the India VPS is acceptable, and one ledger row per call is written with `provider='azure-doc-intelligence'`,
+`billedTo='platform'`, `units=pageCount`.

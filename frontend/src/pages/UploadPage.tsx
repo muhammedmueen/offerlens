@@ -19,7 +19,9 @@ import QuotaNotice from "@/components/common/QuotaNotice";
 import {
   QUOTA_NOTICE_ID,
   RATE_LIMITED_TEXT,
+  OCR_UNAVAILABLE_TEXT,
   getQuotaError,
+  isOcrUnavailable,
   isRateLimited,
   isUploadBlocked,
   quotaExhaustedText,
@@ -233,6 +235,19 @@ const UploadPage = () => {
         return;
       }
 
+      // This deployment has no real OCR provider, so a scanned document or image cannot be
+      // read here. Not a file problem the user can fix by retrying: tell them to paste the
+      // text or upload a text-layer PDF, in the inline notice they already see for file errors.
+      if (isOcrUnavailable(error)) {
+        setFileError(OCR_UNAVAILABLE_TEXT);
+        toast({
+          title: "Image uploads unavailable",
+          description: OCR_UNAVAILABLE_TEXT,
+          variant: "destructive",
+        });
+        return;
+      }
+
       console.error('[Upload] ❌ Extraction failed with error:', error);
       console.error('[Upload] Error details:', {
         message: error.message,
@@ -255,7 +270,7 @@ const UploadPage = () => {
 
   const validateFile = useCallback((f: File) => {
     if (!ACCEPTED_FILE_TYPES.includes(f.type)) {
-      setFileError("Please upload a PDF or image (JPG, PNG, WebP)");
+      setFileError("Please upload a PDF or image (JPG, PNG)");
       return false;
     }
     if (f.size > MAX_FILE_SIZE_BYTES) {
@@ -324,14 +339,14 @@ const UploadPage = () => {
                 <>
                   <Upload className="h-10 w-10 text-muted-foreground" />
                   <p className="font-medium text-foreground">Drop your offer letter here</p>
-                  <p className="text-xs text-muted-foreground">PDF, JPG, PNG, WebP — up to 10MB</p>
+                  <p className="text-xs text-muted-foreground">PDF, JPG, PNG — up to 10MB</p>
                 </>
               )}
             </motion.div>
-            <input ref={fileInputRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" onChange={handleFileSelect} className="hidden" />
+            <input ref={fileInputRef} type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={handleFileSelect} className="hidden" />
             {fileError && (
-              <p className="mt-2 flex items-center gap-1 text-sm text-destructive">
-                <AlertCircle className="h-4 w-4" /> {fileError}
+              <p role="alert" className="mt-2 flex items-center gap-1 text-sm text-destructive">
+                <AlertCircle className="h-4 w-4" aria-hidden="true" /> {fileError}
               </p>
             )}
           </TabsContent>

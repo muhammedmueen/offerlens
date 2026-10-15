@@ -14,6 +14,23 @@ export const envSchema = z.object({
     GOOGLE_CLOUD_CREDENTIALS: z.string().optional(),
 
     /**
+     * Which provider serves OCR (images and scanned PDFs).
+     *
+     * Defaults to `mock`, so local/dev and the test suite behave exactly as before without any
+     * credentials. In production the mock is refused by the `OCR_UNAVAILABLE` guard, so a real
+     * provider must be configured for image/scanned-PDF uploads to work:
+     *   - `azure` needs AZURE_DOC_INTELLIGENCE_ENDPOINT + _KEY. Accepts images AND scanned PDFs.
+     *   - `google` needs GOOGLE_CLOUD_CREDENTIALS. Images only — Vision rejects PDFs.
+     * If the named provider's credentials are missing, the factory falls back to the mock with a
+     * loud warning (so production still refuses rather than fabricating OCR text).
+     */
+    OCR_PROVIDER: z.enum(['mock', 'google', 'azure']).default('mock'),
+    /** Azure AI Document Intelligence endpoint, e.g. https://<name>.cognitiveservices.azure.com */
+    AZURE_DOC_INTELLIGENCE_ENDPOINT: z.string().url().optional(),
+    /** Azure AI Document Intelligence API key. Secret — set only in .env.production, never commit. */
+    AZURE_DOC_INTELLIGENCE_KEY: z.string().optional(),
+
+    /**
      * Which provider serves AI calls by default.
      *
      * Gemini stays the default because it is the one with a usable free tier, which is what
@@ -49,6 +66,21 @@ export const envSchema = z.object({
 
     STORAGE_PATH: z.string().default('./uploads'),
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+
+    /**
+     * Number of proxy hops in front of the API, passed to Fastify's `trustProxy` (audit D10).
+     *
+     * A hop COUNT, not a boolean: `z.coerce.boolean()` reads any non-empty string — including
+     * `"false"` — as true, which is exactly the trap `ALLOW_AI_REQUEST_OVERRIDE` fell into. 0
+     * means off (Fastify gets `false`); behind the guide's single host nginx use 1. Capped at 5
+     * so a typo cannot make Fastify trust an absurd chain. An unparseable value is rejected.
+     */
+    TRUST_PROXY: z
+        .string()
+        .optional()
+        .transform((v) => (v === undefined || v === '' ? 0 : Number(v)))
+        .pipe(z.number().int().min(0).max(5))
+        .default(0),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -40,14 +40,14 @@ All responses follow a consistent envelope:
 | `X-Fingerprint` | Request | Client-generated browser fingerprint (guest tracking) |
 | `X-RateLimit-Limit` | Response | Max requests allowed in window |
 | `X-RateLimit-Remaining` | Response | Requests remaining in window |
-| `X-RateLimit-Reset` | Response | Unix timestamp when window resets |
+| `X-RateLimit-Reset` | Response | Seconds until the window resets |
 | `Retry-After` | Response (429) | Seconds until next request allowed |
 
 ### Error Codes
 
 | Code | HTTP | When |
 |---|---|---|
-| `INVALID_FILE_TYPE` | 400 | Upload is not PDF/JPG/PNG/WebP |
+| `INVALID_FILE_TYPE` | 400 | Upload is not PDF/JPG/PNG |
 | `FILE_TOO_LARGE` | 400 | File exceeds 10MB |
 | `VALIDATION_ERROR` | 400 | Request body fails Zod validation |
 | `INVALID_INPUT` | 400 | Malformed request (bad UUID, etc.) |
@@ -70,7 +70,7 @@ All responses follow a consistent envelope:
 
 #### `GET /api/v1/health`
 
-Returns server status. No rate limiting.
+Returns server status. Counts against the global 100/min limit like any other route.
 
 **Response** `200`:
 ```json
@@ -126,13 +126,13 @@ until then.
 
 Upload an offer letter for analysis. Accepts multipart/form-data.
 
-**Daily quota**: guest 1, `free` 3, `unlimited` none (IST calendar day, see `GET /quota`) | **Rate limit**: Global 100/min
+**Daily quota**: guest 1, `free` 3, `unlimited` none (IST calendar day, see `GET /quota`) | **Rate limit**: global 100/min, no route-specific limit
 
 **Request** (`multipart/form-data`):
 
 | Field | Type | Required | Constraints |
 |---|---|---|---|
-| `file` | File | ✅ | PDF, JPG, PNG, WebP. Max 10MB |
+| `file` | File | ✅ | PDF, JPG, PNG. Max 10MB |
 | `role` | string | ❌ | Closest matching job role |
 | `experienceYears` | number | ❌ | Years of experience (0-50) |
 | `city` | string | ❌ | City name |
@@ -158,7 +158,7 @@ Upload an offer letter for analysis. Accepts multipart/form-data.
 
 | Scenario | Code | Response |
 |---|---|---|
-| Wrong file type | 400 | `{ code: "INVALID_FILE_TYPE", message: "Please upload a PDF or image (JPG, PNG, WebP)" }` |
+| Wrong file type | 400 | `{ code: "INVALID_FILE_TYPE", message: "Please upload a PDF or image (JPG, PNG)" }` |
 | File too large | 400 | `{ code: "FILE_TOO_LARGE", message: "File must be under 10MB" }` |
 | Daily analysis quota used | 429 | `UPLOAD_LIMIT_EXCEEDED`, example below |
 
@@ -191,7 +191,7 @@ duplicate of an offer that did not fail is returned without charging.
 
 Get offer status and basic info. Used for polling during processing.
 
-**Rate limit**: 60/min per IP (polling-friendly)
+**Rate limit**: global 100/min, no route-specific limit (the app polls every 3 s, about 20/min)
 
 **Path params**: `id` — offer UUID
 
@@ -249,7 +249,7 @@ Get offer status and basic info. Used for polling during processing.
 
 Get full analysis results. Only available when `status = COMPLETED`.
 
-**Rate limit**: 30/min per IP
+**Rate limit**: global 100/min, no route-specific limit
 
 **Path params**: `id` — offer UUID
 
@@ -302,7 +302,12 @@ Get full analysis results. Only available when `status = COMPLETED`.
       "roleUsed": "Senior Software Engineer",
       "roleMatchConfidence": 0.95,
       "locationUsed": "Bangalore, India",
-      "dataSource": "ai_estimated",
+      "dataSource": "ai_estimated",   // or "crowdsourced" (unverified; confidence level medium, badge "Check this", never "Verified") | "public_survey" (modelled, India-wide; ODbL attribution required)
+      // 5.1b, public_survey in a metro: "benchmarkScope" is "role_experience_city_adjusted" | "role_city_adjusted", "locationUsed" is "India (national), adjusted for Mumbai", and an optional
+      // "cityAdjustment": { "source": "plfs_2023_24", "city": "mumbai", "cityLabel": "Mumbai", "factor": 0.79, "plfsSampleSize": 31, "period": "2023-24" } says the survey figures were scaled by that factor.
+      // The disclaimer then states plainly that it is an estimate, not offers in the city. Absent for crowdsourced, AI-estimated and non-metro results; confidence stays medium.
+      // Optional, additive. public_survey: "percentileWithheld": "no_experience_rows" => range shown, offerPercentile null, salary unscored (a Fresher offer).
+      // crowdsourced: "payBasis": "offered" | "current" | "mixed" and, when "mixed", "payMix": { "offered": 9, "current": 4, "unlabelled": 2 } (sums to sampleSize).
       "disclaimer": null
     },
 
@@ -350,7 +355,7 @@ Get full analysis results. Only available when `status = COMPLETED`.
 
 Delete an offer and its analysis permanently.
 
-**Rate limit**: 10/min per IP
+**Rate limit**: global 100/min, no route-specific limit
 
 **Path params**: `id` — offer UUID
 
@@ -370,7 +375,7 @@ Delete an offer and its analysis permanently.
 
 Download PDF report of the analysis.
 
-**Rate limit**: 10/min per IP
+**Rate limit**: global 100/min, no route-specific limit
 
 **Path params**: `id` — offer UUID
 
@@ -385,13 +390,46 @@ Download PDF report of the analysis.
 
 ---
 
+#### `GET /api/v1/offers/:id/career-path`
+Career narrative plus a pay-by-experience table for the offer's role family. Registered users only (`careerPath` gate).
+**Rate limit**: global 100/min; counts against the daily `career` cap on a narrative cache miss (a hit is free, a failed generation is given back)
+**Path params**: `id` - offer UUID
+**Response** `200` (`data`):
+```json
+{
+  "timeline": [{ "year": 1, "title": "...", "focus": "..." }],
+  "skillsToLearn": ["..."],
+  "potentialRoles": ["..."],
+  "error": "only present when the AI failed; timeline and lists are then empty",
+  "progression": {
+    "applicable": true,
+    "roleUsed": "Backend Engineer",
+    "cityUsed": "Bangalore",
+    "referenceFamilies": ["Backend Engineer"],
+    "currentBracket": "Mid-Level (3-5 yrs)",
+    "cells": [
+      { "bracket": "Fresher (0-1 yrs)", "yearsRange": { "min": 0, "max": 0 }, "sampleSize": 0, "crowdN": 0, "source": null, "marketRange": null, "step": null },
+      { "bracket": "Junior (1-3 yrs)", "yearsRange": { "min": 1, "max": 2 }, "sampleSize": 37, "crowdN": 0, "source": "public_survey", "marketRange": { "p25": 400000, "p50": 700000, "p75": 1200000 }, "step": null },
+      { "bracket": "Mid-Level (3-5 yrs)", "yearsRange": { "min": 3, "max": 4 }, "sampleSize": 39, "crowdN": 0, "source": "public_survey", "marketRange": { "p25": 805000, "p50": 1300000, "p75": 2175000 }, "step": { "absolute": 600000, "percent": 86 } }
+    ],
+    "notes": [{ "source": "public_survey", "disclaimer": "Modelled from public surveys, not offers in your city. ..." }]
+  }
+}
+```
+`progression` is always present on a 200 and is computed on every request (never cached). It is `{ "applicable": false, "reason": ... }` with no figures when `reason` is `role_not_covered` (outside the eight surveyed software role families), `non_inr`, `city_not_covered` (not one of the six metros) or `lookup_error`.
+Each cell is one experience bracket (the same half-open brackets the offer benchmark uses). `source` is `crowdsourced` (role + city, n >= 10 after outlier rejection), else `public_survey` (role family, India-wide, n >= 10), else `null` with `marketRange: null` (no number is ever filled in). For a `null` cell `sampleSize` is the survey row count and `crowdN` the crowdsourced count. Sources are never pooled. `step` is the change in median from the previous bracket, set only when both cells have numbers from the same source. Amounts are annual INR. Cross-sectional: each row is different people.
+**Changed in 5.1b (additive)**: when the offer's metro has a PLFS 2023-24 city factor, `progression.cityAdjustment` (same shape as `salaryComparison.cityAdjustment`) is set, every `public_survey` cell is the national survey figure x the factor (`sampleSize` is still the survey n; step percentages are unchanged, step amounts scale), the survey note names the city, the factor and the PLFS n, and `crowdsourced` cells are never scaled. With no factor row the field is absent and the response is exactly as before.
+**Changed in 5.5**: `timeline[].salaryRange` is no longer returned (the model no longer authors pay figures). `progression` is new and additive. If the model's prose carries a pay figure (a heuristic scan, not a proof), the narrative is dropped like any unusable result: `error` is set, the lists are empty, `progression` is still returned, and nothing is cached.
+**Errors**: `NOT_FOUND` (404), `OFFER_NOT_READY` (400), `INVALID_INPUT` (400, no role identified), `FEATURE_NOT_IN_PLAN` (403), `QUOTA_EXCEEDED` (429)
+---
+
 ### Metadata
 
 #### `GET /api/v1/metadata/roles`
 
 List all available job roles for dropdown.
 
-**Rate limit**: 30/min per IP | **Cache**: Redis, 1h TTL
+**Rate limit**: global 100/min, no route-specific limit | **Cache**: Redis, 1h TTL
 
 **Query params**:
 
@@ -418,7 +456,7 @@ List all available job roles for dropdown.
 
 List available cities for dropdown.
 
-**Rate limit**: 30/min per IP | **Cache**: Redis, 1h TTL
+**Rate limit**: global 100/min, no route-specific limit | **Cache**: Redis, 1h TTL
 
 **Query params**:
 
@@ -445,7 +483,7 @@ List available cities for dropdown.
 
 List experience levels for dropdown.
 
-**Rate limit**: 30/min per IP | **Cache**: Redis, 1h TTL
+**Rate limit**: global 100/min, no route-specific limit | **Cache**: Redis, 1h TTL
 
 **Response** `200`:
 ```json
@@ -470,7 +508,7 @@ List experience levels for dropdown.
 
 Submit a feature request.
 
-**Rate limit**: 5/hour per fingerprint
+**Rate limit**: global 100/min, no route-specific limit
 
 **Request body** (`application/json`):
 
@@ -512,7 +550,7 @@ Submit a feature request.
 
 List feature requests with sorting and pagination.
 
-**Rate limit**: 30/min per IP
+**Rate limit**: global 100/min, no route-specific limit
 
 **Query params**:
 
@@ -554,7 +592,7 @@ List feature requests with sorting and pagination.
 
 Vote on a feature request. One vote per fingerprint.
 
-**Rate limit**: 30/min per IP
+**Rate limit**: global 100/min, no route-specific limit
 
 **Path params**: `id` — feature request UUID
 
@@ -580,17 +618,46 @@ Vote on a feature request. One vote per fingerprint.
 
 ## Rate Limit Summary
 
-| Endpoint Group | Limit | Key | Window |
-|---|---|---|---|
-| `POST /offers` (daily quota, not a rate limit) | guest 1, `free` 3, `unlimited` none | user, else guest cookie | IST calendar day |
-| `GET /offers/:id` (polling) | 60 | IP | 1 minute |
-| `GET /offers/:id/analysis` | 30 | IP | 1 minute |
-| `DELETE /offers/:id` | 10 | IP | 1 minute |
-| `GET /offers/:id/report` | 10 | IP | 1 minute |
-| `GET /metadata/*` | 30 | IP | 1 minute |
-| `POST /feature-requests` | 5 | fingerprint | 1 hour |
-| `POST /feature-requests/:id/vote` | 30 | IP | 1 minute |
-| Global fallback | 100 | IP | 1 minute |
+| Endpoint | Limit | Window |
+|---|---|---|
+| `POST /offers` (daily quota, not a rate limit) | guest 1, `free` 3, `unlimited` none | IST calendar day |
+| `POST /auth/signup` | 5 | 1 hour |
+| `POST /auth/login`, per browser cookie (per client IP when the request has no cookie) | 10 | 15 minutes |
+| `POST /auth/login`, per client IP (any cookie) | 30 | 15 minutes |
+| `POST /auth/login`, per email address (normalised, any browser or IP) | 10 | 15 minutes |
+| `POST /auth/google` (per browser cookie only; no email limit) | 10 | 15 minutes |
+| `POST /offers/extract` | 20 | 1 hour |
+| `POST /offers/extract-file` | 10 | 1 hour |
+| `POST /offers/:id/negotiate` | 10 | 1 hour |
+| `POST /offers/compare` | 20 | 1 hour |
+| `POST /offers/:id/benefits` | 60 | 1 hour |
+| `GET /account/export` | 5 | 1 hour |
+| `GET /salaries/stats` | 30 | 1 minute |
+| Every other route (offer polling, analysis, report, delete, metadata, forum, feature requests, `/auth/refresh`, `/health`, ...) | 100 | 1 minute |
+
+Each row is its own bucket per caller, and a route with its own limit does not also count against the global 100/min.
+
+**Who is counted.** A signed-in user is counted by account, so clearing cookies or switching device does not reset the budget.
+Anyone else is counted by their signed `ol_guest` cookie (one bucket per browser, not per network). A request that arrives
+without a valid cookie is counted by client IP instead, so a script that drops cookies cannot get a fresh budget per request.
+Behind a reverse proxy, cookie-less clients are counted by the proxy address unless Fastify `trustProxy` is set (see DEPLOYMENT.md).
+
+**Login has three limits, all on `POST /auth/login`.** They are separate buckets and any one can answer 429.
+- The per-email limit counts attempts since the last successful login for that address (a success clears it). The address is
+  trimmed, lower-cased and hashed (sha256) before it reaches Redis or a log; the raw address is never stored or logged.
+  It treats an unregistered address exactly like a registered one, and the 429 is the same body for every address and for
+  all three limits, so it does not reveal whether an account exists. (`POST /auth/signup` still answers 409 for an existing
+  address; that is separate and unchanged.)
+- `POST /auth/google` has no email in its body, so only the per-cookie limit applies to it.
+- A 400 (invalid body) spends neither the per-IP nor the per-email limit. A request stopped by one limit does not spend the next.
+- A legitimate login still works from another browser and IP while one address, cookie or IP is locked.
+- Accepted trade-offs: people behind one shared network share the 30-per-IP allowance, and anyone can lock another person's
+  login by failing 10 times against their email (even the right password gets 429 until the 15-minute window ends). The lock is
+  on this route only, never on the account, Google login or an issued token.
+
+**What a rate-limit 429 looks like.** `{ "success": false, "error": { "code": "RATE_LIMIT_EXCEEDED", "message": "..." } }` with
+`Retry-After`, `X-RateLimit-Limit`, `X-RateLimit-Remaining` (0) and `X-RateLimit-Reset`. It is a short-window "slow down" and is
+different from the daily quota 429s (`UPLOAD_LIMIT_EXCEEDED`, `QUOTA_EXCEEDED`), which carry `details` and reset at 00:00 IST.
 
 ---
 

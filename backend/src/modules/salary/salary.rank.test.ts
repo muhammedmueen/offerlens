@@ -42,8 +42,8 @@ describe('percentileRank', () => {
     });
 
     it('keeps the sample floor at a documented single constant', () => {
-        // Guards against the threshold drifting back into scattered literals. Raising it
-        // to 10 (Phase 4) should be a one-line change.
-        expect(MIN_SAMPLE_SIZE).toBe(5);
+        // Guards against the threshold drifting back into scattered literals. 10 since
+        // Phase 5 (Stage 2a of the plan); defined in salary.stats.ts and re-exported here.
+        expect(MIN_SAMPLE_SIZE).toBe(10);
     });
 });
