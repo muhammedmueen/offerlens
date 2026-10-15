@@ -17,27 +17,48 @@ const getStepIndex = (status: string) => {
   return -1;
 };
 
+// Analyses can take ~3 min (gemini-3.5-flash). Give up a bit past that so a genuinely slow
+// run still finishes, but a wedged poll does not spin forever.
+const MAX_POLL_SECONDS = 300; // 5 min
+
 const ProcessingPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [elapsed, setElapsed] = useState(0);
+  const [gaveUp, setGaveUp] = useState(false);
 
   const { data, error, refetch } = useQuery({
     queryKey: ["offer-status", id],
     queryFn: () => api.get(ENDPOINTS.OFFER(id!)).then((r) => r.data.data),
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      // Stop polling if status is COMPLETED or FAILED
+      // Stop on a terminal state…
       if (status === OFFER_STATUS.COMPLETED || status === OFFER_STATUS.FAILED) {
+        return false;
+      }
+      // …and stop on an errored poll. query.state.data is undefined on error, so the status
+      // check above can never catch it — without this the 3s interval reschedules forever.
+      if (query.state.status === "error") {
         return false;
       }
       return POLLING_INTERVAL_MS;
     },
-    enabled: !!id,
+    // This poll owns its cadence: a failed tick must wait for the next interval, not refire
+    // ~1s later via the global retry:1 (which, with the old undefined-blind predicate, is what
+    // produced the request storm). Scoped here so other pages keep the global default.
+    retry: false,
+    // Hard cap: once we've given up, the query is disabled so no further ticks fire.
+    enabled: !!id && !gaveUp,
   });
 
   useEffect(() => {
-    const t = setInterval(() => setElapsed((p) => p + 1), 1000);
+    const t = setInterval(() => {
+      setElapsed((p) => {
+        const next = p + 1;
+        if (next >= MAX_POLL_SECONDS) setGaveUp(true);
+        return next;
+      });
+    }, 1000);
     return () => clearInterval(t);
   }, []);
 
@@ -157,9 +178,9 @@ const ProcessingPage = () => {
           })}
         </div>
 
-        <p className="text-sm text-muted-foreground">
-          {elapsed > 300
-            ? "Something went wrong."
+        <p className="text-sm text-muted-foreground" role="status" aria-live="polite">
+          {gaveUp
+            ? "This is taking longer than expected — your analysis may still be processing. Refresh in a minute, or check your dashboard."
             : elapsed > 60
             ? "Still working on it. We'll keep trying."
             : elapsed > 30
@@ -167,13 +188,13 @@ const ProcessingPage = () => {
             : "Usually takes 15–30 seconds"}
         </p>
 
-        {elapsed > 300 && (
+        {gaveUp && (
           <div className="mt-4 flex gap-2">
-            <Button variant="outline" onClick={() => navigate("/upload")} className="cursor-pointer rounded-xl skeu-emboss">
-              Try Again
+            <Button variant="outline" onClick={() => navigate("/dashboard")} className="cursor-pointer rounded-xl skeu-emboss">
+              Go to Dashboard
             </Button>
             <Button variant="outline" onClick={() => navigate("/upload")} className="cursor-pointer rounded-xl skeu-emboss">
-              Paste Text Manually
+              Try Again
             </Button>
           </div>
         )}

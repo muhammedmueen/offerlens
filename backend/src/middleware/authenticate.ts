@@ -6,6 +6,9 @@ declare module 'fastify' {
         userId?: string;
         userEmail?: string;
         isAuthenticated: boolean;
+        // A Bearer token was present but failed verification (expired/invalid). Distinguishes
+        // "bad credentials" (-> 401 so the client refreshes) from "no credentials" (true guest).
+        tokenInvalid?: boolean;
     }
 }
 
@@ -18,6 +21,7 @@ const authService = new AuthService();
  */
 export const authenticate = async (request: FastifyRequest, _reply: FastifyReply) => {
     request.isAuthenticated = false;
+    request.tokenInvalid = false;
 
     const authHeader = request.headers.authorization;
     if (!authHeader?.startsWith('Bearer ')) return;
@@ -31,8 +35,10 @@ export const authenticate = async (request: FastifyRequest, _reply: FastifyReply
         request.userEmail = payload.email;
         request.isAuthenticated = true;
     } catch {
-        // Token invalid/expired — treat as guest
-        // Don't throw; let routes decide if auth is required
+        // A Bearer token was present but invalid/expired. Flag it so requireRegistered can
+        // return 401 (which the frontend interceptor refreshes) rather than 403 GUEST_RESTRICTED.
+        // Still don't throw: a request with NO token stays a true guest (ADR-001).
+        request.tokenInvalid = true;
     }
 };
 
@@ -61,13 +67,26 @@ export const requireAuth = async (request: FastifyRequest, reply: FastifyReply) 
 export const requireRegistered = async (request: FastifyRequest, reply: FastifyReply) => {
     await authenticate(request, reply);
 
-    if (!request.isAuthenticated) {
-        return reply.status(403).send({
+    if (request.isAuthenticated) return;
+
+    // Present-but-invalid/expired token -> 401 so the client's refresh interceptor fires and
+    // retries. No token at all -> 403 GUEST_RESTRICTED (a true guest hitting a members-only
+    // feature). 403 must NOT trigger a refresh loop, so the distinction matters.
+    if (request.tokenInvalid) {
+        return reply.status(401).send({
             success: false,
             error: {
-                code: 'GUEST_RESTRICTED',
-                message: 'Create a free account to access this feature',
+                code: 'TOKEN_EXPIRED',
+                message: 'Access token expired or invalid',
             },
         });
     }
+
+    return reply.status(403).send({
+        success: false,
+        error: {
+            code: 'GUEST_RESTRICTED',
+            message: 'Create a free account to access this feature',
+        },
+    });
 };
