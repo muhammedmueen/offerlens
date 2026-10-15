@@ -270,7 +270,7 @@ const UploadPage = () => {
 
   const validateFile = useCallback((f: File) => {
     if (!ACCEPTED_FILE_TYPES.includes(f.type)) {
-      setFileError("Please upload a PDF or image (JPG, PNG, WebP)");
+      setFileError("Please upload a PDF or image (JPG, PNG)");
       return false;
     }
     if (f.size > MAX_FILE_SIZE_BYTES) {
@@ -339,11 +339,11 @@ const UploadPage = () => {
                 <>
                   <Upload className="h-10 w-10 text-muted-foreground" />
                   <p className="font-medium text-foreground">Drop your offer letter here</p>
-                  <p className="text-xs text-muted-foreground">PDF, JPG, PNG, WebP — up to 10MB</p>
+                  <p className="text-xs text-muted-foreground">PDF, JPG, PNG — up to 10MB</p>
                 </>
               )}
             </motion.div>
-            <input ref={fileInputRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" onChange={handleFileSelect} className="hidden" />
+            <input ref={fileInputRef} type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={handleFileSelect} className="hidden" />
             {fileError && (
               <p role="alert" className="mt-2 flex items-center gap-1 text-sm text-destructive">
                 <AlertCircle className="h-4 w-4" aria-hidden="true" /> {fileError}

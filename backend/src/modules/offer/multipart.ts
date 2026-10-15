@@ -65,7 +65,7 @@ export function readUploadedFile(body: unknown): UploadedFile | null {
         // someone holding a .docx and reflects nothing.
         throw new AppError(
             ERROR_CODES.VALIDATION_ERROR,
-            'Unsupported file type. Upload a PDF, JPEG, PNG, WebP or plain text file.',
+            'Unsupported file type. Upload a PDF, JPEG, PNG or plain text file.',
             400,
         );
     }

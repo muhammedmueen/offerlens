@@ -170,6 +170,48 @@ describe('meterOcr', () => {
             expect(result).toEqual(okResult);
             expect(rows[0]).toMatchObject({ provider: 'google-vision', success: true, units: 1 });
         });
+
+        it('does NOT throw OCR_UNAVAILABLE for a configured azure provider in production', async () => {
+            configState.NODE_ENV = 'production';
+            const { meterOcr } = await load();
+            const rows: NewUsageLedgerRow[] = [];
+            const result = await meterOcr(
+                fakeOcr('azure-doc-intelligence', async () => okResult),
+                '/tmp/scan.pdf', { offerId: 'o1' }, async (r) => { rows.push(r); },
+            );
+            // A real (non-mock) provider is accepted: images AND scanned PDFs now work.
+            expect(result).toEqual(okResult);
+            expect(rows[0]).toMatchObject({
+                provider: 'azure-doc-intelligence', billedTo: 'platform', success: true,
+            });
+        });
+    });
+
+    describe('azure per-page billing', () => {
+        it('bills units=pageCount at the per-page rate when pages are reported', async () => {
+            const { meterOcr } = await load();
+            const { AZURE_READ_USD_PER_PAGE } = await import('@/providers/ai/usage.js');
+            const rows: NewUsageLedgerRow[] = [];
+            await meterOcr(
+                fakeOcr('azure-doc-intelligence', async () => ({ text: 'x', confidence: 0.9, pages: 3 })),
+                '/tmp/scan.pdf', { offerId: 'o1' }, async (r) => { rows.push(r); },
+            );
+            expect(rows[0]).toMatchObject({
+                provider: 'azure-doc-intelligence', model: 'prebuilt-read', billedTo: 'platform',
+                units: 3, costUsd: Number((3 * AZURE_READ_USD_PER_PAGE).toFixed(6)), success: true,
+            });
+        });
+
+        it('falls back to one unit when no page count is reported', async () => {
+            const { meterOcr } = await load();
+            const { AZURE_READ_USD_PER_PAGE } = await import('@/providers/ai/usage.js');
+            const rows: NewUsageLedgerRow[] = [];
+            await meterOcr(
+                fakeOcr('azure-doc-intelligence', async () => ({ text: 'x', confidence: null })),
+                '/tmp/scan.png', { offerId: 'o1' }, async (r) => { rows.push(r); },
+            );
+            expect(rows[0]).toMatchObject({ units: 1, costUsd: AZURE_READ_USD_PER_PAGE });
+        });
     });
 });
 

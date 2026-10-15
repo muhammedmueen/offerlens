@@ -14,6 +14,23 @@ export const envSchema = z.object({
     GOOGLE_CLOUD_CREDENTIALS: z.string().optional(),
 
     /**
+     * Which provider serves OCR (images and scanned PDFs).
+     *
+     * Defaults to `mock`, so local/dev and the test suite behave exactly as before without any
+     * credentials. In production the mock is refused by the `OCR_UNAVAILABLE` guard, so a real
+     * provider must be configured for image/scanned-PDF uploads to work:
+     *   - `azure` needs AZURE_DOC_INTELLIGENCE_ENDPOINT + _KEY. Accepts images AND scanned PDFs.
+     *   - `google` needs GOOGLE_CLOUD_CREDENTIALS. Images only — Vision rejects PDFs.
+     * If the named provider's credentials are missing, the factory falls back to the mock with a
+     * loud warning (so production still refuses rather than fabricating OCR text).
+     */
+    OCR_PROVIDER: z.enum(['mock', 'google', 'azure']).default('mock'),
+    /** Azure AI Document Intelligence endpoint, e.g. https://<name>.cognitiveservices.azure.com */
+    AZURE_DOC_INTELLIGENCE_ENDPOINT: z.string().url().optional(),
+    /** Azure AI Document Intelligence API key. Secret — set only in .env.production, never commit. */
+    AZURE_DOC_INTELLIGENCE_KEY: z.string().optional(),
+
+    /**
      * Which provider serves AI calls by default.
      *
      * Gemini stays the default because it is the one with a usable free tier, which is what

@@ -144,6 +144,17 @@ export function modelVendor(model: string): AiProviderName | null {
  */
 export const VISION_TEXT_DETECTION_USD_PER_IMAGE = 0.0015;
 
+/**
+ * USD per page for Azure AI Document Intelligence `prebuilt-read`.
+ *
+ * ponytail: list-price estimate. Read is ≈ $1.50 per 1,000 pages for the first 1M pages/month
+ * (https://azure.microsoft.com/en-in/pricing/details/document-intelligence/), i.e. $0.0015/page.
+ * Unlike Vision (billed per image), Azure bills per PAGE, so a multi-page scan costs
+ * `pageCount × this`. It ignores the cheaper >1M tier, which this app never reaches. Upgrade
+ * path: read actual spend from the Azure Cost Management export rather than this table.
+ */
+export const AZURE_READ_USD_PER_PAGE = 0.0015;
+
 export function estimateCostUsd(model: string, inputTokens: number, outputTokens: number): number | null {
     const price = priceFor(model);
     if (!price) return null;

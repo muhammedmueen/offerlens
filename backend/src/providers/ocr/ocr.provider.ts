@@ -10,10 +10,17 @@ export interface OcrResult {
      * bad rather than as a passing grade.
      */
     confidence: number | null;
+    /**
+     * How many pages the provider processed, when it reports one. Optional and advisory: it
+     * exists only so the usage ledger can bill per page for providers that charge that way
+     * (Azure Read). Providers that bill per image/request (Google Vision, the mock) leave it
+     * undefined, and the ledger falls back to one unit.
+     */
+    pages?: number;
 }
 
 export interface OcrProvider {
-    /** Which backend this is, so the usage ledger can price and attribute a Vision call. */
-    readonly name: 'google-vision' | 'mock';
+    /** Which backend this is, so the usage ledger can price and attribute an OCR call. */
+    readonly name: 'google-vision' | 'azure-doc-intelligence' | 'mock';
     extractText(filePath: string): Promise<OcrResult>;
 }

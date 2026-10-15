@@ -2,6 +2,7 @@ import { db } from '@/db/index.js';
 import { usageLedger, type NewUsageLedgerRow } from '@/db/schema/usage-ledger.js';
 import {
     recordSafely,
+    AZURE_READ_USD_PER_PAGE,
     VISION_TEXT_DETECTION_USD_PER_IMAGE,
     type BilledTo,
     type UsageContext,
@@ -92,7 +93,8 @@ export async function meterOcr(
     const base = {
         purpose: 'ocr' as const,
         provider: ocr.name,
-        model: 'text-detection',
+        // Model string per provider so the ledger names what actually ran, not Vision's endpoint.
+        model: ocr.name === 'azure-doc-intelligence' ? 'prebuilt-read' : 'text-detection',
         inputTokens: 0,
         outputTokens: 0,
         thinkingTokens: 0,
@@ -100,10 +102,26 @@ export async function meterOcr(
 
     try {
         const result = await ocr.extractText(filePath);
+        // Billing unit differs by provider. Vision bills per image (one unit); Azure Read bills
+        // per PAGE, so a multi-page scan is `pages` units at the per-page rate; the mock has no
+        // real spend. `null` cost, never a fabricated number, when the provider has no price.
+        //
+        // ponytail: `result.pages` is the page count the provider reported; when a provider does
+        // not report one (missing field, older response shape) we fall back to one unit. That
+        // slightly under-counts a multi-page scan with an absent page count — upgrade path is to
+        // reconcile against the Azure Cost Management export rather than trusting this field.
+        let units = 1;
+        let costUsd: number | null = null;
+        if (ocr.name === 'google-vision') {
+            costUsd = VISION_TEXT_DETECTION_USD_PER_IMAGE;
+        } else if (ocr.name === 'azure-doc-intelligence') {
+            units = result.pages && result.pages > 0 ? result.pages : 1;
+            costUsd = Number((units * AZURE_READ_USD_PER_PAGE).toFixed(6));
+        }
         await recordSafely(recorder, {
             ...base,
-            units: 1,
-            costUsd: ocr.name === 'google-vision' ? VISION_TEXT_DETECTION_USD_PER_IMAGE : null,
+            units,
+            costUsd,
             success: true,
             errorCode: null,
         });
@@ -112,7 +130,7 @@ export async function meterOcr(
         await recordSafely(recorder, {
             ...base,
             units: 0,
-            costUsd: ocr.name === 'google-vision' ? 0 : null,
+            costUsd: ocr.name === 'mock' ? null : 0,
             success: false,
             errorCode: 'provider_error',
         });

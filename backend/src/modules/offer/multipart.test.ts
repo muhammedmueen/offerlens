@@ -47,8 +47,20 @@ describe('readUploadedFile', () => {
     });
 
     it('accepts every supported type', () => {
-        for (const mime of ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'text/plain']) {
+        for (const mime of ['application/pdf', 'image/jpeg', 'image/png', 'text/plain']) {
             expect(readUploadedFile({ f: filePart(mime) }), mime).not.toBeNull();
+        }
+    });
+
+    it('rejects webp now that it is no longer accepted (task 6.4 — Azure Read has no webp)', () => {
+        // Dropped from SUPPORTED_FILE_TYPES: Azure Read does not accept webp and we do not
+        // convert it, so it is rejected at the door rather than failing later at the provider.
+        try {
+            readUploadedFile({ f: filePart('image/webp') });
+            expect.unreachable('should have thrown');
+        } catch (err) {
+            expect(err).toBeInstanceOf(AppError);
+            expect((err as AppError).statusCode).toBe(400);
         }
     });
 

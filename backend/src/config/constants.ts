@@ -1,8 +1,10 @@
+// image/webp was dropped in task 6.4: Azure AI Document Intelligence Read does not accept webp
+// (pdf, tiff, jpeg, png, bmp, heif only), and we do not convert it. Stop accepting it at the door
+// so the API and UI agree rather than letting a webp reach the provider and be rejected there.
 export const SUPPORTED_FILE_TYPES = [
     'application/pdf',
     'image/jpeg',
     'image/png',
-    'image/webp',
     'text/plain',
 ] as const;
 
