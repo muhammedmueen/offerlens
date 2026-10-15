@@ -8,8 +8,9 @@ your own machine, see `LOCAL_DEVELOPMENT.md`.
 > commands for that one box (host nginx one origin, loopback-only Docker ports, SSH-tunnel
 > migrations, the `deploy/` artifacts). This file stays the general "what the app needs"
 > reference. Two behaviours it relies on: set **`TRUST_PROXY=1`** (section 7) behind the single
-> host nginx, and in production image/scanned-document OCR without a real Vision key is refused
-> with `400 OCR_UNAVAILABLE` rather than returning canned text (section 5, "Honest OCR").
+> host nginx, and in production image/scanned-document OCR without a real provider is refused
+> with `400 OCR_UNAVAILABLE` rather than returning canned text (section 5, "Honest OCR"). Set
+> `OCR_PROVIDER=azure` (+ the two Azure vars) to enable images and scanned PDFs.
 
 The app is three things that must all be running:
 
@@ -72,7 +73,10 @@ the file to Docker with `--env-file`, it overrides the image's own `NODE_ENV=pro
 | `ANTHROPIC_API_KEY` | see above | none | optional | |
 | `GEMINI_MODEL`, `OPENAI_MODEL`, `ANTHROPIC_MODEL` | no | built-in per-task defaults | optional | Leave blank. The OpenAI and Anthropic ids are unverified against live keys |
 | `ALLOW_AI_REQUEST_OVERRIDE` | no | off | `z.coerce.boolean()` | **Leave unset.** Any non-empty value, including `false` and `0`, parses as true. Production ignores it anyway |
-| `GOOGLE_CLOUD_CREDENTIALS` | no | none | path | Service-account JSON for Cloud Vision. Unset means mock OCR. The file must exist in **both** the API and workers (a missing file crashes the worker). Relative paths resolve from the process cwd. Not `GOOGLE_APPLICATION_CREDENTIALS` |
+| `OCR_PROVIDER` | no | `mock` | `mock` / `google` / `azure` | Which provider serves OCR. `mock` is refused in production (`OCR_UNAVAILABLE`). `azure` reads images **and** scanned PDFs; `google` reads images only. See section 5 |
+| `AZURE_DOC_INTELLIGENCE_ENDPOINT` | with `OCR_PROVIDER=azure` | none | url | Document Intelligence endpoint, e.g. `https://<name>.cognitiveservices.azure.com`. Encodes the region (Central India) |
+| `AZURE_DOC_INTELLIGENCE_KEY` | with `OCR_PROVIDER=azure` | none | string | API key. **Secret** — set only in `.env.production` (chmod 600), never commit. Needed by **both** the API and workers |
+| `GOOGLE_CLOUD_CREDENTIALS` | with `OCR_PROVIDER=google` | none | path | Service-account JSON for Cloud Vision (images only). The file must exist in **both** the API and workers (a missing file crashes the worker). Relative paths resolve from the process cwd. Not `GOOGLE_APPLICATION_CREDENTIALS` |
 | `GOOGLE_CLIENT_ID` | no | none | optional | Enables "Sign in with Google" (audience check); without it `/auth/google` returns 503. Same client as the frontend `VITE_GOOGLE_CLIENT_ID` |
 | `GOOGLE_CLIENT_SECRET` | no | none | optional | Declared in the schema but **unused**: nothing reads it |
 | `STORAGE_PATH` | no | `./uploads` | string | Shared between API and workers |
@@ -133,7 +137,7 @@ Do these in order. Steps 2 to 8 run from a checkout; step 9 can instead use the 
 | API | `Server listening at ...` | Up |
 | API | `Redis connected` | Redis reachable |
 | API | `AI provider initialised` with the intended provider | Provider chosen |
-| API | `Using Google Cloud Vision OCR Provider` | Real OCR. `Using Mock OCR Provider` means `GOOGLE_CLOUD_CREDENTIALS` is unset |
+| API | `OCR provider initialised` with the intended provider name | Real OCR. `Using Mock OCR Provider` means `OCR_PROVIDER=mock` or the named provider's credentials are missing — image/scanned OCR is refused in production |
 | Workers | `Workers started...` | Up |
 | Either | `[AI] No API key for "..."` followed by `using MockAiProvider` | **Must NOT appear in production.** Every analysis would be canned sample data. Set the key for your `AI_PROVIDER` |
 
@@ -160,7 +164,7 @@ docker run -d --name offerlens-workers \
 
 - `DATABASE_URL` and `REDIS_URL` must name hosts reachable from inside the container; `localhost` is the container itself.
 - Use a named volume as above. A host bind mount such as `./uploads` may not be writable by the `node` user (untested here).
-- Mount `GOOGLE_CLOUD_CREDENTIALS` into both containers if you use real OCR.
+- For `OCR_PROVIDER=azure`, pass `AZURE_DOC_INTELLIGENCE_ENDPOINT`/`_KEY` to both containers (env vars, no file mount needed). For `OCR_PROVIDER=google`, mount `GOOGLE_CLOUD_CREDENTIALS` into both.
 - The image has only `dist/`, production `node_modules` and `package.json`. Steps 5 to 8 of the checklist still run from a checkout.
 
 ### Option B: PM2
@@ -196,8 +200,12 @@ docker compose up -d
 - Serve both the frontend and the API over HTTPS. A `Secure` cookie is not stored over plain HTTP.
 - The frontend and API must be **same-site** (for example `app.example.com` and `api.example.com`). On genuinely different registrable domains the browser will not send the cookie and guests break. Supporting that needs `sameSite: 'none'` in `middleware/guest-identifier.ts` (a code change, noted there).
 - CORS allows exactly one origin, `CORS_ORIGIN`, with credentials. It must equal the site origin the browser sees. Allowed methods: `GET, POST, PUT, PATCH, DELETE, OPTIONS`.
-- Cloud Vision (images) needs billing enabled on the GCP project, otherwise every image upload fails with "OCR extraction failed". Pasted text, `.txt` and PDFs with a text layer never call it.
-- **Honest OCR without a real provider.** When `GOOGLE_CLOUD_CREDENTIALS` is unset the OCR provider is the mock, which returns canned fixture text. In **production** an image or scanned-document OCR request is now refused with a `400 OCR_UNAVAILABLE` ("Image uploads are not available on this deployment. Paste the text or upload a PDF with selectable text.") instead of a fabricated analysis — both on the synchronous `POST /offers/extract-file` route and inside the OCR worker (where it fails the offer with the same message and refunds the quota). Pasted text and text-layer PDFs are unaffected. Development and test keep the mock. The frontend upload page maps this code to a friendly inline notice. To accept image uploads in production, set `GOOGLE_CLOUD_CREDENTIALS` to a key with Vision billing enabled.
+- **OCR provider is chosen by `OCR_PROVIDER`** (`mock` | `google` | `azure`, default `mock`). Pasted text, `.txt` and text-layer PDFs never call OCR at all.
+  - **`azure` (recommended, task 6.4).** Azure AI Document Intelligence `prebuilt-read` reads images **and scanned PDFs** in one integration (Cloud Vision rejects PDFs). Set `OCR_PROVIDER=azure` plus `AZURE_DOC_INTELLIGENCE_ENDPOINT` and `AZURE_DOC_INTELLIGENCE_KEY`. Deploy decisions: **S0** pay-as-you-go tier (no F0 2-page cap), region **Central India** (the endpoint URL encodes the region, so submitted documents stay in-region), and a **budget alert** set in the Azure portal (Cost Management → Budgets) since S0 has no hard spend cutoff. The key is a secret: keep it only in `.env.production` (chmod 600), never in git. Billing is per **page** (~$0.0015/page).
+  - **`google`.** Cloud Vision, images only; needs `GOOGLE_CLOUD_CREDENTIALS` and Vision billing enabled, otherwise image uploads fail with "OCR extraction failed".
+  - **Privacy / data egress.** With a real provider, uploaded offer letters (names, employers, salaries) are sent to that third party for recognition. Azure Read **transiently stores** the document + result in regional Azure Storage to run the async job, then returns the result; Central India keeps that copy in-region. This is new third-party egress (Cloud Vision implied the same). The app deletes its own **local** temp file after extraction; Azure's transient copy is Microsoft's and is removed per their retention policy. If UI copy ever promises the file is deleted, word it to mean the local temp file only.
+- **Honest OCR without a real provider.** With `OCR_PROVIDER=mock` (or a real provider named but its credentials missing — the factory falls back to the mock with a loud warning), the OCR provider returns canned fixture text. In **production** an image or scanned-document OCR request is refused with a `400 OCR_UNAVAILABLE` ("Image uploads are not available on this deployment. Paste the text or upload a PDF with selectable text.") instead of a fabricated analysis — both on the synchronous `POST /offers/extract-file` route and inside the OCR worker (where it fails the offer with the same message and refunds the quota). Pasted text and text-layer PDFs are unaffected. Development and test keep the mock. The frontend upload page maps this code to a friendly inline notice. To accept images **and** scanned PDFs in production, set `OCR_PROVIDER=azure` with the two Azure vars.
+- **Accepted upload types:** PDF, JPEG, PNG, plain text. `image/webp` was dropped (task 6.4) because Azure Read does not accept it.
 - **Open item: AI provider falls back to the mock silently.** Unlike OCR, a missing key for the selected `AI_PROVIDER` still falls back to `MockAiProvider` with only a console warning (`ai.factory.ts`), so analyses are canned sample data rather than refused. There is no production guard on this. Confirm the logs do **not** contain `using MockAiProvider` (see the log-lines table in section 3) and set the key for your `AI_PROVIDER`.
 
 ---

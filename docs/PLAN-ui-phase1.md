@@ -87,7 +87,7 @@ flowchart TB
 
 #### Step 1: File Upload
 - Drag-and-drop zone with file picker fallback
-- Accepted formats: PDF, JPG, PNG, WebP (≤ 10MB)
+- Accepted formats: PDF, JPG, PNG (≤ 10MB)
 - *OR* text paste area: "Don't have a file? Paste your offer text"
 - File preview thumbnail after selection
 
@@ -107,7 +107,7 @@ flowchart TB
 **Error States**:
 | Scenario | UI |
 |---|---|
-| Invalid file type | Inline error: "Please upload a PDF or image (JPG, PNG, WebP)" |
+| Invalid file type | Inline error: "Please upload a PDF or image (JPG, PNG)" |
 | File too large | Inline error: "File must be under 10MB" |
 | Guest rate limited (3/day) | Upload disabled + banner: "You've used all 3 free analyses today. [Create Free Account] for unlimited." |
 | Network error | Toast: "Upload failed. Please check your connection and try again." |

@@ -47,7 +47,7 @@ All responses follow a consistent envelope:
 
 | Code | HTTP | When |
 |---|---|---|
-| `INVALID_FILE_TYPE` | 400 | Upload is not PDF/JPG/PNG/WebP |
+| `INVALID_FILE_TYPE` | 400 | Upload is not PDF/JPG/PNG |
 | `FILE_TOO_LARGE` | 400 | File exceeds 10MB |
 | `VALIDATION_ERROR` | 400 | Request body fails Zod validation |
 | `INVALID_INPUT` | 400 | Malformed request (bad UUID, etc.) |
@@ -132,7 +132,7 @@ Upload an offer letter for analysis. Accepts multipart/form-data.
 
 | Field | Type | Required | Constraints |
 |---|---|---|---|
-| `file` | File | ✅ | PDF, JPG, PNG, WebP. Max 10MB |
+| `file` | File | ✅ | PDF, JPG, PNG. Max 10MB |
 | `role` | string | ❌ | Closest matching job role |
 | `experienceYears` | number | ❌ | Years of experience (0-50) |
 | `city` | string | ❌ | City name |
@@ -158,7 +158,7 @@ Upload an offer letter for analysis. Accepts multipart/form-data.
 
 | Scenario | Code | Response |
 |---|---|---|
-| Wrong file type | 400 | `{ code: "INVALID_FILE_TYPE", message: "Please upload a PDF or image (JPG, PNG, WebP)" }` |
+| Wrong file type | 400 | `{ code: "INVALID_FILE_TYPE", message: "Please upload a PDF or image (JPG, PNG)" }` |
 | File too large | 400 | `{ code: "FILE_TOO_LARGE", message: "File must be under 10MB" }` |
 | Daily analysis quota used | 429 | `UPLOAD_LIMIT_EXCEEDED`, example below |
 

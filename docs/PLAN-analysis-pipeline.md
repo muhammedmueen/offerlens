@@ -4390,3 +4390,70 @@ All P0/P1 findings in this document are therefore **pre-production defects with 
 | # | Question | Blocks |
 |---|----------|--------|
 | 12 | ~~**Public salary dataset choice** — which source, and is its licence compatible with commercial use?~~ **Resolved 2026-10-11 (5.1 decision):** Stack Overflow Developer Survey 2025 (ODbL) for Phase A, PLFS for Phase B | Task 5.1 — gates all of Phase 5 |
+
+---
+
+#### Task 6.4 outcome — Azure AI Document Intelligence OCR (`backend/src/providers/ocr/azure-doc-intelligence.ocr.ts`)
+
+**What was built.** A second real OCR provider behind the existing `OcrProvider` seam, selected by
+a new `OCR_PROVIDER` env (`mock` | `google` | `azure`, default `mock`). `AzureDocumentIntelligenceOcrProvider`
+builds the `@azure-rest/ai-document-intelligence` REST client (pinned exactly at **1.1.0**) from an
+endpoint + key, reads the temp file as base64, POSTs to `prebuilt-read`, polls the long-running
+operation with a bounded 110s timeout, and maps the result to `{ text, confidence, pages }`. A small
+`createOcrProvider()` factory (mirroring `ai.factory.ts`) replaced the duplicated selection ternary in
+both `plugins/providers.ts` and `workers/ocr.worker.ts`. All Azure SDK types stay confined to the one
+provider file, so the rest of the app still sees only the `OcrProvider` contract.
+
+**This closes two items.** Unlike Cloud Vision's `textDetection` (an image endpoint that rejects PDFs),
+`prebuilt-read` accepts images **and scanned PDFs** in one call — so the scanned-PDF audit finding is
+fixed. And it resolves the **`OCR_UNAVAILABLE`** open item for configured deployments: once
+`OCR_PROVIDER=azure` is set with the two Azure vars, images and scanned PDFs are accepted; the guard
+remains the correct refusal when no real provider is configured.
+
+**Owner decisions (made, not reopened):** tier **S0** pay-as-you-go (funded by Azure startup credits;
+no F0 2-page cap, so multi-page scans are handled correctly); region **Central India** (the endpoint URL
+encodes it, so submitted documents stay in-region); **keep** the Google Vision provider behind the switch
+(not removed); **drop** `image/webp` from accepted upload types (Azure Read does not accept webp and we do
+not convert it); budget cap set by the owner in the Azure portal (nothing in code).
+
+**Confidence mapping, and why.** Azure Read reports confidence per **word** (`pages[].words[].confidence`),
+not one document figure, and the field is not guaranteed meaningful on every token. `deriveAzureConfidence`
+averages every *usable* per-word reading (finite, `0 < c <= 1`) across all pages into one figure comparable
+to `OCR_MIN_CONFIDENCE = 0.6`, and returns **`null`** — never a default number — when none are usable.
+This mirrors the Google provider's deliberate design exactly: `null` means "unknown", which the gate treats
+as neither pass nor fail. Substituting a default would reintroduce the `|| 0.85` bug that made the gate inert.
+
+**Per-page billing.** Vision billed per image; Azure Read bills per **page**. `meterOcr` now records
+`units = pageCount` at `AZURE_READ_USD_PER_PAGE` (~$0.0015/page) for an Azure call, falling back to one unit
+when the result reports no page count (marked with a `ponytail:` comment on the assumption). The mock stays
+`billedTo='mock'`, cost `null`; the one-row-per-call contract is unchanged.
+
+**Worker lock.** The async Azure poll can exceed BullMQ's 30s default lock, so the OCR worker gets an explicit
+`lockDuration: 120000` (set only on the OCR worker — the analysis worker has no such long synchronous wait).
+The provider's 110s poll timeout sits just under it, so a stuck LRO fails cleanly inside the lock.
+
+**Privacy / data egress.** Sending offer letters (names, employers, salaries) to Azure is new third-party
+egress — Cloud Vision implied the same, so it is not a regression. Azure Read **transiently stores** the
+document + result in regional Azure Storage to run the async job, then returns the result; Central India keeps
+that copy in-region. The app deletes its own **local** temp file after extraction (the provider only reads the
+path); Azure's transient copy is Microsoft's, removed per their retention. No product copy was changed; if any
+"we delete your file" wording is added later it must mean the local temp file only.
+
+**Verified with mocks (offline, no live Azure key):** the provider (single-page success, multi-page PDF text
+concatenation + one aggregated confidence, low-confidence still returned, no-usable-confidence → null, 429 →
+retryable classification, stuck LRO → clean timeout, generic error with no leaked Azure body), `deriveAzureConfidence`
+and `joinAzureText` unit tests, the `createOcrProvider` selection matrix (mock default; azure/google when
+env+creds; named-but-missing-creds → mock + warning), the guard (production + azure does NOT throw, production +
+mock still throws `OCR_UNAVAILABLE`, dev unchanged), webp now rejected by multipart validation, and the Azure
+ledger row (units/cost/provider/billedTo). The mock SDK is never a real network call. Backend `tsc`/eslint clean,
+frontend `tsc -p tsconfig.app.json`/eslint/build clean; regression scripts `test-security.mjs` 20/20,
+`test-m2.mjs` 32/0, `test-m3.mjs` 19/0.
+
+**Could NOT be verified without a live Azure key** — a real scanned PDF and a real photo end to end against a live
+S0 resource. The exact JSON field path for word confidence and whether a document-level confidence scalar is ever
+returned are from the SDK types/API reference, not an observed response. **Owner manual smoke checklist** (run once
+the S0 resource exists): create the Document Intelligence resource in Central India (S0); set `OCR_PROVIDER=azure`
++ `AZURE_DOC_INTELLIGENCE_ENDPOINT` + `AZURE_DOC_INTELLIGENCE_KEY` in `.env.production`; set a Cost Management budget
+alert; upload one scanned PDF and one JPG photo; confirm text is returned, pages concatenate, `ocrConfidence` is
+populated, latency from the India VPS is acceptable, and one ledger row per call is written with `provider='azure-doc-intelligence'`,
+`billedTo='platform'`, `units=pageCount`.

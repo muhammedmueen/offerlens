@@ -191,7 +191,7 @@ gantt
 
 > **Given** a user uploads an unsupported file type (e.g., `.exe`, `.zip`)
 > **When** the file is validated
-> **Then** a 400 error is returned: `{ code: "INVALID_FILE_TYPE", message: "Please upload a PDF or image (JPG, PNG, WebP)" }`
+> **Then** a 400 error is returned: `{ code: "INVALID_FILE_TYPE", message: "Please upload a PDF or image (JPG, PNG)" }`
 
 > **Given** a user uploads a corrupt or empty file
 > **When** OCR returns no text or errors

@@ -378,9 +378,14 @@ sudo nginx -t && sudo systemctl reload nginx
 - **Pending OS restart / 76 updates** on the server — the owner's call when to apply them.
 - **Old Cloud Vision key in git history** (plan follow-up F1). Issue a NEW key for this deploy;
   revoke the old one if rotation cannot be confirmed.
-- **Image uploads are OFF** until `GOOGLE_CLOUD_CREDENTIALS` points at a Vision key with billing.
-  In production, image/scanned OCR is refused with `400 OCR_UNAVAILABLE` (not fabricated output);
-  pasted text and text-layer PDFs work.
+- **Image + scanned-PDF uploads are OFF** until a real OCR provider is configured. Set
+  `OCR_PROVIDER=azure` plus `AZURE_DOC_INTELLIGENCE_ENDPOINT` and `AZURE_DOC_INTELLIGENCE_KEY`
+  (task 6.4): Azure AI Document Intelligence `prebuilt-read` reads images **and scanned PDFs** in
+  one integration. Deploy decisions: S0 tier, Central India region (data stays in-region), budget
+  alert set in the Azure portal; the key is a secret, in `.env.production` only. Until then,
+  production refuses image/scanned OCR with `400 OCR_UNAVAILABLE` (not fabricated output); pasted
+  text and text-layer PDFs work. `image/webp` is no longer an accepted upload type (Azure Read
+  does not accept it).
 - **AI mock fallback is silent.** A missing/invalid `GEMINI_API_KEY` falls back to canned
   analysis with only a log warning — there is no production guard. Confirm the logs do not say
   `using MockAiProvider`.
