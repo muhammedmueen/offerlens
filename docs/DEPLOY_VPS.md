@@ -46,6 +46,11 @@ production. A `*** System restart required ***` is pending (the owner decides wh
 
 ## 2. Server prep  [server]
 
+> This runbook uses a non-root `deploy` user. If you log in as `root` or another user, either
+> create one (`sudo adduser deploy && sudo usermod -aG sudo deploy`, then set up SSH access and
+> copy the `scp` targets to `deploy@...`), or substitute your own username for `deploy` and
+> `deploy:deploy` throughout. Do not run the stack as root.
+
 Pre-flight, read-only first — confirm what you are joining before changing anything:
 
 ```bash
@@ -76,6 +81,40 @@ with `sudo`:
 sudo usermod -aG docker deploy      # then log out and back in
 # OR: leave the group alone and run every docker command below with `sudo`.
 ```
+
+---
+
+## 2b. Azure OCR resource (optional but recommended)  [laptop, browser]
+
+OCR (photographed letters and scanned PDFs) needs an Azure AI Document Intelligence resource.
+Skip this whole section to launch WITHOUT OCR: pasted text and text-layer PDFs still work, and
+image/scanned uploads return a clear `400 OCR_UNAVAILABLE` instead of fabricated text. You can add
+OCR later by setting the three env vars in step 4 and restarting the stack (step 5) — no rebuild.
+
+1. [portal.azure.com] **Create a resource** → search **Document Intelligence** (formerly Form
+   Recognizer) → **Create**.
+2. Fill the form:
+   - Subscription: the one with your startup credits.
+   - Resource group: create or reuse one, e.g. `offerlens`.
+   - Region: **Central India** (keeps document data in-region).
+   - Name: e.g. `offerlens-ocr` (becomes part of the endpoint URL).
+   - Pricing tier: **S0** (Standard). Not F0 — F0 reads only the first 2 pages of a PDF.
+3. **Review + create** → **Create**. Wait for deployment to finish, then **Go to resource**.
+4. In the resource, left menu → **Keys and Endpoint**. Copy:
+   - **Endpoint** (looks like `https://offerlens-ocr.cognitiveservices.azure.com/` or a
+     `...-centralindia...` form) → this is `AZURE_DOC_INTELLIGENCE_ENDPOINT`.
+   - **KEY 1** → this is `AZURE_DOC_INTELLIGENCE_KEY`. Treat it as a secret; it goes only into
+     `.env.production` on the server, never into git or chat.
+5. **Set a budget alert.** Portal → **Cost Management + Billing** → **Budgets** → **Add**: scope
+   the budget to the subscription or the `offerlens` resource group, amount e.g. **$10/month**, and
+   an alert at 80%. Read ≈ $1.50 per 1,000 pages, so a demo costs cents, but the alert is cheap
+   insurance. A credit-funded subscription also hard-stops when credits run out.
+
+> **Data egress note.** With OCR on, each uploaded image or scanned PDF is sent to Azure, which
+> transiently stores it in-region to run the async job, then returns the text. The app deletes its
+> own local copy right after extraction; Azure's transient copy is Microsoft's, per their retention
+> policy. This is new third-party data egress (Google Vision implied the same). Keep any UI copy
+> about file deletion accurate.
 
 ---
 
@@ -127,6 +166,11 @@ Edit `.env.production`:
 - `POSTGRES_PASSWORD` — the 24-byte value, AND paste the SAME value into the
   `__POSTGRES_PASSWORD__` slot inside `DATABASE_URL`.
 - `GEMINI_API_KEY` — the real Gemini key (OfferLens falls back to the mock without it).
+- **OCR (only if you did section 2b):** set `OCR_PROVIDER=azure`,
+  `AZURE_DOC_INTELLIGENCE_ENDPOINT=<the endpoint from 2b.4>` and
+  `AZURE_DOC_INTELLIGENCE_KEY=<KEY 1 from 2b.4>`. If you skipped 2b, leave `OCR_PROVIDER=mock`
+  (the shipped default) — image/scanned uploads then return `400 OCR_UNAVAILABLE`, which is the
+  intended "no OCR configured" behaviour, and nothing is fabricated.
 - Leave `CORS_ORIGIN=https://offerlens.mueens.tech`, `TRUST_PROXY=1`,
   `STORAGE_PATH=/app/uploads`, `NODE_ENV=production` as shipped.
 
