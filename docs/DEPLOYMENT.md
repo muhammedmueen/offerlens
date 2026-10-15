@@ -7,7 +7,9 @@ your own machine, see `LOCAL_DEVELOPMENT.md`.
 > runbook in [`DEPLOY_VPS.md`](DEPLOY_VPS.md) instead — it wraps this reference with the exact
 > commands for that one box (host nginx one origin, loopback-only Docker ports, SSH-tunnel
 > migrations, the `deploy/` artifacts). This file stays the general "what the app needs"
-> reference. Two behaviours it relies on: set **`TRUST_PROXY=1`** (section 7) behind the single
+> reference. For routine redeploys to that box, use the one-command scripts in
+> [`DEPLOY_VPS.md` §10.5 "Fast redeploy"](DEPLOY_VPS.md#105-fast-redeploy-one-command)
+> (`deploy/scripts/sync-and-deploy.ps1` from the laptop, or `deploy/scripts/deploy.sh` on the server). Two behaviours it relies on: set **`TRUST_PROXY=1`** (section 7) behind the single
 > host nginx, and in production image/scanned-document OCR without a real provider is refused
 > with `400 OCR_UNAVAILABLE` rather than returning canned text (section 5, "Honest OCR"). Set
 > `OCR_PROVIDER=azure` (+ the two Azure vars) to enable images and scanned PDFs.
