@@ -24,6 +24,63 @@ production. A `*** System restart required ***` is pending (the owner decides wh
 
 ---
 
+## 0. Prerequisites
+
+Have all of these ready before section 1. The step that needs each one is noted.
+
+### Accounts and access
+- [ ] **SSH access to the server as the `deploy` user** (key-based), and the ability to become
+      root or use `sudo` for nginx/certbot. Test: `ssh deploy@72.61.245.134` works. *(§2 on.)*
+- [ ] **Namecheap access** to the `mueens.tech` domain's DNS. Confirm the domain uses Namecheap's
+      own nameservers (BasicDNS); if DNS is delegated elsewhere, the A record goes there instead. *(§1.)*
+- [ ] **The private repo on the laptop**, this branch checked out, clean. *(§3, §6, §7.)*
+- [ ] **A Gemini API key** (Google AI Studio). Without it every analysis is canned. *(§4.)*
+- [ ] **An Azure account with the Document Intelligence resource created** — see §0.1 below. *(§4.)*
+
+### Tools on the laptop
+- [ ] **Node 22.13+** and npm (`node -v`). Used to run migrations and build the frontend. *(§6, §7.)*
+- [ ] **An SSH/scp client** (OpenSSH ships with Windows; `ssh`, `scp` on PATH). *(§3, §6, §7.)*
+- [ ] **The repo's backend deps installed** (`cd backend; npm ci`) before §6.
+- [ ] **`curl.exe`** for the smoke test (ships with Windows 10/11). *(§9.)*
+
+### Already on the server (verified during survey — confirm in §2, do not install)
+- Docker + Docker Compose v2, host nginx on 80/443, certbot. The `deploy` user and `/srv`, `/var/www`
+  write access. ~3.4 GB RAM free. You install **nothing** new on the host; OfferLens is all containers.
+
+### Decisions already made (for reference)
+- One origin `https://offerlens.mueens.tech`; OCR via Azure Document Intelligence **S0, Central India**;
+  Google OCR kept behind the switch but unused; `image/webp` not accepted; PLFS city factors and the
+  PLFS dataset folder wait on the MoSPI e-mail gate (national salary figures ship first).
+
+### 0.1 Create the Azure OCR resource  [laptop, Azure portal]
+
+OCR (photo and scanned-PDF uploads) needs this. Do it before §4 so you have the endpoint and key to
+paste. If you skip it, the site still works for pasted text and text-layer PDFs, and image/scanned
+uploads return a clear "not available" message until you set `OCR_PROVIDER=azure` later.
+
+1. Portal → **Create a resource** → search **Document Intelligence** (formerly "Form Recognizer") →
+   **Create**.
+2. Settings:
+   - **Subscription / Resource group:** your startup-credit subscription; a new resource group such
+     as `offerlens-rg` is fine.
+   - **Region: Central India** (keeps submitted documents in-region).
+   - **Name:** e.g. `offerlens-docintel`.
+   - **Pricing tier: Standard S0.** Not Free F0 — F0 only reads the first 2 pages of a PDF.
+3. **Review + create** → **Create**, then **Go to resource**.
+4. Left menu → **Keys and Endpoint**. Copy the **Endpoint** (looks like
+   `https://offerlens-docintel.cognitiveservices.azure.com/`) and **KEY 1**. These are
+   `AZURE_DOC_INTELLIGENCE_ENDPOINT` and `AZURE_DOC_INTELLIGENCE_KEY` in §4. Treat KEY 1 as a secret.
+5. Set a spend guard: portal → **Cost Management + Billing → Budgets → Add** a budget on the
+   subscription or `offerlens-rg` (e.g. $10/month) with an alert at 80%. A credit subscription also
+   stops when credits run out, which is a natural cap.
+
+> Privacy note: enabling OCR means offer letters are sent to Azure, which stores them transiently
+> in-region to run the job, then returns the text. This is new third-party data egress. Choosing
+> Central India keeps it in-region. If any UI copy promises the file is deleted, read it with this in
+> mind — the app deletes its own temp copy; Azure's transient copy follows Microsoft's retention.
+
+---
+
 ## 1. DNS on Namecheap  [laptop, browser]
 
 1. Namecheap → Domain List → `mueens.tech` → **Manage** → **Advanced DNS**.
@@ -45,11 +102,6 @@ production. A `*** System restart required ***` is pending (the owner decides wh
 ---
 
 ## 2. Server prep  [server]
-
-> This runbook uses a non-root `deploy` user. If you log in as `root` or another user, either
-> create one (`sudo adduser deploy && sudo usermod -aG sudo deploy`, then set up SSH access and
-> copy the `scp` targets to `deploy@...`), or substitute your own username for `deploy` and
-> `deploy:deploy` throughout. Do not run the stack as root.
 
 Pre-flight, read-only first — confirm what you are joining before changing anything:
 
@@ -81,40 +133,6 @@ with `sudo`:
 sudo usermod -aG docker deploy      # then log out and back in
 # OR: leave the group alone and run every docker command below with `sudo`.
 ```
-
----
-
-## 2b. Azure OCR resource (optional but recommended)  [laptop, browser]
-
-OCR (photographed letters and scanned PDFs) needs an Azure AI Document Intelligence resource.
-Skip this whole section to launch WITHOUT OCR: pasted text and text-layer PDFs still work, and
-image/scanned uploads return a clear `400 OCR_UNAVAILABLE` instead of fabricated text. You can add
-OCR later by setting the three env vars in step 4 and restarting the stack (step 5) — no rebuild.
-
-1. [portal.azure.com] **Create a resource** → search **Document Intelligence** (formerly Form
-   Recognizer) → **Create**.
-2. Fill the form:
-   - Subscription: the one with your startup credits.
-   - Resource group: create or reuse one, e.g. `offerlens`.
-   - Region: **Central India** (keeps document data in-region).
-   - Name: e.g. `offerlens-ocr` (becomes part of the endpoint URL).
-   - Pricing tier: **S0** (Standard). Not F0 — F0 reads only the first 2 pages of a PDF.
-3. **Review + create** → **Create**. Wait for deployment to finish, then **Go to resource**.
-4. In the resource, left menu → **Keys and Endpoint**. Copy:
-   - **Endpoint** (looks like `https://offerlens-ocr.cognitiveservices.azure.com/` or a
-     `...-centralindia...` form) → this is `AZURE_DOC_INTELLIGENCE_ENDPOINT`.
-   - **KEY 1** → this is `AZURE_DOC_INTELLIGENCE_KEY`. Treat it as a secret; it goes only into
-     `.env.production` on the server, never into git or chat.
-5. **Set a budget alert.** Portal → **Cost Management + Billing** → **Budgets** → **Add**: scope
-   the budget to the subscription or the `offerlens` resource group, amount e.g. **$10/month**, and
-   an alert at 80%. Read ≈ $1.50 per 1,000 pages, so a demo costs cents, but the alert is cheap
-   insurance. A credit-funded subscription also hard-stops when credits run out.
-
-> **Data egress note.** With OCR on, each uploaded image or scanned PDF is sent to Azure, which
-> transiently stores it in-region to run the async job, then returns the text. The app deletes its
-> own local copy right after extraction; Azure's transient copy is Microsoft's, per their retention
-> policy. This is new third-party data egress (Google Vision implied the same). Keep any UI copy
-> about file deletion accurate.
 
 ---
 
@@ -166,11 +184,15 @@ Edit `.env.production`:
 - `POSTGRES_PASSWORD` — the 24-byte value, AND paste the SAME value into the
   `__POSTGRES_PASSWORD__` slot inside `DATABASE_URL`.
 - `GEMINI_API_KEY` — the real Gemini key (OfferLens falls back to the mock without it).
-- **OCR (only if you did section 2b):** set `OCR_PROVIDER=azure`,
-  `AZURE_DOC_INTELLIGENCE_ENDPOINT=<the endpoint from 2b.4>` and
-  `AZURE_DOC_INTELLIGENCE_KEY=<KEY 1 from 2b.4>`. If you skipped 2b, leave `OCR_PROVIDER=mock`
-  (the shipped default) — image/scanned uploads then return `400 OCR_UNAVAILABLE`, which is the
-  intended "no OCR configured" behaviour, and nothing is fabricated.
+- **OCR (from §0.1):** set `OCR_PROVIDER=azure`, then uncomment and fill the two Azure lines with
+  the values from the Azure portal:
+  - `AZURE_DOC_INTELLIGENCE_ENDPOINT=https://<your-resource>.cognitiveservices.azure.com`
+  - `AZURE_DOC_INTELLIGENCE_KEY=<KEY 1 from Keys and Endpoint>`
+
+  If you have not created the Azure resource yet, leave `OCR_PROVIDER=mock`: the site works for
+  pasted text and text-layer PDFs, and image/scanned uploads return `400 OCR_UNAVAILABLE` until you
+  come back, set these three values and restart the api + workers (`docker compose
+  -f docker-compose.prod.yml up -d`). No rebuild is needed for an env-only change.
 - Leave `CORS_ORIGIN=https://offerlens.mueens.tech`, `TRUST_PROXY=1`,
   `STORAGE_PATH=/app/uploads`, `NODE_ENV=production` as shipped.
 
@@ -327,6 +349,12 @@ In a browser at `https://offerlens.mueens.tech`:
 - Paste an offer's text and run an analysis; a result returns (not canned sample data).
 - DevTools → Application → Cookies: `ol_guest` is `HttpOnly` and `Secure`.
 - An attribution/benchmark link opens `https://offerlens.mueens.tech/datasets/so-2025-india/`.
+- **OCR (only if §0.1 Azure resource is configured):** upload a photo (JPEG/PNG) of an offer and a
+  **scanned** PDF (one with no selectable text). Both should extract text and analyse — not return
+  the "image uploads are not available" message. A text-layer PDF is handled in the browser and does
+  not exercise Azure. If OCR is still `mock`, an image upload is expected to show that message; that
+  is correct until §0.1/§4 are done. Watch the api/workers logs during an OCR upload for any Azure
+  error (`docker compose -f docker-compose.prod.yml logs api workers --tail=50`).
 
 Upload path and resource check:
 
@@ -422,14 +450,11 @@ sudo nginx -t && sudo systemctl reload nginx
 - **Pending OS restart / 76 updates** on the server — the owner's call when to apply them.
 - **Old Cloud Vision key in git history** (plan follow-up F1). Issue a NEW key for this deploy;
   revoke the old one if rotation cannot be confirmed.
-- **Image + scanned-PDF uploads are OFF** until a real OCR provider is configured. Set
-  `OCR_PROVIDER=azure` plus `AZURE_DOC_INTELLIGENCE_ENDPOINT` and `AZURE_DOC_INTELLIGENCE_KEY`
-  (task 6.4): Azure AI Document Intelligence `prebuilt-read` reads images **and scanned PDFs** in
-  one integration. Deploy decisions: S0 tier, Central India region (data stays in-region), budget
-  alert set in the Azure portal; the key is a secret, in `.env.production` only. Until then,
-  production refuses image/scanned OCR with `400 OCR_UNAVAILABLE` (not fabricated output); pasted
-  text and text-layer PDFs work. `image/webp` is no longer an accepted upload type (Azure Read
-  does not accept it).
+- **Image + scanned-PDF uploads depend on the Azure OCR resource (§0.1) being set in `.env.production`
+  (§4).** With it configured, Azure Document Intelligence `prebuilt-read` reads images **and scanned
+  PDFs**. Without it, production refuses image/scanned OCR with `400 OCR_UNAVAILABLE` (not fabricated
+  output), while pasted text and text-layer PDFs work. `image/webp` is not an accepted upload type
+  (Azure Read does not accept it). Verify OCR end to end in the §9 smoke test.
 - **AI mock fallback is silent.** A missing/invalid `GEMINI_API_KEY` falls back to canned
   analysis with only a log warning — there is no production guard. Confirm the logs do not say
   `using MockAiProvider`.
