@@ -65,7 +65,7 @@ const CareerPathPanel: React.FC<{ offerId: string }> = ({ offerId }) => {
           <h4 className="mb-2 text-sm font-semibold text-foreground">Skills to build</h4>
           <div className="flex flex-wrap gap-1.5">
             {skillsToLearn.map((s) => (
-              <span key={s} className="rounded-full bg-accent px-3 py-1 text-xs skeu-emboss">{s}</span>
+              <span key={s} className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1 text-xs text-stone-700">{s}</span>
             ))}
           </div>
         </section>

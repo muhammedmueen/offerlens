@@ -91,23 +91,23 @@ const ProcessingPage = () => {
     return (
       <PageShell>
         <div className="container mx-auto max-w-lg px-4 py-24">
-          <div className="rounded-2xl p-8 text-center skeu-card">
+          <div className="rounded-2xl border border-stone-200 bg-white p-8 text-center shadow-md">
             <div className="mb-6 flex justify-center">
-              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-destructive/10 skeu-emboss">
-                <AlertCircle className="h-8 w-8 text-destructive" />
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-red-50">
+                <AlertCircle className="h-8 w-8 text-red-700" />
               </div>
             </div>
-            
+
             <h2 className="text-xl font-bold mb-3 text-foreground">
               {isRateLimitError ? "Rate Limit Exceeded" : "Analysis Failed"}
             </h2>
-            
+
             <p className="text-muted-foreground mb-6">
               {getErrorMessage(data.failureReason)}
             </p>
-            
+
             {isRateLimitError && (
-              <div className="mb-6 rounded-xl bg-muted/50 p-4 text-sm text-left skeu-inset">
+              <div className="mb-6 rounded-xl border border-stone-200 bg-stone-50 p-4 text-sm text-left">
                 <p className="font-medium mb-2">💡 Tips to avoid rate limits:</p>
                 <ul className="list-disc list-inside space-y-1 text-muted-foreground">
                   <li>Wait 2-3 minutes before trying again</li>
@@ -116,19 +116,19 @@ const ProcessingPage = () => {
                 </ul>
               </div>
             )}
-            
+
             <div className="flex gap-3 justify-center">
-              <Button 
-                onClick={() => navigate("/upload")} 
-                className="cursor-pointer rounded-xl skeu-btn brand-gradient"
+              <Button
+                onClick={() => navigate("/upload")}
+                className="cursor-pointer"
               >
                 Try Again
               </Button>
               {isRateLimitError && (
-                <Button 
-                  variant="outline" 
-                  onClick={() => navigate("/upload")} 
-                  className="cursor-pointer rounded-xl skeu-emboss"
+                <Button
+                  variant="outline"
+                  onClick={() => navigate("/upload")}
+                  className="cursor-pointer"
                 >
                   Change Model
                 </Button>
@@ -152,25 +152,30 @@ const ProcessingPage = () => {
 
   return (
     <PageShell hideFooter>
+      <div className="bg-graph">
       <div className="container mx-auto flex max-w-lg flex-col items-center px-4 py-24 text-center">
-        <div className="mb-8 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 skeu-emboss">
-          <Loader2 className="h-8 w-8 text-primary animate-spin" />
+        <div className="mb-8 flex h-16 w-16 items-center justify-center rounded-2xl border border-cyan-200 bg-cyan-50">
+          {/* Reduced motion: pulse instead of spin (spec §7 / §8 motion). */}
+          <Loader2 className="h-8 w-8 text-cyan-700 motion-safe:animate-spin motion-reduce:animate-pulse" />
         </div>
 
-        <h1 className="text-xl font-bold mb-6 text-foreground">Analyzing your offer…</h1>
+        <h1 className="text-xl font-bold mb-2 text-foreground">Reading your offer…</h1>
+        <p className="mb-6 font-mono text-xs text-stone-500">
+          // usually 15–30s. gemini can take up to ~3 min on a busy day.
+        </p>
 
         <div className="w-full space-y-3 mb-8">
           {STEPS.map((s, i) => {
             const done = i < stepIndex;
             const active = i === stepIndex;
             return (
-              <div key={s} className={`flex items-center gap-3 rounded-xl p-3 transition-all ${active ? "skeu-card border-primary/30" : done ? "skeu-card" : "skeu-inset opacity-60"}`}>
+              <div key={s} className={`flex items-center gap-3 rounded-xl border p-3 transition-all ${active ? "border-cyan-200 bg-white shadow-sm" : done ? "border-stone-200 bg-white shadow-sm" : "border-stone-200 bg-stone-50 opacity-70"}`}>
                 {done ? (
-                  <CheckCircle className="h-5 w-5 text-green-600" />
+                  <CheckCircle className="h-5 w-5 text-green-700" />
                 ) : active ? (
-                  <Loader2 className="h-5 w-5 text-primary animate-spin" />
+                  <Loader2 className="h-5 w-5 text-cyan-700 motion-safe:animate-spin motion-reduce:animate-pulse" />
                 ) : (
-                  <div className="h-5 w-5 rounded-full border-2 border-muted-foreground/30" />
+                  <div className="h-5 w-5 rounded-full border-2 border-stone-300" />
                 )}
                 <span className={`text-sm ${active ? "font-medium text-foreground" : "text-muted-foreground"}`}>{s}</span>
               </div>
@@ -178,7 +183,7 @@ const ProcessingPage = () => {
           })}
         </div>
 
-        <p className="text-sm text-muted-foreground" role="status" aria-live="polite">
+        <p className="font-mono text-sm text-stone-500" role="status" aria-live="polite">
           {gaveUp
             ? "This is taking longer than expected — your analysis may still be processing. Refresh in a minute, or check your dashboard."
             : elapsed > 60
@@ -190,14 +195,15 @@ const ProcessingPage = () => {
 
         {gaveUp && (
           <div className="mt-4 flex gap-2">
-            <Button variant="outline" onClick={() => navigate("/dashboard")} className="cursor-pointer rounded-xl skeu-emboss">
+            <Button variant="outline" onClick={() => navigate("/dashboard")} className="cursor-pointer">
               Go to Dashboard
             </Button>
-            <Button variant="outline" onClick={() => navigate("/upload")} className="cursor-pointer rounded-xl skeu-emboss">
+            <Button variant="outline" onClick={() => navigate("/upload")} className="cursor-pointer">
               Try Again
             </Button>
           </div>
         )}
+      </div>
       </div>
     </PageShell>
   );

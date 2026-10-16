@@ -6,26 +6,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>OfferLens</title>
   <meta name="description"
-    content="Is your offer actually good? Upload your offer letter and get an AI-powered score, salary comparison, red flags, and negotiation tips in 30 seconds." />
+    content="Is your offer actually good? We read your offer letter line by line — real salary benchmarks, honest red flags, and a deterministic 0–100 score. Nothing fabricated." />
   <meta name="author" content="OfferLens" />
   <!-- 5.4: never send /offers/<id> as a Referer, even if the SPA and API share an origin. -->
   <meta name="referrer" content="strict-origin" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap"
-    rel="stylesheet" />
-
+  <!-- Lens-mark favicon (identity spec §8). Raster PNG fallbacks (favicon-32.png / apple-touch-icon.png)
+       are not wired yet: no raster tool was available in this environment to export them from the SVG.
+       Export per the note in .agents/tasks/offerlens-landing-sections-plan.md, then add the <link> tags. -->
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <meta property="og:title" content="OfferLens — AI Offer Analysis" />
-  <meta property="og:description" content="Upload your offer letter. Get your score in 30 seconds." />
+  <meta name="theme-color" content="#FBFAF7" />
+  <meta property="og:title" content="OfferLens — read your offer letter, honestly" />
+  <meta property="og:description" content="We read your offer line by line and return a deterministic 0–100 score, the red flags, and what to ask for. Nothing fabricated." />
   <meta property="og:type" content="website" />
   <meta name="twitter:card" content="summary_large_image" />
 </head>
 
 <body>
-  <script>
-    (function () { var t = localStorage.getItem('theme'); if (t === 'dark' || (t == null && matchMedia('(prefers-color-scheme:dark)').matches)) document.documentElement.classList.add('dark') })();
-  </script>
   <div id="root"></div>
   <script type="module" src="/src/main.tsx"></script>
 </body>

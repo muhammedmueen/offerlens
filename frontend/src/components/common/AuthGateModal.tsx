@@ -57,7 +57,7 @@ const AuthGateModal: React.FC<AuthGateModalProps> = ({ open, onOpenChange, featu
             <Input id="gate-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••" minLength={8} />
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
-          <Button type="submit" disabled={loading} className="w-full cursor-pointer brand-gradient text-primary-foreground hover:opacity-90 rounded-xl skeu-btn">
+          <Button type="submit" disabled={loading} className="w-full cursor-pointer rounded-md">
             {loading ? "Creating account…" : "Sign up free"}
           </Button>
         </form>

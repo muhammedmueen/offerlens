@@ -9,13 +9,15 @@ interface BenefitsPieProps {
   data: BenefitItem[];
 }
 
+// Categorical palette on the spec identity (§3): cyan accent + stone neutrals + the
+// honest semantic hues, so slices stay distinct without introducing a second brand colour.
 const COLORS = [
-  "hsl(var(--primary))",
-  "hsl(var(--cta))",
-  "hsl(var(--secondary))",
-  "hsl(142, 71%, 45%)",
-  "hsl(280, 65%, 60%)",
-  "hsl(48, 96%, 53%)",
+  "#0E7490", // cyan-700  (accent)
+  "#6D28D9", // violet-700 (estimate family)
+  "#15803D", // green-700
+  "#B45309", // amber-700
+  "#78716C", // stone-500
+  "#B91C1C", // red-700
 ];
 
 const BenefitsPie: React.FC<BenefitsPieProps> = ({ data }) => (

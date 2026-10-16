@@ -14,10 +14,10 @@ import { useToast } from "@/hooks/use-toast";
 import MotionCard from "@/components/common/MotionCard";
 
 const STATUS_COLORS: Record<string, string> = {
-  open: "bg-blue-500/10 text-blue-400",
-  planned: "bg-yellow-500/10 text-yellow-400",
-  "in progress": "bg-primary/10 text-primary",
-  done: "bg-green-500/10 text-green-400",
+  open: "bg-stone-100 text-stone-700",
+  planned: "bg-amber-50 text-amber-700",
+  "in progress": "bg-cyan-50 text-cyan-800",
+  done: "bg-green-50 text-green-700",
 };
 
 const FeatureRequestsPage = () => {
@@ -54,7 +54,7 @@ const FeatureRequestsPage = () => {
           <h1 className="text-2xl font-bold">Feature Requests</h1>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button className="brand-gradient text-primary-foreground hover:opacity-90 cursor-pointer rounded-xl skeu-btn">
+              <Button className="cursor-pointer rounded-md">
                 <Plus className="mr-1 h-4 w-4" /> Submit Request
               </Button>
             </DialogTrigger>
@@ -67,8 +67,8 @@ const FeatureRequestsPage = () => {
               </DialogHeader>
               <form onSubmit={(e) => { e.preventDefault(); submitMutation.mutate(); }} className="space-y-4">
                 <div className="space-y-2"><Label>Title</Label><Input value={title} onChange={(e) => setTitle(e.target.value)} required /></div>
-                <div className="space-y-2"><Label>Description</Label><textarea value={description} onChange={(e) => setDescription(e.target.value)} required className="min-h-[80px] w-full rounded-lg border border-input bg-background p-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" /></div>
-                <Button type="submit" disabled={submitMutation.isPending} className="w-full brand-gradient text-primary-foreground hover:opacity-90 cursor-pointer rounded-xl skeu-btn">
+                <div className="space-y-2"><Label>Description</Label><textarea value={description} onChange={(e) => setDescription(e.target.value)} required className="min-h-[80px] w-full rounded-md border border-stone-300 bg-white p-3 text-sm focus-visible:border-cyan-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-700" /></div>
+                <Button type="submit" disabled={submitMutation.isPending} className="w-full cursor-pointer rounded-md">
                   {submitMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} Submit
                 </Button>
               </form>

@@ -73,7 +73,7 @@ const SignupPage = () => {
               <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••" minLength={8} />
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
-            <Button type="submit" disabled={loading} className="w-full brand-gradient text-primary-foreground hover:opacity-90 cursor-pointer rounded-xl skeu-btn">
+            <Button type="submit" disabled={loading} className="w-full cursor-pointer rounded-md">
               {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Sign up free
             </Button>

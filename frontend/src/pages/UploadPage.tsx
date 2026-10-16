@@ -308,38 +308,51 @@ const UploadPage = () => {
   return (
     <PageShell>
       <div className="container mx-auto max-w-2xl px-4 py-12">
-        <h1 className="text-2xl font-bold mb-2 text-foreground">Upload Your Offer Letter</h1>
-        <p className="text-muted-foreground mb-8">We'll analyze it and give you a score in under 30 seconds.</p>
+        <p className="font-mono text-xs uppercase tracking-widest text-primary">01 — upload</p>
+        <h1 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">Upload your offer letter</h1>
+        <p className="mt-2 text-muted-foreground">
+          We read it line by line and score it. <span className="font-mono text-xs text-muted-foreground">// usually 15–30s</span>
+        </p>
 
-        <QuotaNotice quota={quota.data} />
+        <div className="mt-8">
+          <QuotaNotice quota={quota.data} />
+        </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-8">
-          <TabsList className="grid w-full grid-cols-2 rounded-xl skeu-emboss">
-            <TabsTrigger value="file" className="cursor-pointer rounded-lg">Upload File</TabsTrigger>
-            <TabsTrigger value="text" className="cursor-pointer rounded-lg">Paste Text</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-2 rounded-md">
+            <TabsTrigger value="file" className="cursor-pointer rounded-sm">Upload File</TabsTrigger>
+            <TabsTrigger value="text" className="cursor-pointer rounded-sm">Paste Text</TabsTrigger>
           </TabsList>
 
           <TabsContent value="file" className="mt-4">
             <motion.div
+              role="button"
+              tabIndex={0}
+              aria-label="Drop your offer letter here, or click to browse"
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleFileDrop}
               onClick={() => fileInputRef.current?.click()}
-              whileHover={{ scale: 1.01, borderColor: "hsl(var(--primary))" }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  fileInputRef.current?.click();
+                }
+              }}
               whileTap={{ scale: 0.99 }}
-              className="flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-border p-12 text-center transition-all cursor-pointer skeu-inset"
+              className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-stone-300 bg-white bg-ruled p-12 text-center shadow-sm transition-colors hover:border-cyan-700 hover:in-focus focus-visible:border-cyan-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-700 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
               {file ? (
                 <>
-                  <FileText className="h-10 w-10 text-primary" />
+                  <FileText className="h-10 w-10 text-primary" aria-hidden="true" />
                   <p className="font-medium text-foreground">{file.name}</p>
                   <p className="text-xs text-muted-foreground">{(file.size / 1024 / 1024).toFixed(1)} MB</p>
-                  {isExtracting && <p className="text-xs text-primary animate-pulse">Extracting details...</p>}
+                  {isExtracting && <p className="font-mono text-xs text-primary animate-pulse">// reading your offer…</p>}
                 </>
               ) : (
                 <>
-                  <Upload className="h-10 w-10 text-muted-foreground" />
+                  <Upload className="h-10 w-10 text-stone-500" aria-hidden="true" />
                   <p className="font-medium text-foreground">Drop your offer letter here</p>
-                  <p className="text-xs text-muted-foreground">PDF, JPG, PNG — up to 10MB</p>
+                  <p className="font-mono text-xs text-muted-foreground">// pdf, image, or paste the text — up to 10 MB</p>
                 </>
               )}
             </motion.div>
@@ -356,14 +369,14 @@ const UploadPage = () => {
               value={pasteText}
               onChange={(e) => setPasteText(e.target.value)}
               placeholder="Paste the text from your offer letter here…"
-              className="min-h-[200px] w-full rounded-xl border border-input bg-background p-4 text-sm focus:outline-none focus:ring-2 focus:ring-ring skeu-inset"
+              className="min-h-[200px] w-full rounded-md border border-stone-300 bg-white p-4 text-base text-stone-900 placeholder:text-stone-500 focus-visible:border-cyan-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-700"
             />
           </TabsContent>
         </Tabs>
 
         {/* Context Form */}
         {hasContent && (
-          <div className="space-y-4 rounded-2xl p-6 skeu-card">
+          <div className="space-y-4 rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
             <h2 className="font-semibold text-foreground">Tell us about the role</h2>
 
             <div className="space-y-2">
@@ -375,7 +388,7 @@ const UploadPage = () => {
                 className="rounded-lg"
               />
               {roles?.length > 0 && roleSearch.length > 1 && (
-                <div className="rounded-xl border border-border bg-popover p-1 max-h-40 overflow-auto skeu-card">
+                <div className="rounded-xl border border-stone-200 bg-popover p-1 max-h-40 overflow-auto shadow-sm">
                   {roles.map((r: any) => (
                     <button key={r.id || r.name} onClick={() => { setRole(r.name); setRoleSearch(""); }} className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent rounded-lg cursor-pointer">
                       {r.name}
@@ -394,7 +407,7 @@ const UploadPage = () => {
                 className="rounded-lg"
               />
               {cities?.length > 0 && citySearch.length > 1 && (
-                <div className="rounded-xl border border-border bg-popover p-1 max-h-40 overflow-auto skeu-card">
+                <div className="rounded-xl border border-stone-200 bg-popover p-1 max-h-40 overflow-auto shadow-sm">
                   {cities.map((c: any) => (
                     <button key={c.id || c.name} onClick={() => { setCity(c.name); setCitySearch(""); }} className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent rounded-lg cursor-pointer">
                       {c.name}
@@ -410,7 +423,7 @@ const UploadPage = () => {
                 <SelectTrigger className="cursor-pointer rounded-lg">
                   <SelectValue placeholder="Select level" />
                 </SelectTrigger>
-                <SelectContent className="rounded-xl skeu-card">
+                <SelectContent className="rounded-xl">
                   {(expLevels || []).map((l: any) => {
                     const value = typeof l === 'string' ? l : l.name || l.label || l.id;
                     return (
@@ -435,7 +448,7 @@ const UploadPage = () => {
                 <SelectTrigger className="cursor-pointer rounded-lg">
                   <SelectValue placeholder="Select model" />
                 </SelectTrigger>
-                <SelectContent className="rounded-xl skeu-card max-h-60 overflow-auto">
+                <SelectContent className="rounded-xl max-h-60 overflow-auto">
                   <SelectItem value="gemini-2.5-flash" className="cursor-pointer rounded-lg">gemini-2.5-flash (Fast, Thinking)</SelectItem>
                   <SelectItem value="gemini-2.5-pro" className="cursor-pointer rounded-lg">gemini-2.5-pro (Most Capable)</SelectItem>
                   <SelectItem value="gemini-2.0-flash" className="cursor-pointer rounded-lg">gemini-2.0-flash</SelectItem>
@@ -454,7 +467,7 @@ const UploadPage = () => {
               onClick={() => submitMutation.mutate()}
               disabled={!canSubmit}
               aria-describedby={blocked ? QUOTA_NOTICE_ID : undefined}
-              className="w-full h-12 text-base font-semibold brand-gradient text-primary-foreground hover:opacity-90 cursor-pointer transition-all hover:-translate-y-0.5 rounded-xl skeu-btn"
+              className="w-full h-12 rounded-md bg-cyan-700 text-base font-medium text-white hover:bg-cyan-800 cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-cyan-700 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
               {submitMutation.isPending ? "Uploading…" : "Analyze My Offer"}
             </Button>

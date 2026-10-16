@@ -56,7 +56,7 @@ const NegotiationPanel: React.FC<{ offerId: string }> = ({ offerId }) => {
         </div>
       </div>
 
-      <Button onClick={() => mutation.mutate()} disabled={mutation.isPending || focusAreas.length === 0} className="w-full brand-gradient text-primary-foreground hover:opacity-90 cursor-pointer rounded-xl skeu-btn">
+      <Button onClick={() => mutation.mutate()} disabled={mutation.isPending || focusAreas.length === 0} className="w-full cursor-pointer">
         {mutation.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Generating…</> : "Generate Script"}
       </Button>
 
@@ -68,16 +68,16 @@ const NegotiationPanel: React.FC<{ offerId: string }> = ({ offerId }) => {
       )}
 
       {script && (
-        <div className="space-y-4 rounded-lg border border-border bg-muted/30 p-4">
+        <div className="space-y-4 rounded-xl border border-stone-200 bg-white p-4 shadow-sm">
           {/* Why this is a template rather than a tailored script. The backend has always sent
               a `note` on the fallback paths and it was never rendered, so a user got an email
               full of [BRACKETS] with no explanation of what had gone wrong. */}
           {script.note && (
             <div
               role="status"
-              className="flex items-start gap-2 rounded-md border border-yellow-500/30 bg-yellow-50 p-3 text-xs"
+              className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs"
             >
-              <Info className="mt-0.5 h-4 w-4 shrink-0 text-yellow-600" aria-hidden />
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-hidden />
               <p className="text-foreground">{script.note}</p>
             </div>
           )}

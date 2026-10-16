@@ -47,7 +47,8 @@ const SalaryBar: React.FC<SalaryBarProps> = ({ p25, p50, p75, p90, userSalary, h
           />
           <Bar dataKey="value" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
           {userSalary && !hideOffer ? (
-            <ReferenceLine y={userSalary} stroke="hsl(var(--cta))" strokeDasharray="4 4" label={{ value: "Your Offer", fill: "hsl(var(--cta))", fontSize: 11 }} />
+            // ink marker (stone-900) over cyan bars — the offer line must not blend into the accent bars
+            <ReferenceLine y={userSalary} stroke="hsl(var(--foreground))" strokeDasharray="4 4" label={{ value: "Your Offer", fill: "hsl(var(--foreground))", fontSize: 11 }} />
           ) : null}
         </BarChart>
       </ResponsiveContainer>

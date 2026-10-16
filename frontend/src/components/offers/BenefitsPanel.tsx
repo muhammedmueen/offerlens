@@ -67,11 +67,11 @@ const BenefitsPanel: React.FC<{ offerId: string }> = ({ offerId }) => {
       {pieData.length > 0 && <BenefitsPie data={pieData} />}
 
       <div className="grid grid-cols-2 gap-3 text-center">
-        <div className="rounded-xl p-3 skeu-inset">
+        <div className="rounded-xl border border-stone-200 bg-white p-3 shadow-sm">
           <p className="text-xs text-muted-foreground">Benefits value</p>
           <p className="text-lg font-bold text-foreground">{fmt(data?.benefitsValue ?? 0)}</p>
         </div>
-        <div className="rounded-xl p-3 skeu-inset">
+        <div className="rounded-xl border border-stone-200 bg-white p-3 shadow-sm">
           <p className="text-xs text-muted-foreground">Total compensation</p>
           <p className="text-lg font-bold text-foreground">{fmt(data?.totalCompensation ?? 0)}</p>
         </div>

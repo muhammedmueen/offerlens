@@ -123,7 +123,7 @@ const CorrectionsPanel: React.FC<{ offerId: string }> = ({ offerId }) => {
       <Button
         onClick={() => mutation.mutate()}
         disabled={mutation.isPending || changedCount === 0}
-        className="w-full brand-gradient text-primary-foreground hover:opacity-90 cursor-pointer rounded-xl skeu-btn"
+        className="w-full cursor-pointer"
       >
         {mutation.isPending
           ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving…</>

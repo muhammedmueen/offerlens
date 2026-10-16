@@ -93,20 +93,30 @@ const ContributionFields = ({ idPrefix, values, errors, guards, confirmed, ctcHi
         // role="radiogroup" because aria-invalid is not supported on the implicit "group" role of a fieldset.
         <fieldset className="space-y-2" role="radiogroup" aria-invalid={!!errors.payBasis} aria-describedby={describedBy("payBasis")}>
           <legend className="text-sm font-medium leading-none text-foreground">What kind of pay is this?</legend>
-          {PAY_BASIS_OPTIONS.map((o, i) => (
-            <label key={o.value} className="flex items-center gap-2 text-sm text-foreground">
-              <input
-                id={i === 0 ? id("payBasis") : undefined}
-                type="radio"
-                name={id("payBasis")}
-                value={o.value}
-                checked={values.payBasis === o.value}
-                onChange={() => onChange("payBasis", o.value)}
-                className="h-4 w-4 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              />
-              {o.label}
-            </label>
-          ))}
+          <div className="flex flex-wrap gap-2">
+            {PAY_BASIS_OPTIONS.map((o, i) => {
+              // Selected pill is cyan-50/cyan-800 (spec §7). The choice is carried by the label
+              // text and the real radio's checked state, never colour alone.
+              const selected = values.payBasis === o.value;
+              return (
+                <label
+                  key={o.value}
+                  className={`flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-sm ${selected ? "border-cyan-700 bg-cyan-50 text-cyan-800" : "border-stone-200 bg-stone-50 text-stone-700"}`}
+                >
+                  <input
+                    id={i === 0 ? id("payBasis") : undefined}
+                    type="radio"
+                    name={id("payBasis")}
+                    value={o.value}
+                    checked={selected}
+                    onChange={() => onChange("payBasis", o.value)}
+                    className="h-4 w-4 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  />
+                  {o.label}
+                </label>
+              );
+            })}
+          </div>
           {err("payBasis")}
         </fieldset>
       )}

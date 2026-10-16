@@ -15,7 +15,7 @@ import BenchmarkNotice from "@/components/salary/BenchmarkNotice";
 import ContributeSalaryCard from "@/components/salary/ContributeSalaryCard";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { AlertTriangle, Download, GitCompare, TrendingUp, Pencil, Share2, Lock, CheckCircle, ShieldQuestion } from "lucide-react";
+import { AlertTriangle, Download, GitCompare, TrendingUp, Pencil, Share2, Lock, CheckCircle, ShieldQuestion, Flag, Info } from "lucide-react";
 import ErrorBoundary from "@/components/common/ErrorBoundary";
 import ConfidenceBadge, { type ConfidenceLevel } from "@/components/common/ConfidenceBadge";
 import NegotiationPanel from "@/components/offers/NegotiationPanel";
@@ -101,8 +101,8 @@ const ResultsPage = () => {
             hold to check values against. Above the score, because it qualifies everything
             below it. */}
         {a.confidence?.caveat && (
-          <div className="flex items-start gap-2 rounded-xl border border-yellow-500/30 bg-yellow-50 p-4 text-sm skeu-emboss">
-            <ShieldQuestion className="mt-0.5 h-5 w-5 shrink-0 text-yellow-600" aria-hidden />
+          <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm shadow-sm">
+            <ShieldQuestion className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" aria-hidden />
             <p className="text-foreground">{a.confidence.caveat}</p>
           </div>
         )}
@@ -113,8 +113,8 @@ const ResultsPage = () => {
             fine by the server. One owner now; the percentage is still shown because it is the
             detail a user can act on. */}
         {a.lowConfidence && (
-          <div className="flex items-start gap-2 rounded-xl border border-yellow-500/30 bg-yellow-50 p-4 text-sm skeu-emboss">
-            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-yellow-600" aria-hidden />
+          <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm shadow-sm">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" aria-hidden />
             <p className="text-foreground">
               We had trouble reading parts of your offer
               {typeof a.ocrConfidence === "number"
@@ -126,8 +126,8 @@ const ResultsPage = () => {
           </div>
         )}
 
-        {/* Score Header */}
-        <div className="flex flex-col items-center gap-4 rounded-2xl p-8 md:flex-row md:items-start md:gap-8 skeu-card">
+        {/* Score Header — the verdict, the signature of the results page (spec §7). */}
+        <div className="flex flex-col items-center gap-4 rounded-2xl border border-stone-200 bg-white p-8 shadow-md in-focus md:flex-row md:items-start md:gap-8">
           <ScoreGauge score={a.score ?? 0} />
           <div className="flex-1 text-center md:text-left">
             <div className="flex flex-wrap items-baseline justify-center gap-2 md:justify-start">
@@ -158,7 +158,7 @@ const ResultsPage = () => {
             0-100 mark and the weight actually applied — which shifts when a component has no
             data, so the weights are read from the response rather than hardcoded here. */}
         {a.scoreBreakdown?.length > 0 && (
-          <section className="rounded-2xl p-6 skeu-card">
+          <section className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
             <h2 className="font-semibold mb-4 text-foreground">How this score was reached</h2>
             <ul className="space-y-3">
               {a.scoreBreakdown.map(
@@ -198,7 +198,7 @@ const ResultsPage = () => {
 
         {/* Salary Comparison */}
         {market && (
-          <section className="rounded-2xl p-6 skeu-card">
+          <section className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
             <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
               <h2 className="font-semibold text-foreground">Salary Comparison</h2>
               <Confidence field="salaryComparison" label="Salary benchmark" />
@@ -228,7 +228,7 @@ const ResultsPage = () => {
         )}
 
         {/* Red Flags */}
-        <section className="rounded-2xl p-6 skeu-card">
+        <section className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
           <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
             <h2 className="font-semibold text-foreground">Red Flags</h2>
             <Confidence field="redFlags" label="Red flags" />
@@ -237,17 +237,28 @@ const ResultsPage = () => {
             <div className="space-y-3">
               {a.redFlags.map((rf: any, i: number) => {
                 const severity = rf.severity?.toLowerCase();
-                const bgColor = severity === "high" ? "bg-red-50 border-red-200" : severity === "medium" ? "bg-yellow-50 border-yellow-200" : "bg-green-50 border-green-200";
+                // Severity is carried by icon + WORD + a solid left rule, never colour alone
+                // (spec §3.2 / §7). Low/info is stone, so green stays reserved for Verified.
+                const SevIcon = severity === "high" ? Flag : severity === "medium" ? AlertTriangle : Info;
+                const box =
+                  severity === "high"
+                    ? "border-stone-200 border-l-red-700 bg-red-50"
+                    : severity === "medium"
+                      ? "border-stone-200 border-l-amber-700 bg-amber-50"
+                      : "border-stone-200 border-l-stone-700 bg-stone-100";
+                const sevText =
+                  severity === "high" ? "text-red-700" : severity === "medium" ? "text-amber-700" : "text-stone-700";
                 return (
-                  <div key={i} className={`rounded-xl border p-4 ${bgColor} skeu-emboss`}>
+                  <div key={i} className={`rounded-xl border border-l-4 p-4 shadow-sm ${box}`}>
                     <div className="flex items-center gap-2 mb-1">
-                      <span className={`text-xs font-semibold uppercase ${severity === "high" ? "text-red-600" : severity === "medium" ? "text-yellow-600" : "text-green-600"}`}>
+                      <SevIcon className={`h-4 w-4 shrink-0 ${sevText}`} aria-hidden="true" />
+                      <span className={`text-xs font-semibold uppercase ${sevText}`}>
                         {rf.severity}
                       </span>
                       <h3 className="font-medium text-sm text-foreground">{rf.title}</h3>
                     </div>
-                    {rf.matchedText && <p className="text-xs text-muted-foreground italic mb-1">"{rf.matchedText}"</p>}
-                    <p className="text-sm text-muted-foreground">{rf.explanation}</p>
+                    {rf.matchedText && <p className="font-mono text-xs text-stone-500 italic mb-1">"{rf.matchedText}"</p>}
+                    <p className="text-sm text-stone-700">{rf.explanation}</p>
                     {rf.suggestion && (
                       <p className="mt-2 text-sm text-foreground"><span className="font-medium">Suggestion:</span> {rf.suggestion}</p>
                     )}
@@ -256,8 +267,8 @@ const ResultsPage = () => {
               })}
             </div>
           ) : (
-            <div className="flex items-center gap-2 text-green-600">
-              <CheckCircle className="h-5 w-5" />
+            <div className="flex items-center gap-2 text-green-700">
+              <CheckCircle className="h-5 w-5" aria-hidden="true" />
               <p className="text-sm">No red flags detected — looks like a clean offer!</p>
             </div>
           )}
@@ -265,7 +276,7 @@ const ResultsPage = () => {
 
         {/* Negotiation Tips */}
         {negotiationSuggestions.length > 0 && (
-          <section className="rounded-2xl p-6 skeu-card">
+          <section className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
             <h2 className="font-semibold mb-4 text-foreground">Negotiation Tips</h2>
             <ul className="space-y-3">
               {negotiationSuggestions.map((t: any, i: number) => (
@@ -288,7 +299,7 @@ const ResultsPage = () => {
             </ul>
             <Button
               variant="outline"
-              className="mt-4 cursor-pointer rounded-xl skeu-emboss"
+              className="mt-4 cursor-pointer rounded-md"
               onClick={() => requireAuth("Negotiation Scripts", "negotiate")}
             >
               {!isAuthenticated && <Lock className="mr-1 h-3 w-3" />}
@@ -302,7 +313,7 @@ const ResultsPage = () => {
             It reports a RANGE rather than one number when PF is uncertain, and lists what it
             assumed — both are shown, because a single figure here would be false precision. */}
         {a.takeHome && (
-          <section className="rounded-2xl p-6 skeu-card">
+          <section className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
             <div className="mb-4 flex items-baseline justify-between gap-2">
               <h2 className="font-semibold text-foreground">Estimated Take-Home</h2>
               <div className="flex items-baseline gap-3">
@@ -313,7 +324,7 @@ const ResultsPage = () => {
               </div>
             </div>
 
-            <div className="rounded-xl p-4 text-center skeu-inset">
+            <div className="rounded-xl border border-stone-200 bg-stone-50 p-4 text-center">
               <p className="text-xs text-muted-foreground">Per month</p>
               <p className="text-2xl font-bold text-foreground">
                 {a.takeHome.isExact ? (
@@ -347,7 +358,7 @@ const ResultsPage = () => {
                   text: `${(a.takeHome.tax.effectiveRate * 100).toFixed(1)}%`,
                 },
               ].map((row) => (
-                <div key={row.label} className="rounded-xl p-3 text-center skeu-inset">
+                <div key={row.label} className="rounded-xl border border-stone-200 bg-stone-50 p-3 text-center">
                   <dt className="text-xs text-muted-foreground">{row.label}</dt>
                   <dd className="text-sm font-semibold text-foreground">
                     {row.text ??
@@ -380,7 +391,7 @@ const ResultsPage = () => {
             The chip list shows what the letter names; the checklist below shows what a normal
             offer has that this one does not. The second half is the useful part, and it is
             computed by set difference on the server rather than guessed by the model. */}
-        <section className="rounded-2xl p-6 skeu-card">
+        <section className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
           <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
             <h2 className="font-semibold text-foreground">Benefits Overview</h2>
             <Confidence field="benefits" label="Benefits list" />
@@ -389,7 +400,7 @@ const ResultsPage = () => {
           {a.benefits?.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {a.benefits.map((b: any, i: number) => (
-                <span key={i} className="rounded-full bg-accent px-3 py-1 text-xs skeu-emboss">{b.name || b}</span>
+                <span key={i} className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-xs text-stone-700">{b.name || b}</span>
               ))}
             </div>
           ) : (
@@ -410,9 +421,9 @@ const ResultsPage = () => {
                   (entry: { key: string; label: string; present: boolean; why?: string }) => (
                     <li key={entry.key} className="flex gap-2 text-sm">
                       {entry.present ? (
-                        <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-green-600" aria-hidden />
+                        <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-green-700" aria-hidden />
                       ) : (
-                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-yellow-600" aria-hidden />
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-hidden />
                       )}
                       <div>
                         <span className={entry.present ? "text-foreground" : "text-muted-foreground"}>
@@ -439,7 +450,7 @@ const ResultsPage = () => {
 
           <Button
             variant="outline"
-            className="mt-4 cursor-pointer rounded-xl skeu-emboss"
+            className="mt-4 cursor-pointer rounded-md"
             onClick={() => requireAuth("Benefits Calculator", "benefits")}
           >
             {!isAuthenticated && <Lock className="mr-1 h-3 w-3" />}
@@ -452,25 +463,25 @@ const ResultsPage = () => {
       </div>
 
       {/* Sticky Action Bar */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 skeu-nav backdrop-blur-md border-t border-border">
+      <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-stone-200 bg-white/90 backdrop-blur-md">
         <div className="container mx-auto flex items-center justify-center gap-2 px-4 py-3 max-w-4xl flex-wrap">
-          <Button variant="outline" size="sm" onClick={handleDownload} className="cursor-pointer rounded-xl skeu-emboss">
+          <Button variant="outline" size="sm" onClick={handleDownload} className="cursor-pointer rounded-md">
             {!isAuthenticated && <Lock className="mr-1 h-3 w-3" />}
             <Download className="mr-1 h-4 w-4" /> PDF
           </Button>
-          <Button variant="outline" size="sm" onClick={() => (isAuthenticated ? navigate("/compare") : requireAuth("Compare Offers", null))} className="cursor-pointer rounded-xl skeu-emboss">
+          <Button variant="outline" size="sm" onClick={() => (isAuthenticated ? navigate("/compare") : requireAuth("Compare Offers", null))} className="cursor-pointer rounded-md">
             {!isAuthenticated && <Lock className="mr-1 h-3 w-3" />}
             <GitCompare className="mr-1 h-4 w-4" /> Compare
           </Button>
-          <Button variant="outline" size="sm" onClick={() => requireAuth("Career Path", "career")} className="cursor-pointer rounded-xl skeu-emboss">
+          <Button variant="outline" size="sm" onClick={() => requireAuth("Career Path", "career")} className="cursor-pointer rounded-md">
             {!isAuthenticated && <Lock className="mr-1 h-3 w-3" />}
             <TrendingUp className="mr-1 h-4 w-4" /> Career
           </Button>
-          <Button variant="outline" size="sm" onClick={() => requireAuth("Corrections", "corrections")} className="cursor-pointer rounded-xl skeu-emboss">
+          <Button variant="outline" size="sm" onClick={() => requireAuth("Corrections", "corrections")} className="cursor-pointer rounded-md">
             {!isAuthenticated && <Lock className="mr-1 h-3 w-3" />}
             <Pencil className="mr-1 h-4 w-4" /> Correct
           </Button>
-          <Button variant="outline" size="sm" onClick={handleShare} className="cursor-pointer rounded-xl skeu-emboss">
+          <Button variant="outline" size="sm" onClick={handleShare} className="cursor-pointer rounded-md">
             <Share2 className="mr-1 h-4 w-4" /> Share
           </Button>
         </div>

@@ -2,19 +2,13 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/store/auth";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Upload, MessageSquare, TrendingUp, Lightbulb, LayoutDashboard, LogOut, User, Menu, X, Sun, Moon } from "lucide-react";
-import { useState, useEffect } from "react";
+import { Upload, MessageSquare, TrendingUp, Lightbulb, LayoutDashboard, LogOut, User, Menu, X } from "lucide-react";
+import { useState } from "react";
 
 const Navbar = () => {
   const { isAuthenticated, user, logout } = useAuth();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
-
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", dark);
-    localStorage.setItem("theme", dark ? "dark" : "light");
-  }, [dark]);
 
   const navLinks = [
     { to: "/upload", label: "Upload", icon: Upload },
@@ -29,13 +23,17 @@ const Navbar = () => {
   };
 
   return (
-    <header className="sticky top-0 z-50 skeu-nav backdrop-blur-md">
+    <header className="sticky top-0 z-50 border-b border-stone-200 bg-background/90 backdrop-blur-md">
       <nav className="container mx-auto flex h-14 items-center justify-between px-4">
-        <Link to="/" className="flex items-center gap-2 font-bold text-lg text-foreground">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground text-sm font-bold skeu-btn">
-            OL
-          </div>
-          <span className="hidden sm:inline">OfferLens</span>
+        <Link to="/" aria-label="OfferLens home" className="flex items-center gap-2 font-mono text-lg font-semibold">
+          {/* lens motif: thin cyan ring + crosshair tick (spec §8) */}
+          <span aria-hidden="true" className="relative flex h-6 w-6 items-center justify-center rounded-full border-2 border-cyan-700">
+            <span className="h-2 w-2 rounded-full bg-cyan-700" />
+          </span>
+          <span className="hidden sm:inline">
+            <span className="text-stone-900">offer</span>
+            <span className="text-cyan-700">lens</span>
+          </span>
         </Link>
 
         {/* Desktop nav */}
@@ -53,9 +51,6 @@ const Navbar = () => {
         </div>
 
         <div className="hidden md:flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={() => setDark(!dark)} aria-label={dark ? "Switch to light mode" : "Switch to dark mode"} className="cursor-pointer rounded-lg">
-            {dark ? <Sun className="h-5 w-5" aria-hidden="true" /> : <Moon className="h-5 w-5" aria-hidden="true" />}
-          </Button>
           {isAuthenticated ? (
             <>
               <Link
@@ -71,7 +66,7 @@ const Navbar = () => {
                     <User className="h-5 w-5" aria-hidden="true" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="skeu-card rounded-xl">
+                <DropdownMenuContent align="end" className="rounded-xl border border-stone-200 bg-white shadow-md">
                   <DropdownMenuItem className="text-muted-foreground text-xs" disabled>
                     {user?.email}
                   </DropdownMenuItem>
@@ -87,7 +82,7 @@ const Navbar = () => {
               <Button variant="ghost" onClick={() => navigate("/login")} className="cursor-pointer text-sm rounded-lg">
                 Log in
               </Button>
-              <Button onClick={() => navigate("/signup")} className="cursor-pointer brand-gradient text-primary-foreground hover:opacity-90 text-sm rounded-lg skeu-btn">
+              <Button onClick={() => navigate("/signup")} className="cursor-pointer text-sm rounded-md">
                 Sign up
               </Button>
             </>
@@ -114,10 +109,6 @@ const Navbar = () => {
               {l.label}
             </Link>
           ))}
-          <button onClick={() => setDark(!dark)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer">
-              {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-              {dark ? "Light mode" : "Dark mode"}
-            </button>
           <div className="border-t border-border pt-2 mt-2 space-y-1">
             {isAuthenticated ? (
               <>
