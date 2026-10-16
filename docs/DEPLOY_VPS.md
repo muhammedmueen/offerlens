@@ -184,6 +184,11 @@ Edit `.env.production`:
 - `POSTGRES_PASSWORD` — the 24-byte value, AND paste the SAME value into the
   `__POSTGRES_PASSWORD__` slot inside `DATABASE_URL`.
 - `GEMINI_API_KEY` — the real Gemini key (OfferLens falls back to the mock without it).
+- `GEMINI_MODEL` — **optional, leave unset.** The baked-in default is `gemini-3.5-flash`
+  (verified against a live key on 2026-10-15), so a fresh key works without an override. It only
+  had to be set before because the old default (`gemini-2.5-flash`) is dead for new keys. If you
+  carried a `GEMINI_MODEL=gemini-3.8-flash` line from an earlier deploy, you can remove it after
+  redeploying.
 - **OCR (from §0.1):** set `OCR_PROVIDER=azure`, then uncomment and fill the two Azure lines with
   the values from the Azure portal:
   - `AZURE_DOC_INTELLIGENCE_ENDPOINT=https://<your-resource>.cognitiveservices.azure.com`
@@ -419,6 +424,76 @@ sudo nginx -t && sudo systemctl reload nginx
   `127.0.0.1:3010/3100/8000/9000` — OfferLens shares NONE of them.
 - UFW rules. Do not open any new port; OfferLens needs none beyond nginx's 80/443.
 - The pending OS restart — the owner decides when.
+
+---
+
+## 10.5 Fast redeploy (one command)
+
+Sections 5, 7 (server copy + reload) and 8-reload collapse into two scripts under
+`deploy/scripts/`. They are a convenience wrapper around the manual steps above, which remain the
+source-of-truth fallback. They do **not** replace §6 (migrations) or §4 (env changes).
+
+**One-time setup.** `deploy.sh` ships to the server as part of the `deploy/` copy (§3, and the
+laptop wrapper re-copies it every run). The first time it lands, mark it executable:
+
+```bash
+# [server: deploy]  once
+chmod +x /srv/offerlens/deploy/scripts/deploy.sh
+```
+
+**Normal flow — full redeploy from the laptop:**
+
+```powershell
+# [laptop PowerShell]  from the repo root
+$env:VITE_GOOGLE_CLIENT_ID = "<client-id or leave unset>"   # frontend build needs it
+.\deploy\scripts\sync-and-deploy.ps1
+```
+
+This stages `backend/` (no `node_modules`/`dist`, via robocopy), scp's `backend/` and `deploy/`,
+builds the frontend on the laptop and scp's `dist/*`, then SSHes in and runs `deploy.sh`.
+
+**Backend-only context already synced?** SSH in and run the server script directly:
+
+```bash
+# [server: deploy]
+/srv/offerlens/deploy/scripts/deploy.sh
+```
+
+### `sync-and-deploy.ps1` (laptop) flags
+
+| Flag | Effect |
+|---|---|
+| *(none)* | Both backend and frontend: stage+scp backend, scp deploy/, build+scp frontend, run `deploy.sh`. |
+| `-Backend` | Backend + `deploy/` only (no frontend build). |
+| `-Frontend` | Frontend build + `dist/` copy only. |
+| `-SkipNginx` | Pass `--skip-nginx` to the server script (don't reload nginx). |
+| `-Check` | Pass `--check` — server-side pre-flight only, nothing is changed. |
+| `-Server <user@host>` | Override the SSH target (default `deploy@72.61.245.134`). |
+| `-GoogleClientId <id>` | Frontend build's `VITE_GOOGLE_CLIENT_ID` (else `$env:VITE_GOOGLE_CLIENT_ID`, else empty with a warning). |
+| `-WithMigrations` | Prints a reminder that migrations are the separate §6 tunnel step and continues WITHOUT running them. |
+
+### `deploy.sh` (server) flags
+
+| Flag | Effect |
+|---|---|
+| *(none)* | Rebuild + restart api/workers, poll health, fix `dist`/`datasets` perms, `nginx -t` + reload. |
+| `--check` | Pre-flight only (`free -h` + `compose ps`), then stop. Changes nothing. |
+| `--skip-nginx` | Skip the `nginx -t` + reload step (most redeploys don't change nginx). |
+| `--prune` | After a healthy deploy, `docker image prune -f` (dangling images only — never `-a`, never volumes). |
+| `--help` | Print usage. |
+
+`DEPLOY_DIR` overrides the deploy dir (default `/srv/offerlens/deploy`).
+
+**What `deploy.sh` does NOT do:** build the frontend (that is laptop-only, §7), run migrations
+(§6), change `.env.production` (§4), touch other domains' nginx, add git/Node, or publish a new
+port. It health-gates on `http://127.0.0.1:8100/api/v1/health` and exits non-zero (dumping the api
+logs) if health fails, and refuses to reload nginx if `nginx -t` fails — so a broken deploy is
+loud, and the other domains stay protected. It warns if the api logs show `using MockAiProvider`
+(a missing/invalid `GEMINI_API_KEY`).
+
+**Rollback.** Migrations are expand-only (§10 Rollback). To roll back code, re-sync the previous
+commit's `backend/` (and `dist/` for a frontend change) and re-run — do NOT write a destructive
+down-migration. See §6 for the migration flow, which is never part of a rollback.
 
 ---
 

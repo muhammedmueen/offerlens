@@ -14,7 +14,7 @@ type Scripted = CompletionResult | Error;
 
 class TestProvider extends BaseAiProvider {
     readonly name: AiProviderName = 'gemini';
-    protected readonly fallbackModels = ['gemini-2.5-flash', 'gemini-flash-lite-latest'] as const;
+    protected readonly fallbackModels = ['gemini-3.5-flash', 'gemini-flash-lite-latest'] as const;
     private queue: Scripted[];
     /** Models passed to each complete() call, in order — so tests can assert per-model pricing. */
     readonly modelsCalled: string[] = [];
@@ -25,7 +25,7 @@ class TestProvider extends BaseAiProvider {
     }
 
     protected modelFor(task: AiTask): string {
-        return task === 'metadata' ? 'gemini-flash-lite-latest' : 'gemini-2.5-flash';
+        return task === 'metadata' ? 'gemini-flash-lite-latest' : 'gemini-3.5-flash';
     }
 
     protected isRetryable(error: unknown): boolean {
@@ -83,10 +83,10 @@ describe('one row per call across a fallback chain', () => {
             errorCode: 'provider_503', inputTokens: 0, outputTokens: 0,
         });
         expect(events[1]).toMatchObject({
-            purpose: 'metadata', model: 'gemini-2.5-flash', success: true,
+            purpose: 'metadata', model: 'gemini-3.5-flash', success: true,
             inputTokens: 100, outputTokens: 20,
         });
-        expect(events[1].costUsd).toBeCloseTo(estimateCostUsd('gemini-2.5-flash', 100, 20)!, 9);
+        expect(events[1].costUsd).toBeCloseTo(estimateCostUsd('gemini-3.5-flash', 100, 20)!, 9);
     });
 });
 

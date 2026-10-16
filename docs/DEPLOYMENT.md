@@ -7,7 +7,9 @@ your own machine, see `LOCAL_DEVELOPMENT.md`.
 > runbook in [`DEPLOY_VPS.md`](DEPLOY_VPS.md) instead — it wraps this reference with the exact
 > commands for that one box (host nginx one origin, loopback-only Docker ports, SSH-tunnel
 > migrations, the `deploy/` artifacts). This file stays the general "what the app needs"
-> reference. Two behaviours it relies on: set **`TRUST_PROXY=1`** (section 7) behind the single
+> reference. For routine redeploys to that box, use the one-command scripts in
+> [`DEPLOY_VPS.md` §10.5 "Fast redeploy"](DEPLOY_VPS.md#105-fast-redeploy-one-command)
+> (`deploy/scripts/sync-and-deploy.ps1` from the laptop, or `deploy/scripts/deploy.sh` on the server). Two behaviours it relies on: set **`TRUST_PROXY=1`** (section 7) behind the single
 > host nginx, and in production image/scanned-document OCR without a real provider is refused
 > with `400 OCR_UNAVAILABLE` rather than returning canned text (section 5, "Honest OCR"). Set
 > `OCR_PROVIDER=azure` (+ the two Azure vars) to enable images and scanned PDFs.
@@ -71,7 +73,7 @@ the file to Docker with `--env-file`, it overrides the image's own `NODE_ENV=pro
 | `GEMINI_API_KEY` | one key for the chosen provider | none | optional | No key for the selected provider silently selects the **mock** provider (canned output) |
 | `OPENAI_API_KEY` | see above | none | optional | |
 | `ANTHROPIC_API_KEY` | see above | none | optional | |
-| `GEMINI_MODEL`, `OPENAI_MODEL`, `ANTHROPIC_MODEL` | no | built-in per-task defaults | optional | Leave blank. The OpenAI and Anthropic ids are unverified against live keys |
+| `GEMINI_MODEL`, `OPENAI_MODEL`, `ANTHROPIC_MODEL` | no | built-in per-task defaults | optional | Leave blank. The baked-in Gemini default is `gemini-3.5-flash` (verified against a live key 2026-10-15), so a fresh key needs no `GEMINI_MODEL` override — remove any carried-over `GEMINI_MODEL` after redeploy. The OpenAI and Anthropic ids are unverified against live keys |
 | `ALLOW_AI_REQUEST_OVERRIDE` | no | off | `z.coerce.boolean()` | **Leave unset.** Any non-empty value, including `false` and `0`, parses as true. Production ignores it anyway |
 | `OCR_PROVIDER` | no | `mock` | `mock` / `google` / `azure` | Which provider serves OCR. `mock` is refused in production (`OCR_UNAVAILABLE`). `azure` reads images **and** scanned PDFs; `google` reads images only. See section 5 |
 | `AZURE_DOC_INTELLIGENCE_ENDPOINT` | with `OCR_PROVIDER=azure` | none | url | Document Intelligence endpoint, e.g. `https://<name>.cognitiveservices.azure.com`. Encodes the region (Central India) |

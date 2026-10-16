@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { config } from '@/config/index.js';
-import { GEMINI_FALLBACK_MODELS, DEFAULT_GEMINI_MODEL } from '@/config/constants.js';
+import { GEMINI_FALLBACK_MODELS, DEFAULT_GEMINI_MODEL, GEMINI_LITE_MODEL } from '@/config/constants.js';
 import { BaseAiProvider, type AiTask, type CompletionRequest, type CompletionResult } from './base.ai.js';
 import type { AiProviderName } from './usage.js';
 
@@ -81,7 +81,7 @@ export class GeminiAiProvider extends BaseAiProvider {
         // generative tasks do not need the strongest either. Only analysis gets the default.
         switch (task) {
             case 'analysis': return DEFAULT_GEMINI_MODEL;
-            case 'metadata': return 'gemini-flash-lite-latest';
+            case 'metadata': return GEMINI_LITE_MODEL;
             default: return 'gemini-flash-latest';
         }
     }

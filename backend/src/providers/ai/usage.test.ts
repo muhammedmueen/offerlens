@@ -9,9 +9,9 @@ import {
 
 describe('estimateCostUsd', () => {
     it('prices a known model from the table', () => {
-        // gemini-2.5-flash: $0.30/M in, $2.50/M out.
+        // gemini-3.5-flash: $0.30/M in, $2.50/M out.
         // 1,000,000 in + 1,000,000 out = 0.30 + 2.50
-        expect(estimateCostUsd('gemini-2.5-flash', 1_000_000, 1_000_000)).toBeCloseTo(2.80, 6);
+        expect(estimateCostUsd('gemini-3.5-flash', 1_000_000, 1_000_000)).toBeCloseTo(2.80, 6);
     });
 
     it('matches a dated model id by prefix', () => {
@@ -36,7 +36,7 @@ describe('estimateCostUsd', () => {
     it('keeps enough precision for a single analysis', () => {
         // A real analysis is a few thousand tokens and costs fractions of a cent. Rounding
         // to four places would report it as 0.0000.
-        const cost = estimateCostUsd('gemini-2.5-flash', 4_000, 1_500);
+        const cost = estimateCostUsd('gemini-3.5-flash', 4_000, 1_500);
         expect(cost).not.toBeNull();
         expect(cost).toBeGreaterThan(0);
         expect(cost!).toBeLessThan(0.01);
@@ -47,7 +47,7 @@ describe('addCall', () => {
     it('accumulates tokens and counts every call', () => {
         // Retries and fallbacks are billed too. Counting only the successful call would
         // understate cost by whatever the failed attempts consumed.
-        let usage = emptyUsage('gemini', 'gemini-2.5-flash');
+        let usage = emptyUsage('gemini', 'gemini-3.5-flash');
         usage = addCall(usage, { inputTokens: 1000, outputTokens: 200 });
         usage = addCall(usage, { inputTokens: 1100, outputTokens: 250 });
 
@@ -61,8 +61,8 @@ describe('addCall', () => {
         // The bug this replaces: cost used to be recomputed from the cumulative tokens at the
         // LATEST model's price, so flash's tokens were billed at the lite rate. Now each call
         // is priced on its own model and the costs are summed.
-        let usage = emptyUsage('gemini', 'gemini-2.5-flash');
-        usage = addCall(usage, { model: 'gemini-2.5-flash', inputTokens: 100, outputTokens: 100 });
+        let usage = emptyUsage('gemini', 'gemini-3.5-flash');
+        usage = addCall(usage, { model: 'gemini-3.5-flash', inputTokens: 100, outputTokens: 100 });
         usage = addCall(usage, { model: 'gemini-flash-lite-latest', inputTokens: 50, outputTokens: 0 });
 
         expect(usage.model).toBe('gemini-flash-lite-latest');
@@ -75,8 +75,8 @@ describe('addCall', () => {
     it('makes the whole chain cost null when any one model is unpriced', () => {
         // A known model followed by an unknown one: we cannot sum what we cannot price, so the
         // total is null rather than a partial guess.
-        let usage = emptyUsage('gemini', 'gemini-2.5-flash');
-        usage = addCall(usage, { model: 'gemini-2.5-flash', inputTokens: 100, outputTokens: 100 });
+        let usage = emptyUsage('gemini', 'gemini-3.5-flash');
+        usage = addCall(usage, { model: 'gemini-3.5-flash', inputTokens: 100, outputTokens: 100 });
         usage = addCall(usage, { model: 'totally-unknown-model', inputTokens: 50, outputTokens: 50 });
         expect(usage.costUsd).toBeNull();
     });
@@ -120,7 +120,7 @@ describe('formatUsage', () => {
     });
 
     it('includes tokens and call count', () => {
-        let usage = emptyUsage('gemini', 'gemini-2.5-flash');
+        let usage = emptyUsage('gemini', 'gemini-3.5-flash');
         usage = addCall(usage, { inputTokens: 1000, outputTokens: 200 });
         const line = formatUsage(usage);
         expect(line).toContain('1000 in');
@@ -131,7 +131,7 @@ describe('formatUsage', () => {
 
 describe('modelVendor', () => {
     it('recognises each vendor by prefix', () => {
-        expect(modelVendor('gemini-2.5-flash')).toBe('gemini');
+        expect(modelVendor('gemini-3.5-flash')).toBe('gemini');
         expect(modelVendor('gpt-4.1-mini')).toBe('openai');
         expect(modelVendor('o3-mini')).toBe('openai');
         expect(modelVendor('claude-sonnet-4-5-20250929')).toBe('anthropic');
@@ -176,7 +176,7 @@ describe('ledger pricing additions', () => {
 
 describe('recordSafely', () => {
     const event: UsageEvent = {
-        purpose: 'analysis', provider: 'gemini', model: 'gemini-2.5-flash',
+        purpose: 'analysis', provider: 'gemini', model: 'gemini-3.5-flash',
         inputTokens: 1, outputTokens: 1, thinkingTokens: 0, units: null,
         costUsd: 0, success: true, errorCode: null,
     };

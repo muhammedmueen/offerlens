@@ -127,15 +127,17 @@ export const APP_VERSION = '1.0.0';
 // Ordered by preference — used for auto-fallback on transient model errors
 // (429 rate limit, 503 overloaded, 500 internal).
 //
-// Verified live 2026-09-09 against the ListModels API and real generateContent calls.
-// Removed as unusable:
-//   gemini-2.0-flash        — not present in ListModels
-//   gemini-2.0-flash-lite   — not present in ListModels
-//   gemini-2.5-flash-lite   — listed by ListModels but 404s on generateContent
+// Last verified live 2026-10-15 against a ListModels call on a fresh API key.
+// gemini-2.5-flash is DEAD for new keys — it 404s on generateContent — and was removed
+// entirely; a key issued today never resolves it, so a baked-in default of 2.5-flash
+// failed every analysis until GEMINI_MODEL was set by hand. The current flash line
+// (3.5/3.6/3.7/3.8) plus the moving `-latest` aliases are what the key can actually serve.
+//   gemini-2.0-flash / gemini-2.0-flash-lite — never existed in ListModels
+//   gemini-2.5-flash / gemini-2.5-flash-lite — gone for new keys
 //
 // Keep this list verified. A dead entry silently shortens the fallback chain.
 export const GEMINI_FALLBACK_MODELS = [
-    'gemini-2.5-flash',
+    'gemini-3.5-flash',
     'gemini-flash-latest',
     'gemini-flash-lite-latest',
 ] as const;
@@ -143,14 +145,21 @@ export const GEMINI_FALLBACK_MODELS = [
 /**
  * Default model when the caller doesn't pick one.
  *
- * Was `gemini-flash-latest`, which is a moving alias and was returning 503 when this
- * was checked. `gemini-2.5-flash` is a pinned version that answered reliably, so it is
- * a better default; the alias stays in the fallback chain above.
+ * `gemini-3.5-flash` is a pinned, owner-chosen version confirmed available to a fresh key.
+ * The moving `-latest` aliases stay in the fallback chain above as a safety net when the
+ * pinned model is briefly overloaded. A fresh key now works WITHOUT the GEMINI_MODEL
+ * override — it only had to be set because the old default (gemini-2.5-flash) was dead.
  *
  * Previously this string was duplicated across 8 call sites in routes, services and
  * both workers.
  */
 export const DEFAULT_GEMINI_MODEL: string = GEMINI_FALLBACK_MODELS[0];
+
+/**
+ * Cheapest Gemini model, used for metadata/autofill extraction (five fields, no need for
+ * the strongest). `gemini-flash-lite-latest` is a moving alias confirmed on the live key.
+ */
+export const GEMINI_LITE_MODEL = 'gemini-flash-lite-latest';
 
 /**
  * OpenAI models, best first, cheapest last.

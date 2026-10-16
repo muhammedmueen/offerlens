@@ -66,9 +66,11 @@ interface Price {
  */
 export const PRICING: Record<string, Price> = {
     // ── Gemini ──
-    'gemini-2.5-flash': { inputPerMillion: 0.30, outputPerMillion: 2.50 },
+    // The flash line is priced at the standard flash rate; the lite line at the lite rate.
+    // Prefix matching (priceFor) covers dated/newer flash ids that share these prefixes.
+    'gemini-3.5-flash': { inputPerMillion: 0.30, outputPerMillion: 2.50 },
     'gemini-flash-latest': { inputPerMillion: 0.30, outputPerMillion: 2.50 },
-    'gemini-2.5-flash-lite': { inputPerMillion: 0.10, outputPerMillion: 0.40 },
+    'gemini-3.5-flash-lite': { inputPerMillion: 0.10, outputPerMillion: 0.40 },
     'gemini-flash-lite-latest': { inputPerMillion: 0.10, outputPerMillion: 0.40 },
     // The ≤200k-prompt tier, which covers every prompt this app sends. Above 200k Google
     // charges roughly double; we never reach it. Corroborated by secondary calculators, so
@@ -111,7 +113,7 @@ function priceFor(model: string): Price | null {
  *
  * Exists so a provider can notice it has been handed another vendor's model id. That is not
  * hypothetical: the enqueue path used to default `model` to `DEFAULT_GEMINI_MODEL`, so
- * selecting OpenAI or Anthropic handed the adapter "gemini-2.5-flash". Neither vendor's
+ * selecting OpenAI or Anthropic handed the adapter a Gemini id like "gemini-3.5-flash". Neither vendor's
  * invalid-model error is classified as retryable — correctly, since retrying a wrong request
  * elsewhere only burns quota — so the fallback chain was never tried and the analysis failed
  * outright, with nothing in the log naming the cause.

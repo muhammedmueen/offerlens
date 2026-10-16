@@ -4457,3 +4457,55 @@ the S0 resource exists): create the Document Intelligence resource in Central In
 alert; upload one scanned PDF and one JPG photo; confirm text is returned, pages concatenate, `ocrConfidence` is
 populated, latency from the India VPS is acceptable, and one ledger row per call is written with `provider='azure-doc-intelligence'`,
 `billedTo='platform'`, `units=pageCount`.
+
+## Outcome — Live-deployment fixes (2026-10-15)
+
+Three bugs surfaced on the first live VPS deploy (real Google login, a fresh Gemini key, an
+offer analysed end to end). All three predate the deploy work; the deploy is just what exposed
+them. Fixed on branch `phase5a-salary-reference-seed`.
+
+**1. Expired/invalid Bearer returned 403, not 401.** `authenticate` swallowed a failed token
+verification and let the request continue as a guest, so `requireRegistered` answered an
+expired token on `/users/me` with **403 GUEST_RESTRICTED**. The frontend refresh interceptor
+only fires on **401**, so an expired access token silently logged the user out instead of
+transparently refreshing. Fix (`middleware/authenticate.ts`): the `catch` now flags
+`request.tokenInvalid`, and `requireRegistered` returns **401 `TOKEN_EXPIRED`** when a token
+was present but bad, keeping **403 `GUEST_RESTRICTED`** only for a request with no token at all
+(a true guest — ADR-001 unchanged). The 401 contract now holds for every members-only route,
+so the interceptor refreshes and retries once, logging out cleanly only if the refresh token is
+also dead.
+
+**2. Processing page polled in a runaway loop.** `ProcessingPage`'s stop predicate read
+`query.state.data?.status`, which is `undefined` on an errored tick, so it never returned
+`false`; the 3s interval ran forever and the global `retry:1` doubled every failed tick into a
+request storm (the ~40 identical requests the owner saw). Fix (`pages/ProcessingPage.tsx`): the
+predicate now stops on a terminal state (`COMPLETED`/`FAILED`) **and** on `query.state.status
+=== "error"`; `retry: false` is set on this query only (the global default is left alone); and a
+hard cap of **5 minutes** (analyses can take ~3 min) disables the query via a `gaveUp` flag,
+showing an accessible give-up message (`role="status"`, `aria-live`) pointing to Dashboard /
+Try Again. The poll rides the shared axios instance, so a post-fix-1 401 refreshes and the
+retried tick succeeds.
+
+**3. Baked-in Gemini default was dead for new keys.** `gemini-2.5-flash` 404s on
+`generateContent` for a key issued today, so every analysis failed until `GEMINI_MODEL` was set
+by hand. `DEFAULT_GEMINI_MODEL` is now the owner-chosen **`gemini-3.5-flash`**, and
+`GEMINI_FALLBACK_MODELS` is a verified, dead-entry-free chain
+(`['gemini-3.5-flash', 'gemini-flash-latest', 'gemini-flash-lite-latest']`) last checked against
+a live ListModels on 2026-10-15. The metadata/lite task points at `gemini-flash-lite-latest`
+(`GEMINI_LITE_MODEL`). A fresh key now works **without** the `GEMINI_MODEL` override — it is
+optional, and `GEMINI_MODEL=gemini-3.8-flash` can be removed from `.env.production` after a
+redeploy.
+
+**Verified (offline):** backend `tsc`/eslint clean and `npm test` green (new
+`authenticate.test.ts`, model-name assertions updated to `gemini-3.5-flash`); frontend
+`tsc -p tsconfig.app.json`/eslint/build clean and vitest green (new `ProcessingPage.test.tsx`
+poll/cap tests); regression `test-security.mjs` 20/20, `test-m2.mjs`/`test-m3.mjs` 0 failed. A
+backend grep for `gemini-2.5-flash`/`gemini-2.0-flash` returns only labelled historical comment
+lines.
+
+**Could NOT be verified without the live server:** the real expired-token → 401 → refresh round
+trip through the browser interceptor, and a real slow `gemini-3.5-flash` analysis end to end.
+**Owner smoke checklist:** after redeploy, (a) let an access token expire (~15 min) and confirm
+`/users/me` 401s and the UI refreshes rather than bouncing to login; (b) run an analysis with no
+`GEMINI_MODEL` set and confirm it completes on `gemini-3.5-flash`; (c) leave the processing page
+open past 5 min on a stuck offer and confirm it stops polling and shows the give-up message.
