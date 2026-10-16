@@ -1,0 +1,6 @@
+# Shell scripts must be LF, even on Windows checkouts — they run on the Linux server
+# (a CRLF shebang makes Linux look for an interpreter literally named "bash\r").
+*.sh text eol=lf
+
+# Keep other line-ending handling automatic.
+* text=auto
