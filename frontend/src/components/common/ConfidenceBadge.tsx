@@ -22,9 +22,9 @@ interface ConfidenceBadgeProps {
  * survives greyscale and colour blindness.
  */
 const STYLES: Record<ConfidenceLevel, { icon: typeof ShieldCheck; className: string; word: string }> = {
-  high: { icon: ShieldCheck, className: "text-green-600", word: "Verified" },
-  medium: { icon: ShieldQuestion, className: "text-yellow-600", word: "Check this" },
-  low: { icon: ShieldAlert, className: "text-red-600", word: "Unverified" },
+  high: { icon: ShieldCheck, className: "text-green-700", word: "Verified" },
+  medium: { icon: ShieldQuestion, className: "text-amber-700", word: "Check this" },
+  low: { icon: ShieldAlert, className: "text-red-700", word: "Unverified" },
 };
 
 const ConfidenceBadge: React.FC<ConfidenceBadgeProps> = ({ level, reason, label }) => {
@@ -34,7 +34,7 @@ const ConfidenceBadge: React.FC<ConfidenceBadgeProps> = ({ level, reason, label 
     <Tooltip>
       <TooltipTrigger asChild>
         <span
-          className={`inline-flex items-center gap-1 text-xs font-medium ${className}`}
+          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${className}`}
           // The tooltip is hover/focus only, so the reason is also part of the accessible
           // name — otherwise a screen reader gets the level with no explanation.
           aria-label={`${label}: ${word}. ${reason}`}

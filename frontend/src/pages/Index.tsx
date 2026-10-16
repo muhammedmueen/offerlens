@@ -1,162 +1,126 @@
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import PageShell from "@/components/layout/PageShell";
-import { Upload, FileSearch, BarChart3, ShieldAlert, ArrowRight, CheckCircle } from "lucide-react";
-import { motion } from "framer-motion";
+import { ArrowRight, Check, FlaskConical } from "lucide-react";
+import { motion, useReducedMotion } from "framer-motion";
+import OfferUnderExamination from "@/components/landing/OfferUnderExamination";
+import HowItWorks from "@/components/landing/HowItWorks";
+import SampleResult from "@/components/landing/SampleResult";
+import WhatWeCheck from "@/components/landing/WhatWeCheck";
+import ClosingCta from "@/components/landing/ClosingCta";
 
-const stats = [
-  { label: "Offers Analyzed", value: "12,400+" },
-  { label: "Avg Score", value: "67" },
-  { label: "Red Flags Found", value: "34,000+" },
-];
+// The landing hero realises the approved concept in .agents/tasks/offerlens-landing-hero.svg:
+// an offer letter under examination (copy-left, document-right), honest machine copy, one CTA.
+// Not the generic centered-headline template. Copy is the H1/subhead/sub-promises verbatim
+// from the approved hero; the document illustration is decorative (aria-hidden) with the real
+// verdict spoken by the surrounding text.
 
-const steps = [
-  { icon: Upload, title: "Upload", desc: "Drop your offer letter — PDF or image" },
-  { icon: FileSearch, title: "AI Analyzes", desc: "We extract and benchmark every detail" },
-  { icon: BarChart3, title: "Get Score", desc: "See your score, red flags, and tips" },
-];
-
-const features = [
-  { icon: BarChart3, title: "Salary Benchmarking", desc: "Compare against real market data" },
-  { icon: ShieldAlert, title: "Red Flag Detection", desc: "Spot non-competes, probation traps, and more" },
-  { icon: CheckCircle, title: "Negotiation Tips", desc: "Actionable advice to get a better deal" },
-];
+const subPromises = ["No signup to get your score", "We flag what, and quote why"];
 
 const fadeUp = {
-  hidden: { opacity: 0, y: 24 },
+  hidden: { opacity: 0, y: 12 },
   visible: (i: number) => ({
     opacity: 1,
     y: 0,
-    transition: { delay: i * 0.12, duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] as const },
+    transition: { delay: i * 0.08, duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] as const },
   }),
 };
 
-const stagger = {
-  visible: { transition: { staggerChildren: 0.1 } },
-};
+// Section-enter: the hero's restrained single fade + 12px rise, once. Under prefers-reduced-motion
+// it collapses to opacity-only (no rise, no loop) — matching spec §8 / the hero's motion.
+const sections = [HowItWorks, SampleResult, WhatWeCheck, ClosingCta];
 
 const LandingPage = () => {
   const navigate = useNavigate();
+  const reduce = useReducedMotion();
 
   return (
     <PageShell>
-      {/* Hero */}
-      <section className="flex flex-col items-center justify-center px-4 py-24 text-center md:py-32 skeu-subtle-bg">
-        <motion.h1
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94] }}
-          className="max-w-3xl text-4xl font-bold leading-tight tracking-tight md:text-5xl lg:text-6xl text-foreground"
-        >
-          Is your offer actually good?{" "}
-          <span className="brand-gradient-text">Find out in 30 seconds.</span>
-        </motion.h1>
-        <motion.p
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2, duration: 0.5 }}
-          className="mt-4 max-w-lg text-muted-foreground md:text-lg"
-        >
-          No signup required. Free. Private.
-        </motion.p>
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.4, duration: 0.4, ease: "easeOut" }}
-        >
-          <Button
-            onClick={() => navigate("/upload")}
-            className="mt-8 h-12 px-8 text-base font-semibold brand-gradient text-primary-foreground hover:opacity-90 transition-all hover:-translate-y-0.5 hover:glow-primary cursor-pointer rounded-xl skeu-btn"
-          >
-            Upload Your Offer Letter
-            <ArrowRight className="ml-2 h-5 w-5" />
-          </Button>
-        </motion.div>
-      </section>
+      <section className="relative overflow-hidden bg-graph">
+        <div className="container mx-auto grid max-w-6xl grid-cols-1 items-center gap-12 px-4 py-16 sm:px-6 lg:grid-cols-2 lg:py-24">
+          {/* Copy + CTA */}
+          <motion.div initial="hidden" animate="visible">
+            <motion.p custom={0} variants={fadeUp} className="font-mono text-xs uppercase tracking-widest text-cyan-700">
+              // a lens on your offer
+            </motion.p>
 
-      {/* 3-Step Flow */}
-      <section className="container mx-auto px-4 pb-20">
-        <motion.div
-          className="grid gap-8 md:grid-cols-3"
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, margin: "-60px" }}
-          variants={stagger}
-        >
-          {steps.map((s, i) => (
-            <motion.div
-              key={i}
-              custom={i}
+            <motion.h1
+              custom={1}
               variants={fadeUp}
-              whileHover={{ y: -6, transition: { duration: 0.2 } }}
-              className="flex flex-col items-center gap-3 rounded-2xl p-6 text-center transition-shadow skeu-card"
+              className="mt-5 text-4xl font-semibold leading-[1.08] tracking-tight text-stone-900 sm:text-5xl lg:text-6xl"
             >
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 skeu-emboss">
-                <s.icon className="h-6 w-6 text-primary" />
-              </div>
-              <h3 className="font-semibold text-foreground">{s.title}</h3>
-              <p className="text-sm text-muted-foreground">{s.desc}</p>
-            </motion.div>
-          ))}
-        </motion.div>
-      </section>
+              Is this offer actually <span className="text-cyan-700">good?</span>
+            </motion.h1>
 
-      {/* Stats */}
-      <motion.section
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, margin: "-40px" }}
-        variants={stagger}
-        className="border-y border-border py-12"
-        style={{ background: 'var(--surface-gradient)' }}
-      >
-        <div className="container mx-auto grid grid-cols-3 gap-4 px-4 text-center">
-          {stats.map((s, i) => (
-            <motion.div key={s.label} custom={i} variants={fadeUp}>
-              <p className="text-2xl font-bold text-primary md:text-3xl">{s.value}</p>
-              <p className="text-xs text-muted-foreground mt-1">{s.label}</p>
-            </motion.div>
-          ))}
-        </div>
-      </motion.section>
+            <motion.p custom={2} variants={fadeUp} className="mt-5 max-w-xl text-base leading-relaxed text-stone-700 sm:text-lg">
+              We read the letter line by line — real salary benchmarks, the red flags most
+              people miss, and a deterministic 0–100 score. Nothing fabricated.
+            </motion.p>
 
-      {/* Features */}
-      <section className="container mx-auto px-4 py-20">
-        <motion.h2
-          initial={{ opacity: 0, y: 16 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.5 }}
-          className="mb-10 text-center text-2xl font-bold md:text-3xl text-foreground"
-        >
-          What you get
-        </motion.h2>
-        <motion.div
-          className="grid gap-8 md:grid-cols-3"
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, margin: "-60px" }}
-          variants={stagger}
-        >
-          {features.map((f, i) => (
+            <motion.ul custom={3} variants={fadeUp} className="mt-6 flex flex-col gap-2 sm:flex-row sm:gap-6">
+              {subPromises.map((p) => (
+                <li key={p} className="flex items-center gap-2 text-sm text-stone-700">
+                  <span className="flex h-4 w-4 items-center justify-center rounded-full bg-green-50">
+                    <Check className="h-3 w-3 text-green-700" aria-hidden="true" />
+                  </span>
+                  {p}
+                </li>
+              ))}
+            </motion.ul>
+
+            <motion.div custom={4} variants={fadeUp} className="mt-8">
+              <Button
+                onClick={() => navigate("/upload")}
+                className="h-11 rounded-md bg-cyan-700 px-6 text-base font-medium text-white hover:bg-cyan-800 cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-cyan-700 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              >
+                Drop or paste your offer
+                <ArrowRight className="ml-2 h-5 w-5" aria-hidden="true" />
+              </Button>
+              <p className="mt-4 font-mono text-xs text-stone-500">
+                // pdf, image, or paste the text · up to 10 MB
+              </p>
+            </motion.div>
+
+            {/* Modelled-not-verified honesty chip (dashed violet .estimate treatment). */}
             <motion.div
-              key={f.title}
-              custom={i}
+              custom={5}
               variants={fadeUp}
-              whileHover={{ y: -6, transition: { duration: 0.2 } }}
-              className="flex gap-4 rounded-2xl p-6 transition-shadow skeu-card"
+              className="mt-8 flex max-w-md items-start gap-3 rounded-xl border border-dashed border-violet-300 bg-violet-50 p-4"
             >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-secondary/10 skeu-emboss">
-                <f.icon className="h-5 w-5 text-secondary" />
-              </div>
+              <FlaskConical className="mt-0.5 h-5 w-5 shrink-0 text-violet-700" aria-hidden="true" />
               <div>
-                <h3 className="font-semibold text-foreground">{f.title}</h3>
-                <p className="mt-1 text-sm text-muted-foreground">{f.desc}</p>
+                <p className="text-sm font-semibold text-violet-700">Modelled numbers stay labelled.</p>
+                <p className="mt-0.5 text-sm text-stone-700">
+                  We never dress an estimate up as a verified figure.
+                </p>
               </div>
             </motion.div>
-          ))}
-        </motion.div>
+          </motion.div>
+
+          {/* The offer under examination (decorative illustration). */}
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.2, ease: [0.25, 0.46, 0.45, 0.94] }}
+            className="hidden lg:block"
+          >
+            <OfferUnderExamination />
+          </motion.div>
+        </div>
       </section>
+
+      {/* The four approved sections below the hero. Each enters once with the hero's fade+rise. */}
+      {sections.map((Section, i) => (
+        <motion.div
+          key={i}
+          initial={reduce ? { opacity: 0 } : { opacity: 0, y: 12 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, amount: 0.2 }}
+          transition={{ duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] }}
+        >
+          <Section />
+        </motion.div>
+      ))}
     </PageShell>
   );
 };

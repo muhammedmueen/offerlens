@@ -95,7 +95,7 @@ const ComparePage = () => {
         <Button
           onClick={() => compareMutation.mutate()}
           disabled={selectedIds.length < 2 || compareMutation.isPending}
-          className="brand-gradient text-primary-foreground hover:opacity-90 cursor-pointer rounded-xl skeu-btn"
+          className="cursor-pointer"
         >
           {compareMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
           Compare Selected

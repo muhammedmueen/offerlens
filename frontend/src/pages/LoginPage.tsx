@@ -55,7 +55,7 @@ const LoginPage = () => {
   return (
     <PageShell>
       <div className="container mx-auto flex min-h-[70vh] items-center justify-center px-4">
-        <div className="w-full max-w-sm space-y-6 rounded-2xl p-8 skeu-card">
+        <div className="w-full max-w-sm space-y-6 rounded-2xl border border-stone-200 bg-white p-8 shadow-sm">
           <div className="text-center">
             <h1 className="text-2xl font-bold text-foreground">Welcome back</h1>
             <p className="text-sm text-muted-foreground mt-1">Log in to your OfferLens account</p>
@@ -64,20 +64,20 @@ const LoginPage = () => {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="you@example.com" className="rounded-lg" />
+              <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="you@example.com" />
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••" className="rounded-lg" />
+              <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••" />
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
-            <Button type="submit" disabled={loading} className="w-full brand-gradient text-primary-foreground hover:opacity-90 cursor-pointer rounded-xl skeu-btn">
+            <Button type="submit" disabled={loading} className="w-full cursor-pointer rounded-md">
               {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Log in
             </Button>
           </form>
 
-          <Button variant="outline" className="w-full cursor-pointer rounded-xl skeu-emboss" onClick={() => googleLogin()}>
+          <Button variant="outline" className="w-full cursor-pointer rounded-md" onClick={() => googleLogin()}>
             Login with Google
           </Button>
 

@@ -45,7 +45,7 @@ const ContributeSalaryCard = ({ offerId, analysis }: { offerId: string; analysis
     : "From your offer letter. Edit it if you like.";
 
   return (
-    <section aria-labelledby="contribute-heading" className="rounded-2xl p-6 skeu-card">
+    <section aria-labelledby="contribute-heading" className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
       {/* Always mounted and empty until used, so announcements are reliable. Holds only the cooldown and validation messages. */}
       <div role="status" aria-live="polite" className="text-sm text-foreground">{message}</div>
       <div className="space-y-4">

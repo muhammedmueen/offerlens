@@ -44,10 +44,10 @@ const DashboardPage = () => {
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
           <div className="flex gap-2">
-            <Button onClick={() => navigate("/upload")} className="brand-gradient text-primary-foreground hover:opacity-90 cursor-pointer rounded-xl skeu-btn">
+            <Button onClick={() => navigate("/upload")} className="cursor-pointer rounded-md">
               <Upload className="mr-2 h-4 w-4" /> Upload New
             </Button>
-            <Button variant="outline" onClick={() => navigate("/compare")} className="cursor-pointer rounded-xl skeu-emboss">
+            <Button variant="outline" onClick={() => navigate("/compare")} className="cursor-pointer rounded-md">
               <GitCompare className="mr-2 h-4 w-4" /> Compare
             </Button>
           </div>
@@ -59,7 +59,7 @@ const DashboardPage = () => {
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {stats.map((s, i) => (
-              <MotionCard key={s.label} delay={i * 0.08} className="rounded-2xl p-4 skeu-card">
+              <MotionCard key={s.label} delay={i * 0.08} className="rounded-xl border border-stone-200 bg-white p-4 shadow-sm">
                 <div className="flex items-center gap-2 text-muted-foreground mb-1">
                   <s.icon className="h-4 w-4" />
                   <span className="text-xs">{s.label}</span>
@@ -71,7 +71,7 @@ const DashboardPage = () => {
         )}
 
         {/* Offers Table */}
-        <div className="rounded-2xl skeu-card overflow-hidden">
+        <div className="rounded-xl border border-stone-200 bg-white shadow-sm overflow-hidden">
           <div className="flex items-center justify-between border-b border-border p-4">
             <h2 className="font-semibold text-foreground">Offer History</h2>
             <div className="flex gap-2">
@@ -114,7 +114,7 @@ const DashboardPage = () => {
                         <td className="px-4 py-3">{o.role || "—"}</td>
                         <td className="px-4 py-3">{o.score ?? "—"}</td>
                         <td className="px-4 py-3">
-                          <span className={`rounded-full px-2 py-0.5 text-xs ${o.status === "COMPLETED" ? "bg-green-100 text-green-700" : o.status === "FAILED" ? "bg-red-100 text-red-700" : "bg-yellow-100 text-yellow-700"}`}>
+                          <span className={`rounded-full px-2 py-0.5 text-xs ${o.status === "COMPLETED" ? "bg-green-50 text-green-700" : o.status === "FAILED" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"}`}>
                             {o.status}
                           </span>
                         </td>

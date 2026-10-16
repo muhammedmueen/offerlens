@@ -5,10 +5,12 @@ interface ScoreGaugeProps {
   size?: number;
 }
 
+// Single-band verdict colour (spec §7): one solid hue per band, no gradient.
+// ≥70 green-700, 40–69 amber-700, <40 red-700 — the spec §3.2 honest semantic hexes.
 const getColor = (score: number) => {
-  if (score >= 70) return "hsl(142, 71%, 45%)";
-  if (score >= 40) return "hsl(48, 96%, 53%)";
-  return "hsl(0, 84%, 60%)";
+  if (score >= 70) return "#15803D";
+  if (score >= 40) return "#B45309";
+  return "#B91C1C";
 };
 
 const ScoreGauge: React.FC<ScoreGaugeProps> = ({ score, size = 180 }) => {
@@ -39,8 +41,8 @@ const ScoreGauge: React.FC<ScoreGaugeProps> = ({ score, size = 180 }) => {
         </PieChart>
       </ResponsiveContainer>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-4xl font-bold" style={{ color }}>{score}</span>
-        <span className="text-xs text-muted-foreground">/ 100</span>
+        <span className="text-4xl font-semibold tabular-nums tracking-tight" style={{ color }}>{score}</span>
+        <span className="font-mono text-xs text-muted-foreground">/ 100</span>
       </div>
     </div>
   );

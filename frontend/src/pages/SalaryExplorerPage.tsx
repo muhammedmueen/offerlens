@@ -42,7 +42,7 @@ const SalaryExplorerPage = () => {
         <div className="flex flex-col gap-4 sm:flex-row">
           <Input value={role} onChange={(e) => setRole(e.target.value)} placeholder="Role (e.g. Software Engineer)" className="flex-1" />
           <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="City (e.g. Bangalore)" className="flex-1" />
-          <Button onClick={() => { setSearched(true); refetch(); }} disabled={!role || !city} className="brand-gradient text-primary-foreground hover:opacity-90 cursor-pointer rounded-xl skeu-btn">
+          <Button onClick={() => { setSearched(true); refetch(); }} disabled={!role || !city} className="cursor-pointer">
             <Search className="mr-2 h-4 w-4" /> Search
           </Button>
         </div>
@@ -50,7 +50,7 @@ const SalaryExplorerPage = () => {
         {isLoading && <LoadingState rows={2} />}
 
         {hasStats && (
-          <div className="rounded-xl border border-border bg-card p-6 space-y-4">
+          <div className="rounded-xl border border-stone-200 bg-white bg-graph p-6 space-y-4 shadow-sm">
             <SalaryBar p25={data.p25} p50={data.p50} p75={data.p75} p90={data.p90} />
             <BenchmarkNotice
               dataSource={data.dataSource}

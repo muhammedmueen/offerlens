@@ -50,7 +50,7 @@ const ForumListPage = () => {
           <h1 className="text-2xl font-bold">Forum</h1>
           <Button
             onClick={() => isAuthenticated ? setCreateOpen(true) : setAuthGateOpen(true)}
-            className="brand-gradient text-primary-foreground hover:opacity-90 cursor-pointer rounded-xl skeu-btn"
+            className="cursor-pointer rounded-md"
           >
             <Plus className="mr-1 h-4 w-4" /> New Post
           </Button>
@@ -88,8 +88,8 @@ const ForumListPage = () => {
             <form onSubmit={(e) => { e.preventDefault(); createMutation.mutate(); }} className="space-y-4">
               <div className="space-y-2"><Label>Title</Label><Input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} required /></div>
               <div className="space-y-2"><Label>Category</Label><Input value={newCategory} onChange={(e) => setNewCategory(e.target.value)} placeholder="e.g. Negotiation" /></div>
-              <div className="space-y-2"><Label>Body</Label><textarea value={newBody} onChange={(e) => setNewBody(e.target.value)} required className="min-h-[100px] w-full rounded-lg border border-input bg-background p-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" /></div>
-              <Button type="submit" disabled={createMutation.isPending} className="w-full brand-gradient text-primary-foreground hover:opacity-90 cursor-pointer rounded-xl skeu-btn">
+              <div className="space-y-2"><Label>Body</Label><textarea value={newBody} onChange={(e) => setNewBody(e.target.value)} required className="min-h-[100px] w-full rounded-md border border-stone-300 bg-white p-3 text-sm focus-visible:border-cyan-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-700" /></div>
+              <Button type="submit" disabled={createMutation.isPending} className="w-full cursor-pointer rounded-md">
                 {createMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} Post
               </Button>
             </form>
@@ -132,7 +132,7 @@ export const ForumPostPage = () => {
           <h1 className="text-xl font-bold">{post.title}</h1>
           <p className="text-xs text-muted-foreground">{post.author?.name || "Anonymous"} · {new Date(post.createdAt).toLocaleDateString()}</p>
         </div>
-        <div className="prose prose-sm dark:prose-invert max-w-none">
+        <div className="prose prose-sm max-w-none">
           <p className="text-sm whitespace-pre-wrap">{post.body}</p>
         </div>
 
@@ -148,7 +148,7 @@ export const ForumPostPage = () => {
           {isAuthenticated ? (
             <form onSubmit={(e) => { e.preventDefault(); commentMutation.mutate(); }} className="flex gap-2">
               <Input value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Write a comment…" className="flex-1" required />
-              <Button type="submit" disabled={commentMutation.isPending} className="brand-gradient text-primary-foreground hover:opacity-90 cursor-pointer rounded-xl skeu-btn">
+              <Button type="submit" disabled={commentMutation.isPending} className="cursor-pointer rounded-md">
                 {commentMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Comment"}
               </Button>
             </form>

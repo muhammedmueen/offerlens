@@ -1,4 +1,4 @@
-import { Globe } from "lucide-react";
+import { FlaskConical, Globe, Users } from "lucide-react";
 import { DATASET_URL, ODBL_URL, PLFS_DATASET_URL, PLFS_URL, SO_SURVEY_URL } from "@/constants/attribution";
 
 interface BenchmarkNoticeProps {
@@ -50,9 +50,17 @@ function ExternalLink({ href, children }: { href: string; children: React.ReactN
  */
 const BenchmarkNotice = ({ dataSource, sampleSize, disclaimer, payBasis, payMix, cityAdjustment }: BenchmarkNoticeProps) => {
   if (dataSource === "public_survey") {
+    // Modelled treatment (spec §3.2 / §7): violet-700 text, a dashed violet top rule and the
+    // literal word "Modelled" — a different hue family + border style so an estimate can never
+    // read as the solid-green Verified state. The disclaimer prose and attribution are untouched.
     return (
-      <aside aria-label="Salary benchmark source" className="mt-2 space-y-1 text-sm text-foreground">
-        <p className="flex items-center gap-1.5 font-medium">
+      <aside
+        aria-label="Salary benchmark source"
+        className="mt-2 space-y-1 border-t border-dashed border-violet-200 pt-2 text-sm text-foreground"
+      >
+        <p className="flex items-center gap-1.5 font-medium text-violet-700">
+          <FlaskConical className="h-4 w-4" aria-hidden="true" />
+          <span className="font-mono text-xs uppercase tracking-wide">Modelled</span>
           <Globe className="h-4 w-4" aria-hidden="true" />
           {cityAdjustment ? `Public survey, adjusted for ${cityAdjustment.cityLabel}` : "Public survey, India-wide"}
         </p>
@@ -82,15 +90,20 @@ const BenchmarkNotice = ({ dataSource, sampleSize, disclaimer, payBasis, payMix,
     );
   }
 
-  const label = dataSource === "crowdsourced" ? payBasisLabel(payBasis, payMix) : null;
-  const base =
-    dataSource === "crowdsourced"
-      ? `Based on crowdsourced submissions${typeof sampleSize === "number" ? ` (n = ${sampleSize})` : ""}${label ? `, ${label}` : ""}`
-      : "AI-estimated range — not benchmarked against real submissions";
+  const isCrowd = dataSource === "crowdsourced";
+  const label = isCrowd ? payBasisLabel(payBasis, payMix) : null;
+  const base = isCrowd
+    ? `Based on crowdsourced submissions${typeof sampleSize === "number" ? ` (n = ${sampleSize})` : ""}${label ? `, ${label}` : ""}`
+    : "AI-estimated range — not benchmarked against real submissions";
+  // Crowdsourced carries the Users/Globe mark; AI-estimated stays label-only. Both use
+  // text-stone-500 (ink-3, 4.80:1 on white) — never a lighter muted token (spec §7).
   return (
-    <p className="mt-2 text-xs text-muted-foreground">
-      {base}
-      {disclaimer ? ` · ${disclaimer}` : ""}
+    <p className="mt-2 flex items-start gap-1.5 text-xs text-stone-500">
+      {isCrowd && <Users className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+      <span>
+        {base}
+        {disclaimer ? ` · ${disclaimer}` : ""}
+      </span>
     </p>
   );
 };

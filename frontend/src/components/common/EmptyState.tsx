@@ -17,7 +17,7 @@ const EmptyState: React.FC<EmptyStateProps> = ({ title, description, actionLabel
       <h3 className="text-lg font-semibold">{title}</h3>
       {description && <p className="text-sm text-muted-foreground max-w-md">{description}</p>}
       {actionLabel && actionTo && (
-        <Button onClick={() => navigate(actionTo)} className="cursor-pointer brand-gradient text-primary-foreground hover:opacity-90 rounded-xl skeu-btn">
+        <Button onClick={() => navigate(actionTo)} className="cursor-pointer rounded-md">
           {actionLabel}
         </Button>
       )}
