@@ -1,6 +1,7 @@
 import { Flag, AlertTriangle, Info, FlaskConical, Globe } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import ScoreGauge from "@/components/charts/ScoreGauge";
+import AnnotationRule from "@/components/motion/AnnotationRule";
 import { ODBL_URL, SO_SURVEY_URL } from "@/constants/attribution";
 
 /**
@@ -66,7 +67,9 @@ const SampleResult = () => (
         {/* Verdict card — reuses the ScoreGauge look (single solid band). */}
         <div className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm in-focus">
           <p className="font-mono text-xs uppercase tracking-widest text-cyan-700">The verdict</p>
-          <p className="mt-1 text-sm text-stone-700">Senior Backend Engineer · Bengaluru</p>
+          {/* Moment 5: the annotation rule draws in under the verdict label as the card arrives. */}
+          <AnnotationRule className="mt-1.5 w-16" />
+          <p className="mt-1.5 text-sm text-stone-700">Senior Backend Engineer · Bengaluru</p>
 
           <div className="mt-4 flex items-center gap-6">
             <ScoreGauge score={73} size={140} />
