@@ -7,6 +7,8 @@ import PageShell from "@/components/layout/PageShell";
 import ErrorState from "@/components/common/ErrorState";
 import { CheckCircle, Loader2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import { EASE } from "@/lib/motion";
 
 const STEPS = ["Uploading", "Reading Document", "Analyzing", "Scoring"];
 
@@ -26,6 +28,9 @@ const ProcessingPage = () => {
   const navigate = useNavigate();
   const [elapsed, setElapsed] = useState(0);
   const [gaveUp, setGaveUp] = useState(false);
+  // Moment 3: presentational motion only — the scan line + step animations read off the
+  // existing stepIndex; the poll below is untouched. Reduced motion holds everything static.
+  const reduce = useReducedMotion() ?? false;
 
   const { data, error, refetch } = useQuery({
     queryKey: ["offer-status", id],
@@ -154,9 +159,32 @@ const ProcessingPage = () => {
     <PageShell hideFooter>
       <div className="bg-graph">
       <div className="container mx-auto flex max-w-lg flex-col items-center px-4 py-24 text-center">
-        <div className="mb-8 flex h-16 w-16 items-center justify-center rounded-2xl border border-cyan-200 bg-cyan-50">
-          {/* Reduced motion: pulse instead of spin (spec §7 / §8 motion). */}
-          <Loader2 className="h-8 w-8 text-cyan-700 motion-safe:animate-spin motion-reduce:animate-pulse" />
+        {/* Examination motif (Moment 3): a document glyph with a thin cyan scan line sweeping
+            it — the lens reading the letter. Decorative (aria-hidden); it is an indeterminate
+            working indicator (same role as the spinner), stops when the page redirects, and is
+            static under reduced motion. The existing spinner stays as the labelled fallback. */}
+        <div className="relative mb-8 flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-cyan-200 bg-cyan-50" aria-hidden="true">
+          <svg viewBox="0 0 24 24" className="h-7 w-7 text-cyan-700/60" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M6 3h8l4 4v14H6z" strokeLinejoin="round" />
+            <path d="M14 3v4h4" strokeLinejoin="round" />
+            <path d="M8.5 11h7M8.5 14h7M8.5 17h4" strokeLinecap="round" />
+          </svg>
+          {reduce ? (
+            <span className="absolute left-2 right-2 top-1/2 h-px bg-cyan-700" />
+          ) : (
+            // ponytail: a single one-shot sweep on each step change (keyed on stepIndex), not a
+            // repeat:Infinity loop — the continuous "still working" signal is the spinner beside
+            // it. Known ceiling: the scan re-sweeps only when the stage advances, so a long
+            // stall shows the spinner alone; upgrade path is a determinate sweep if per-stage
+            // progress is ever emitted. Honours the no-loop constraint.
+            <motion.span
+              key={stepIndex}
+              className="absolute left-2 right-2 h-px bg-cyan-700"
+              initial={{ top: "18%", opacity: 0 }}
+              animate={{ top: ["18%", "82%"], opacity: [0, 0.9, 0] }}
+              transition={{ duration: 1.1, ease: "easeInOut" }}
+            />
+          )}
         </div>
 
         <h1 className="text-xl font-bold mb-2 text-foreground">Reading your offer…</h1>
@@ -168,17 +196,37 @@ const ProcessingPage = () => {
           {STEPS.map((s, i) => {
             const done = i < stepIndex;
             const active = i === stepIndex;
+            // Moment 3: a newly-active row lifts once (y 2→0, 0.25s); the icon swap
+            // (ring → spinner → check) crossfades instead of popping. Reduced motion: no lift,
+            // instant icon swap (the existing spinner pulse fallback is preserved below).
             return (
-              <div key={s} className={`flex items-center gap-3 rounded-xl border p-3 transition-all ${active ? "border-cyan-200 bg-white shadow-sm" : done ? "border-stone-200 bg-white shadow-sm" : "border-stone-200 bg-stone-50 opacity-70"}`}>
-                {done ? (
-                  <CheckCircle className="h-5 w-5 text-green-700" />
-                ) : active ? (
-                  <Loader2 className="h-5 w-5 text-cyan-700 motion-safe:animate-spin motion-reduce:animate-pulse" />
-                ) : (
-                  <div className="h-5 w-5 rounded-full border-2 border-stone-300" />
-                )}
+              <motion.div
+                key={s}
+                initial={false}
+                animate={reduce ? { y: 0 } : { y: active ? [2, 0] : 0 }}
+                transition={{ duration: 0.25, ease: EASE }}
+                className={`flex items-center gap-3 rounded-xl border p-3 transition-all ${active ? "border-cyan-200 bg-white shadow-sm" : done ? "border-stone-200 bg-white shadow-sm" : "border-stone-200 bg-stone-50 opacity-70"}`}
+              >
+                <AnimatePresence mode="wait" initial={false}>
+                  <motion.span
+                    key={done ? "done" : active ? "active" : "pending"}
+                    initial={reduce ? { opacity: 1 } : { opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={reduce ? { opacity: 1 } : { opacity: 0 }}
+                    transition={{ duration: 0.25, ease: EASE }}
+                    className="flex h-5 w-5 items-center justify-center"
+                  >
+                    {done ? (
+                      <CheckCircle className="h-5 w-5 text-green-700" />
+                    ) : active ? (
+                      <Loader2 className="h-5 w-5 text-cyan-700 motion-safe:animate-spin motion-reduce:animate-pulse" />
+                    ) : (
+                      <div className="h-5 w-5 rounded-full border-2 border-stone-300" />
+                    )}
+                  </motion.span>
+                </AnimatePresence>
                 <span className={`text-sm ${active ? "font-medium text-foreground" : "text-muted-foreground"}`}>{s}</span>
-              </div>
+              </motion.div>
             );
           })}
         </div>

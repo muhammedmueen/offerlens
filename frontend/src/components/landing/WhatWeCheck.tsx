@@ -1,5 +1,6 @@
 import { ShieldCheck, Scale, FlaskConical } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import AnnotationRule from "@/components/motion/AnnotationRule";
 
 /**
  * Landing Section C — "What we check / honesty". Six category cards (the clauses) plus the
@@ -41,6 +42,8 @@ const WhatWeCheck = () => (
       {/* Honesty promise strip — accent left rule + `.in-focus` wash. */}
       <div className="mt-6 rounded-2xl border border-stone-200 border-l-4 border-l-cyan-700 bg-white p-6 shadow-sm in-focus">
         <p className="font-mono text-xs uppercase tracking-widest text-cyan-700">// our promise</p>
+        {/* Moment 5: the annotation rule draws in under the promise label on reveal. */}
+        <AnnotationRule className="mt-1.5 w-16" />
         <div className="mt-4 grid grid-cols-1 gap-5 sm:grid-cols-3">
           {promises.map(({ icon: Icon, title, body }) => (
             <div key={title} className="flex items-start gap-3">

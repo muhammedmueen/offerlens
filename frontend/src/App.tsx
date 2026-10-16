@@ -68,10 +68,12 @@ const AnimatedRoutes = () => {
         }
       >
       <Routes location={location} key={location.pathname}>
+        {/* Core examination flow advances with the `forward` rise (Moment 6); every other
+            route keeps the default `fade`. */}
         <Route path="/" element={<PageTransition><Index /></PageTransition>} />
-        <Route path="/upload" element={<PageTransition><UploadPage /></PageTransition>} />
-        <Route path="/offers/:id/processing" element={<PageTransition><ProcessingPage /></PageTransition>} />
-        <Route path="/offers/:id" element={<PageTransition><ResultsPage /></PageTransition>} />
+        <Route path="/upload" element={<PageTransition kind="forward"><UploadPage /></PageTransition>} />
+        <Route path="/offers/:id/processing" element={<PageTransition kind="forward"><ProcessingPage /></PageTransition>} />
+        <Route path="/offers/:id" element={<PageTransition kind="forward"><ResultsPage /></PageTransition>} />
         <Route path="/login" element={<PageTransition><LoginPage /></PageTransition>} />
         <Route path="/signup" element={<PageTransition><SignupPage /></PageTransition>} />
         <Route path="/dashboard" element={<ProtectedRoute><PageTransition><DashboardPage /></PageTransition></ProtectedRoute>} />

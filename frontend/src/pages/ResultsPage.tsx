@@ -18,6 +18,9 @@ import { Button } from "@/components/ui/button";
 import { AlertTriangle, Download, GitCompare, TrendingUp, Pencil, Share2, Lock, CheckCircle, ShieldQuestion, Flag, Info } from "lucide-react";
 import ErrorBoundary from "@/components/common/ErrorBoundary";
 import ConfidenceBadge, { type ConfidenceLevel } from "@/components/common/ConfidenceBadge";
+import Reveal from "@/components/motion/Reveal";
+import { motion, useReducedMotion } from "framer-motion";
+import { flagsContainer, flagItem } from "@/lib/motion";
 import NegotiationPanel from "@/components/offers/NegotiationPanel";
 import BenefitsPanel from "@/components/offers/BenefitsPanel";
 import CareerPathPanel from "@/components/offers/CareerPathPanel";
@@ -32,6 +35,7 @@ const ResultsPage = () => {
   const [authGateOpen, setAuthGateOpen] = useState(false);
   const [authGateFeature, setAuthGateFeature] = useState("");
   const [activeDrawer, setActiveDrawer] = useState<DrawerType>(null);
+  const reduce = useReducedMotion() ?? false;
 
   const { data: analysis, isLoading, error, refetch } = useQuery({
     queryKey: ["analysis", id],
@@ -126,8 +130,10 @@ const ResultsPage = () => {
           </div>
         )}
 
-        {/* Score Header — the verdict, the signature of the results page (spec §7). */}
-        <div className="flex flex-col items-center gap-4 rounded-2xl border border-stone-200 bg-white p-8 shadow-md in-focus md:flex-row md:items-start md:gap-8">
+        {/* Score Header — the verdict, the signature of the results page (spec §7).
+            Moment 4: reveals on scroll (fires at once — it's above the fold); the gauge's own
+            arc-sweep + count-up (Moment 1) plays within it. */}
+        <Reveal className="flex flex-col items-center gap-4 rounded-2xl border border-stone-200 bg-white p-8 shadow-md in-focus md:flex-row md:items-start md:gap-8">
           <ScoreGauge score={a.score ?? 0} />
           <div className="flex-1 text-center md:text-left">
             <div className="flex flex-wrap items-baseline justify-center gap-2 md:justify-start">
@@ -151,14 +157,14 @@ const ResultsPage = () => {
               </p>
             )}
           </div>
-        </div>
+        </Reveal>
 
         {/* How the score was reached.
             A score with no explanation is an assertion. Each row shows the component's own
             0-100 mark and the weight actually applied — which shifts when a component has no
             data, so the weights are read from the response rather than hardcoded here. */}
         {a.scoreBreakdown?.length > 0 && (
-          <section className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
+          <Reveal as="section" className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
             <h2 className="font-semibold mb-4 text-foreground">How this score was reached</h2>
             <ul className="space-y-3">
               {a.scoreBreakdown.map(
@@ -193,12 +199,12 @@ const ResultsPage = () => {
                 ),
               )}
             </ul>
-          </section>
+          </Reveal>
         )}
 
         {/* Salary Comparison */}
         {market && (
-          <section className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
+          <Reveal as="section" className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
             <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
               <h2 className="font-semibold text-foreground">Salary Comparison</h2>
               <Confidence field="salaryComparison" label="Salary benchmark" />
@@ -224,17 +230,24 @@ const ResultsPage = () => {
               payMix={a.salaryComparison?.payMix}
               cityAdjustment={a.salaryComparison?.cityAdjustment}
             />
-          </section>
+          </Reveal>
         )}
 
-        {/* Red Flags */}
-        <section className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
+        {/* Red Flags — Moment 4 wraps the section (reveal on scroll); Moment 2 staggers the
+            items within it (each fades + rises ~70ms apart, severity rule settling in). */}
+        <Reveal as="section" className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
           <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
             <h2 className="font-semibold text-foreground">Red Flags</h2>
             <Confidence field="redFlags" label="Red flags" />
           </div>
           {a.redFlags?.length > 0 ? (
-            <div className="space-y-3">
+            <motion.div
+              className="space-y-3"
+              variants={flagsContainer(reduce)}
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true, amount: 0.2 }}
+            >
               {a.redFlags.map((rf: any, i: number) => {
                 const severity = rf.severity?.toLowerCase();
                 // Severity is carried by icon + WORD + a solid left rule, never colour alone
@@ -249,7 +262,7 @@ const ResultsPage = () => {
                 const sevText =
                   severity === "high" ? "text-red-700" : severity === "medium" ? "text-amber-700" : "text-stone-700";
                 return (
-                  <div key={i} className={`rounded-xl border border-l-4 p-4 shadow-sm ${box}`}>
+                  <motion.div key={i} variants={flagItem(reduce)} className={`rounded-xl border border-l-4 p-4 shadow-sm ${box}`}>
                     <div className="flex items-center gap-2 mb-1">
                       <SevIcon className={`h-4 w-4 shrink-0 ${sevText}`} aria-hidden="true" />
                       <span className={`text-xs font-semibold uppercase ${sevText}`}>
@@ -262,21 +275,21 @@ const ResultsPage = () => {
                     {rf.suggestion && (
                       <p className="mt-2 text-sm text-foreground"><span className="font-medium">Suggestion:</span> {rf.suggestion}</p>
                     )}
-                  </div>
+                  </motion.div>
                 );
               })}
-            </div>
+            </motion.div>
           ) : (
             <div className="flex items-center gap-2 text-green-700">
               <CheckCircle className="h-5 w-5" aria-hidden="true" />
               <p className="text-sm">No red flags detected — looks like a clean offer!</p>
             </div>
           )}
-        </section>
+        </Reveal>
 
         {/* Negotiation Tips */}
         {negotiationSuggestions.length > 0 && (
-          <section className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
+          <Reveal as="section" className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
             <h2 className="font-semibold mb-4 text-foreground">Negotiation Tips</h2>
             <ul className="space-y-3">
               {negotiationSuggestions.map((t: any, i: number) => (
@@ -305,7 +318,7 @@ const ResultsPage = () => {
               {!isAuthenticated && <Lock className="mr-1 h-3 w-3" />}
               Generate Negotiation Email
             </Button>
-          </section>
+          </Reveal>
         )}
 
         {/* Take-Home.
@@ -313,7 +326,7 @@ const ResultsPage = () => {
             It reports a RANGE rather than one number when PF is uncertain, and lists what it
             assumed — both are shown, because a single figure here would be false precision. */}
         {a.takeHome && (
-          <section className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
+          <Reveal as="section" className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
             <div className="mb-4 flex items-baseline justify-between gap-2">
               <h2 className="font-semibold text-foreground">Estimated Take-Home</h2>
               <div className="flex items-baseline gap-3">
@@ -384,14 +397,14 @@ const ResultsPage = () => {
                 </ul>
               </details>
             )}
-          </section>
+          </Reveal>
         )}
 
         {/* Benefits.
             The chip list shows what the letter names; the checklist below shows what a normal
             offer has that this one does not. The second half is the useful part, and it is
             computed by set difference on the server rather than guessed by the model. */}
-        <section className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
+        <Reveal as="section" className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
           <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
             <h2 className="font-semibold text-foreground">Benefits Overview</h2>
             <Confidence field="benefits" label="Benefits list" />
@@ -456,10 +469,12 @@ const ResultsPage = () => {
             {!isAuthenticated && <Lock className="mr-1 h-3 w-3" />}
             Calculate Full Benefits Value
           </Button>
-        </section>
+        </Reveal>
 
         {/* 5.4: optional, per-offer; decides its own visibility. Never posts until Send. */}
-        <ContributeSalaryCard key={id} offerId={id!} analysis={a} />
+        <Reveal>
+          <ContributeSalaryCard key={id} offerId={id!} analysis={a} />
+        </Reveal>
       </div>
 
       {/* Sticky Action Bar */}
