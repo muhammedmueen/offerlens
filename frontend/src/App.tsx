@@ -55,25 +55,30 @@ const AnimatedRoutes = () => {
   const location = useLocation();
 
   return (
-    // No `mode="wait"`: waiting for the outgoing page's exit fade to finish before mounting
-    // the incoming one forced a blank gap — and because routes are lazy, that gap landed on
-    // the Suspense fallback, reading as a refresh/flicker. Letting the two fades overlap
-    // (crossfade) removes the gap. The `grid` wrapper gives both in/out pages one shared cell
-    // (each page carries `col-start-1 row-start-1`) so they overlap instead of stacking
-    // vertically, which would jump the page height mid-fade.
-    <div className="grid">
+    // Suspense and the error boundary wrap AnimatePresence ONCE and persist across
+    // navigations — they are deliberately NOT keyed on pathname. That is the whole fix for
+    // the double flicker:
+    //
+    //   Before, Suspense sat *inside* a pathname-keyed subtree, so it remounted on every
+    //   navigation. A fresh Suspense boundary has no committed content, so React is forced
+    //   to show its fallback (the skeleton) the instant the lazy route chunk suspends —
+    //   flicker 1 (home → skeleton), then flicker 2 (skeleton → faded-in page).
+    //
+    //   With react-router's v7_startTransition on, navigation runs inside a React
+    //   transition. A *persistent* Suspense boundary that has already committed content lets
+    //   a transition keep the previous page on screen while the new chunk loads, instead of
+    //   dropping to the fallback. So the old page simply holds, then the new page fades in
+    //   once — no skeleton flash. The fallback now only appears on the very first paint,
+    //   before any route has committed, which is correct.
+    <ErrorBoundary title="This page failed to load." resetKey={location.pathname}>
+    <Suspense
+      fallback={
+        <div className="container mx-auto max-w-4xl px-4 py-12">
+          <LoadingState rows={4} />
+        </div>
+      }
+    >
     <AnimatePresence>
-      {/* One boundary around the route tree, keyed on pathname so navigating away from a
-          crashed page clears the error. Without this, any render throw inside a page
-          unmounted the entire app to a blank document. */}
-      <ErrorBoundary key={location.pathname} title="This page failed to load.">
-      <Suspense
-        fallback={
-          <div className="container mx-auto max-w-4xl px-4 py-12 col-start-1 row-start-1">
-            <LoadingState rows={4} />
-          </div>
-        }
-      >
       <Routes location={location} key={location.pathname}>
         {/* Core examination flow advances with the `forward` rise (Moment 6); every other
             route keeps the default `fade`. */}
@@ -91,10 +96,9 @@ const AnimatedRoutes = () => {
         <Route path="/feature-requests" element={<PageTransition><FeatureRequestsPage /></PageTransition>} />
         <Route path="*" element={<PageTransition><NotFound /></PageTransition>} />
       </Routes>
-      </Suspense>
-      </ErrorBoundary>
     </AnimatePresence>
-    </div>
+    </Suspense>
+    </ErrorBoundary>
   );
 };
 
