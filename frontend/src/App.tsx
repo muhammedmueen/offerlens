@@ -55,14 +55,21 @@ const AnimatedRoutes = () => {
   const location = useLocation();
 
   return (
-    <AnimatePresence mode="wait">
+    // No `mode="wait"`: waiting for the outgoing page's exit fade to finish before mounting
+    // the incoming one forced a blank gap — and because routes are lazy, that gap landed on
+    // the Suspense fallback, reading as a refresh/flicker. Letting the two fades overlap
+    // (crossfade) removes the gap. The `grid` wrapper gives both in/out pages one shared cell
+    // (each page carries `col-start-1 row-start-1`) so they overlap instead of stacking
+    // vertically, which would jump the page height mid-fade.
+    <div className="grid">
+    <AnimatePresence>
       {/* One boundary around the route tree, keyed on pathname so navigating away from a
           crashed page clears the error. Without this, any render throw inside a page
           unmounted the entire app to a blank document. */}
       <ErrorBoundary key={location.pathname} title="This page failed to load.">
       <Suspense
         fallback={
-          <div className="container mx-auto max-w-4xl px-4 py-12">
+          <div className="container mx-auto max-w-4xl px-4 py-12 col-start-1 row-start-1">
             <LoadingState rows={4} />
           </div>
         }
@@ -87,6 +94,7 @@ const AnimatedRoutes = () => {
       </Suspense>
       </ErrorBoundary>
     </AnimatePresence>
+    </div>
   );
 };
 

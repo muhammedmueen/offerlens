@@ -19,6 +19,11 @@ const PageTransition = ({
   const variants = reduce ? pageFadeReduced : pageVariants[kind];
   return (
     <motion.div
+      // `col-start-1 row-start-1` places every page in the single grid cell of the parent
+      // (see App.tsx). During a crossfade the outgoing and incoming pages are both mounted;
+      // sharing one cell makes them overlap instead of stacking, so the page height never
+      // jumps mid-transition.
+      className="col-start-1 row-start-1"
       variants={variants}
       initial="initial"
       animate="animate"
