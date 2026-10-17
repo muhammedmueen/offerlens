@@ -2,7 +2,8 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import PageShell from "@/components/layout/PageShell";
 import { ArrowRight, Check, FlaskConical } from "lucide-react";
-import { motion, useReducedMotion } from "framer-motion";
+import { motion } from "framer-motion";
+import Reveal from "@/components/motion/Reveal";
 import OfferUnderExamination from "@/components/landing/OfferUnderExamination";
 import HowItWorks from "@/components/landing/HowItWorks";
 import SampleResult from "@/components/landing/SampleResult";
@@ -26,13 +27,12 @@ const fadeUp = {
   }),
 };
 
-// Section-enter: the hero's restrained single fade + 12px rise, once. Under prefers-reduced-motion
-// it collapses to opacity-only (no rise, no loop) — matching spec §8 / the hero's motion.
+// The four approved sections below the hero. Each reveals once on scroll via the shared Reveal
+// (calm, consistent fade + rise). Reduced motion is honoured inside Reveal.
 const sections = [HowItWorks, SampleResult, WhatWeCheck, ClosingCta];
 
 const LandingPage = () => {
   const navigate = useNavigate();
-  const reduce = useReducedMotion();
 
   return (
     <PageShell>
@@ -109,17 +109,11 @@ const LandingPage = () => {
         </div>
       </section>
 
-      {/* The four approved sections below the hero. Each enters once with the hero's fade+rise. */}
+      {/* The four approved sections below the hero. Each reveals once on scroll, consistently. */}
       {sections.map((Section, i) => (
-        <motion.div
-          key={i}
-          initial={reduce ? { opacity: 0 } : { opacity: 0, y: 12 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, amount: 0.2 }}
-          transition={{ duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] }}
-        >
+        <Reveal key={i}>
           <Section />
-        </motion.div>
+        </Reveal>
       ))}
     </PageShell>
   );

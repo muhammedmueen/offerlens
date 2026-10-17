@@ -100,6 +100,13 @@ try {
         Write-Step "Copying frontend/dist/* -> ${Server}:/var/www/offerlens/dist/"
         scp -r "frontend/dist/*" "${Server}:/var/www/offerlens/dist/"
         if ($LASTEXITCODE -ne 0) { throw "scp of frontend dist failed (exit $LASTEXITCODE)" }
+
+        # scp'd dirs (e.g. the fresh assets/) can land as 700, so host nginx (www-data) 403s the
+        # CSS/JS and the SPA serves index.html as text/css -> blank screen. Fix perms right here,
+        # independent of which deploy.sh flags run (deploy.sh chmods too; belt and braces).
+        Write-Step "Fixing static dir perms on the server (a+rX)"
+        ssh $Server "chmod -R a+rX /var/www/offerlens/dist /var/www/offerlens/datasets"
+        if ($LASTEXITCODE -ne 0) { throw "server chmod of static dirs failed (exit $LASTEXITCODE)" }
     }
 
     # ── Server: run deploy.sh with the matching flags ─────────────────────────
