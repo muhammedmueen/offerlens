@@ -97,16 +97,31 @@ try {
             Pop-Location
         }
 
-        Write-Step "Copying frontend/dist/* -> ${Server}:/var/www/offerlens/dist/"
-        scp -r "frontend/dist/*" "${Server}:/var/www/offerlens/dist/"
-        if ($LASTEXITCODE -ne 0) { throw "scp of frontend dist failed (exit $LASTEXITCODE)" }
+        # Ship dist as ONE tarball, not `scp -r dist/*`. Per-file scp opens a transfer per
+        # file (~40 tiny ones); a single mid-run connection reset (exit 255) then kills the
+        # whole deploy with a half-copied dist. One stream over one connection is far more
+        # resilient and faster. `tar` is built into Windows 10+, so this runs in PowerShell.
+        $tgz = Join-Path ([System.IO.Path]::GetTempPath()) ("offerlens-dist-" + [guid]::NewGuid().ToString('N') + ".tgz")
+        try {
+            Write-Step "Packing frontend/dist -> tarball"
+            tar -C "frontend/dist" -czf $tgz .
+            if ($LASTEXITCODE -ne 0) { throw "tar of frontend/dist failed (exit $LASTEXITCODE)" }
 
-        # scp'd dirs (e.g. the fresh assets/) can land as 700, so host nginx (www-data) 403s the
-        # CSS/JS and the SPA serves index.html as text/css -> blank screen. Fix perms right here,
-        # independent of which deploy.sh flags run (deploy.sh chmods too; belt and braces).
-        Write-Step "Fixing static dir perms on the server (a+rX)"
-        ssh $Server "chmod -R a+rX /var/www/offerlens/dist /var/www/offerlens/datasets"
-        if ($LASTEXITCODE -ne 0) { throw "server chmod of static dirs failed (exit $LASTEXITCODE)" }
+            Write-Step "Copying dist tarball -> ${Server}:/tmp/"
+            scp $tgz "${Server}:/tmp/offerlens-dist.tgz"
+            if ($LASTEXITCODE -ne 0) { throw "scp of frontend dist tarball failed (exit $LASTEXITCODE)" }
+        }
+        finally {
+            Remove-Item -Force $tgz -ErrorAction SilentlyContinue
+        }
+
+        # Unpack into a clean dist (so stale assets from an old build don't linger), then fix
+        # perms. scp'd/extracted dirs can land as 700, so host nginx (www-data) 403s the CSS/JS
+        # and the SPA serves index.html as text/css -> blank screen. deploy.sh chmods too; this
+        # is belt and braces so the dist is correct the moment it lands.
+        Write-Step "Unpacking + fixing static dir perms on the server (a+rX)"
+        ssh $Server "rm -rf /var/www/offerlens/dist/* && tar -C /var/www/offerlens/dist -xzf /tmp/offerlens-dist.tgz && rm -f /tmp/offerlens-dist.tgz && chmod -R a+rX /var/www/offerlens/dist /var/www/offerlens/datasets"
+        if ($LASTEXITCODE -ne 0) { throw "server unpack/chmod of dist failed (exit $LASTEXITCODE)" }
     }
 
     # ── Server: run deploy.sh with the matching flags ─────────────────────────
