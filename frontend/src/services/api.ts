@@ -20,6 +20,31 @@ const processQueue = (error: unknown, token: string | null = null) => {
   failedQueue = [];
 };
 
+// Credential endpoints: a 401 here means "wrong credentials", not "expired session", so it must
+// reach the caller untouched. Logout is deliberately not listed — it should still refresh and
+// retry so the server-side refresh token actually gets revoked.
+const NO_REFRESH_ENDPOINTS: string[] = [
+  ENDPOINTS.AUTH_LOGIN,
+  ENDPOINTS.AUTH_SIGNUP,
+  ENDPOINTS.AUTH_GOOGLE,
+  ENDPOINTS.AUTH_REFRESH,
+];
+
+const clearSession = () => {
+  localStorage.removeItem("access_token");
+  localStorage.removeItem("refresh_token");
+};
+
+// Hard redirect (not the router) because this runs outside React. Keeps the page the user was on
+// so login can return them to it, and does nothing when already on /login, where a reload would
+// only wipe the form and its error message.
+const redirectToLogin = () => {
+  clearSession();
+  const { pathname, search } = window.location;
+  if (pathname === "/login") return;
+  window.location.href = `/login?returnUrl=${encodeURIComponent(pathname + search)}`;
+};
+
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: { "Content-Type": "application/json" },
@@ -51,7 +76,11 @@ api.interceptors.response.use(
   async (error: AxiosError) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    if (
+      error.response?.status === 401 &&
+      !originalRequest._retry &&
+      !NO_REFRESH_ENDPOINTS.includes(originalRequest.url ?? "")
+    ) {
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject });
@@ -64,15 +93,14 @@ api.interceptors.response.use(
       }
 
       originalRequest._retry = true;
-      isRefreshing = true;
 
+      // Checked before taking the refresh lock: bailing out after it left isRefreshing stuck true.
       const refreshToken = localStorage.getItem("refresh_token");
       if (!refreshToken) {
-        localStorage.removeItem("access_token");
-        localStorage.removeItem("refresh_token");
-        window.location.href = "/login";
+        redirectToLogin();
         return Promise.reject(error);
       }
+      isRefreshing = true;
 
       try {
         const { data } = await axios.post(
@@ -92,9 +120,7 @@ api.interceptors.response.use(
         return api(originalRequest);
       } catch (refreshError) {
         processQueue(refreshError, null);
-        localStorage.removeItem("access_token");
-        localStorage.removeItem("refresh_token");
-        window.location.href = "/login";
+        redirectToLogin();
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;

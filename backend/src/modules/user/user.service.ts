@@ -5,10 +5,31 @@ import { analyses } from '@/db/schema/analyses.js';
 import { corrections } from '@/db/schema/corrections.js';
 import { forumPosts, forumComments } from '@/db/schema/forum.js';
 import { usageLedger } from '@/db/schema/usage-ledger.js';
-import { eq, desc, count, avg, inArray } from 'drizzle-orm';
+import { eq, desc, count, avg, max, sql, inArray } from 'drizzle-orm';
 import { canAccessOffer } from '@/shared/access/offer-access.js';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
+
+interface OfferListRow {
+    extractedData: unknown;
+    userContext: unknown;
+    [key: string]: unknown;
+}
+
+/**
+ * One dashboard/compare row. The list carries just the company and role the analysis found
+ * (falling back to the role the user typed at upload), never the whole extractedData blob.
+ */
+export function toOfferListItem<T extends OfferListRow>(row: T) {
+    const { extractedData, ...rest } = row;
+    const extracted = extractedData as { companyName?: string | null; role?: string | null } | null;
+    const context = row.userContext as { role?: string | null } | null;
+    return {
+        ...rest,
+        company: extracted?.companyName || null,
+        role: extracted?.role || context?.role || null,
+    };
+}
 
 export class UserService {
     async getProfile(userId: string) {
@@ -31,24 +52,27 @@ export class UserService {
     async getOfferHistory(userId: string, opts: { page: number; limit: number; sort: string }) {
         const offset = (opts.page - 1) * opts.limit;
 
+        // NULLS LAST: an offer with no analysis yet has no score and must not lead a score sort
+        // (Postgres puts NULLs first on DESC). offers.id breaks ties so OFFSET paging never
+        // repeats or skips a row.
         const orderBy = opts.sort === 'score'
-            ? desc(analyses.score)
-            : desc(offers.createdAt);
+            ? [sql`${analyses.score} DESC NULLS LAST`, desc(offers.createdAt), desc(offers.id)]
+            : [desc(offers.createdAt), desc(offers.id)];
 
         // Fetch offers with their analysis (if any)
         const userOffers = await db.select({
             id: offers.id,
             status: offers.status,
-            rawText: offers.rawText,
             createdAt: offers.createdAt,
             userContext: offers.userContext,
             score: analyses.score,
             scoreLabel: analyses.scoreLabel,
+            extractedData: analyses.extractedData,
         })
             .from(offers)
             .leftJoin(analyses, eq(offers.id, analyses.offerId))
             .where(eq(offers.userId, userId))
-            .orderBy(orderBy)
+            .orderBy(...orderBy)
             .limit(opts.limit)
             .offset(offset);
 
@@ -57,7 +81,7 @@ export class UserService {
             .where(eq(offers.userId, userId));
 
         return {
-            offers: userOffers,
+            offers: userOffers.map(toOfferListItem),
             pagination: {
                 page: opts.page,
                 limit: opts.limit,
@@ -72,7 +96,7 @@ export class UserService {
             .from(offers)
             .where(eq(offers.userId, userId));
 
-        const [avgScore] = await db.select({ avg: avg(analyses.score) })
+        const [scoreStats] = await db.select({ avg: avg(analyses.score), best: max(analyses.score) })
             .from(analyses)
             .innerJoin(offers, eq(analyses.offerId, offers.id))
             .where(eq(offers.userId, userId));
@@ -88,7 +112,8 @@ export class UserService {
 
         return {
             totalOffers: offerCount.total,
-            averageScore: avgScore.avg ? Math.round(Number(avgScore.avg)) : null,
+            averageScore: scoreStats.avg ? Math.round(Number(scoreStats.avg)) : null,
+            bestScore: scoreStats.best ?? null,
             completedAnalyses: completedOffers.length,
             scoreDistribution: {
                 excellent: completedOffers.filter(o => o.scoreLabel === 'excellent').length,

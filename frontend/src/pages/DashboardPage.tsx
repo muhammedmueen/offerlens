@@ -8,7 +8,8 @@ import LoadingState from "@/components/common/LoadingState";
 import ErrorState from "@/components/common/ErrorState";
 import EmptyState from "@/components/common/EmptyState";
 import { Button } from "@/components/ui/button";
-import { Upload, GitCompare, BarChart3, Star, FileText, TrendingUp } from "lucide-react";
+import { Upload, GitCompare, BarChart3, Star, FileText, CheckCircle } from "lucide-react";
+import type { DashboardStats, UserOffersPage } from "@/types/api";
 import MotionCard from "@/components/common/MotionCard";
 
 const DashboardPage = () => {
@@ -18,25 +19,25 @@ const DashboardPage = () => {
 
   const { data: dashStats, isLoading: statsLoading } = useQuery({
     queryKey: ["dashboard-stats"],
-    queryFn: () => api.get(ENDPOINTS.USER_DASHBOARD).then((r) => r.data.data),
+    queryFn: () => api.get(ENDPOINTS.USER_DASHBOARD).then((r) => r.data.data as DashboardStats),
   });
 
   const { data: offersData, isLoading: offersLoading, error: offersError, refetch } = useQuery({
     queryKey: ["user-offers", page, sort],
-    queryFn: () => api.get(ENDPOINTS.USER_OFFERS, { params: { page, limit: ITEMS_PER_PAGE, sort } }).then((r) => r.data.data),
+    queryFn: () => api.get(ENDPOINTS.USER_OFFERS, { params: { page, limit: ITEMS_PER_PAGE, sort } }).then((r) => r.data.data as UserOffersPage),
   });
 
   const stats = dashStats
     ? [
-        { label: "Total Analyses", value: dashStats.totalAnalyses ?? 0, icon: FileText },
-        { label: "Avg Score", value: dashStats.avgScore ?? "—", icon: BarChart3 },
+        { label: "Total Offers", value: dashStats.totalOffers ?? 0, icon: FileText },
+        { label: "Analysed", value: dashStats.completedAnalyses ?? 0, icon: CheckCircle },
+        { label: "Avg Score", value: dashStats.averageScore ?? "—", icon: BarChart3 },
         { label: "Best Score", value: dashStats.bestScore ?? "—", icon: Star },
-        { label: "Active Offers", value: dashStats.activeOffers ?? 0, icon: TrendingUp },
       ]
     : [];
 
-  const offers = offersData?.offers || offersData || [];
-  const totalPages = offersData?.totalPages || 1;
+  const offers = offersData?.offers ?? [];
+  const totalPages = offersData?.pagination.totalPages ?? 1;
 
   return (
     <PageShell>
@@ -76,7 +77,7 @@ const DashboardPage = () => {
             <h2 className="font-semibold text-foreground">Offer History</h2>
             <div className="flex gap-2">
               {["createdAt", "score"].map((s) => (
-                <Button key={s} variant={sort === s ? "secondary" : "ghost"} size="sm" onClick={() => setSort(s)} className="cursor-pointer text-xs capitalize rounded-lg">
+                <Button key={s} variant={sort === s ? "secondary" : "ghost"} size="sm" onClick={() => { setSort(s); setPage(1); }} className="cursor-pointer text-xs capitalize rounded-lg">
                   {s === "createdAt" ? "Date" : "Score"}
                 </Button>
               ))}
@@ -103,7 +104,7 @@ const DashboardPage = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {offers.map((o: any) => (
+                    {offers.map((o) => (
                       <tr
                         key={o.id}
                         onClick={() => navigate(`/offers/${o.id}`)}

@@ -12,6 +12,10 @@ export interface ListFeatureRequestsOptions {
     fingerprint?: string;
 }
 
+// Who submitted a request (their guest id and IP) is for abuse handling, not for display. These
+// endpoints are public, so the rows must never go out whole.
+const PRIVATE_COLUMNS = { submittedByFingerprint: false, submittedByIp: false } as const;
+
 export class FeatureRequestService {
     async create(title: string, description: string, fingerprint: string, ip: string) {
         const [request] = await db.insert(featureRequests).values({
@@ -19,7 +23,14 @@ export class FeatureRequestService {
             description,
             submittedByFingerprint: fingerprint,
             submittedByIp: ip,
-        }).returning();
+        }).returning({
+            id: featureRequests.id,
+            title: featureRequests.title,
+            description: featureRequests.description,
+            status: featureRequests.status,
+            voteCount: featureRequests.voteCount,
+            createdAt: featureRequests.createdAt,
+        });
 
         return request;
     }
@@ -40,6 +51,7 @@ export class FeatureRequestService {
 
         // Query data
         const data = await db.query.featureRequests.findMany({
+            columns: PRIVATE_COLUMNS,
             where: conditions,
             orderBy: () => orderBy,
             limit: pageSize,
