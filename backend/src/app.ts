@@ -47,8 +47,9 @@ export function buildApp() {
     // Guest identity is established by the guest-identity plugin inside registerPlugins
     // above, which loads before this so keyGenerator can read request.guestId.
     app.register(registerRateLimiter);
-    app.addHook('onRequest', authenticate); // JWT Auth
+    // Logger first: authenticate can now reply 401, which skips later onRequest hooks.
     app.addHook('onRequest', requestLogger);
+    app.addHook('onRequest', authenticate); // JWT Auth
 
     // Routes
     app.register(async (api) => {

@@ -30,9 +30,15 @@ const NO_REFRESH_ENDPOINTS: string[] = [
   ENDPOINTS.AUTH_REFRESH,
 ];
 
+export const SESSION_ENDED_EVENT = "auth:session-ended";
+
+type RetryableRequest = InternalAxiosRequestConfig & { _retry?: boolean };
+
 const clearSession = () => {
   localStorage.removeItem("access_token");
   localStorage.removeItem("refresh_token");
+  // Lets AuthProvider, which this module cannot reach, show "logged out".
+  window.dispatchEvent(new Event(SESSION_ENDED_EVENT));
 };
 
 // Hard redirect (not the router) because this runs outside React. Keeps the page the user was on
@@ -54,6 +60,33 @@ const api = axios.create({
   withCredentials: true,
 });
 
+// ponytail: mirrors the <ProtectedRoute> paths in App.tsx. A new member-only page must be added here
+// too, or a dead session on it degrades to guest instead of going to /login.
+const MEMBER_PAGES = ["/dashboard", "/compare"];
+const onMemberPage = () => MEMBER_PAGES.includes(window.location.pathname);
+
+// Retry once with no Bearer: a true guest (ADR-001). Only if a Bearer was sent, and never on a member
+// page, where the redirect to /login is already under way.
+const retryAsGuest = (request: RetryableRequest, error: unknown) => {
+  if (onMemberPage() || !request.headers?.Authorization) return Promise.reject(error);
+  delete request.headers.Authorization;
+  request._retry = true;
+  return api(request);
+};
+
+// The session is dead: no refresh token, or the refresh was rejected. Member pages go to /login with
+// returnUrl (B9). Elsewhere the session is cleared first, so the UI already shows "logged out", and the
+// request is retried as a guest: public pages keep working, and an upload made now is a visible guest
+// upload, never a silent one under a signed-in UI (FLOW-1/AUTH-2).
+const endSession = (request: RetryableRequest, error: unknown) => {
+  if (onMemberPage()) {
+    redirectToLogin();
+    return Promise.reject(error);
+  }
+  clearSession();
+  return retryAsGuest(request, error);
+};
+
 // Request interceptor — attach token
 api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = localStorage.getItem("access_token");
@@ -74,7 +107,7 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
 api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
-    const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
+    const originalRequest = error.config as RetryableRequest;
 
     if (
       error.response?.status === 401 &&
@@ -89,7 +122,7 @@ api.interceptors.response.use(
             originalRequest.headers.Authorization = `Bearer ${token}`;
           }
           return api(originalRequest);
-        });
+        }, (queueError) => retryAsGuest(originalRequest, queueError as unknown));
       }
 
       originalRequest._retry = true;
@@ -97,8 +130,7 @@ api.interceptors.response.use(
       // Checked before taking the refresh lock: bailing out after it left isRefreshing stuck true.
       const refreshToken = localStorage.getItem("refresh_token");
       if (!refreshToken) {
-        redirectToLogin();
-        return Promise.reject(error);
+        return endSession(originalRequest, error);
       }
       isRefreshing = true;
 
@@ -120,8 +152,7 @@ api.interceptors.response.use(
         return api(originalRequest);
       } catch (refreshError) {
         processQueue(refreshError, null);
-        redirectToLogin();
-        return Promise.reject(refreshError);
+        return endSession(originalRequest, refreshError);
       } finally {
         isRefreshing = false;
       }

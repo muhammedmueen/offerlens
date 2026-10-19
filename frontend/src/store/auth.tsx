@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
-import api from "@/services/api";
+import api, { SESSION_ENDED_EVENT } from "@/services/api";
 import { ENDPOINTS } from "@/constants/api";
 import { getGuestOfferIds, clearGuestOffers } from "@/lib/guest-offers";
 
@@ -49,6 +49,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     fetchUser();
   }, [fetchUser]);
+
+  // api.ts ends a dead session outside React; mirror it so the UI shows "logged out".
+  useEffect(() => {
+    const onEnded = () => setUser(null);
+    window.addEventListener(SESSION_ENDED_EVENT, onEnded);
+    return () => window.removeEventListener(SESSION_ENDED_EVENT, onEnded);
+  }, []);
 
   const login = async (email: string, password: string) => {
     const { data } = await api.post(ENDPOINTS.AUTH_LOGIN, { email, password });
