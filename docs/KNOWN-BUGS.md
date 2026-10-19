@@ -4,7 +4,7 @@
 new session, read this first. Keep it updated: when a bug is fixed, move it to the Fixed section
 with the commit, and when a panel is reviewed, update the inventory.
 
-Last updated: 2026-10-18 · BEN-1 and COR-1/COR-2/COR-4 fixed this session (uncommitted) · Companion doc:
+Last updated: 2026-10-18 · BEN-1 and COR-1/COR-2/COR-4 fixed this session (uncommitted) · 2026-10-18 bug hunt findings added (FLOW-, AUTH-, MONEY-, SEC-; see section 3, "New findings") · Companion doc:
 [SPEC-frontend-contract-fixes.md](SPEC-frontend-contract-fixes.md) (the spec behind the earlier fixed items)
 
 ---
@@ -145,12 +145,87 @@ _SAL-1 fixed this session — see section 2._
 - Drop "Active Offers" from the dashboard.
 - Score sort puts unanalysed offers last.
 - Forum categories are a fixed list.
-- Logout stays in the refresh flow so the server-side refresh token is revoked.
+- Logout stays in the refresh flow so the server-side refresh token is revoked. **Note: not actually happening yet, see AUTH-5.**
 - COR-1: apply corrections to the analysis (Option A), not relabel as feedback. Done this session: targeted deterministic recompute (overlay corrected fields onto `extractedData`; recompute take-home exactly and score/percentile approximately on a `totalCTC` change; do not fake a role/location re-benchmark).
 - Benefits model (Model A): benefits are **part of** the CTC, not on top of it. The headline "Total compensation" is always the CTC (`max(totalCTC, annualizedBase + variablePay)` per BEN-1) and never moves when a benefit value is overridden — Recalculate changes the breakdown/pie only. No "on-top-of-CTC" benefit flag is added (Model B rejected). Drives BEN-2: insurance cover (sum assured) is coverage, not money, and no benefit adds to the headline total.
 
 ### Decisions still needed
 - MIN-6: should email login claim guest offers like signup does?
+- SEC-3: what should Share mean? Build a real read-only shared link (signed, revocable), or relabel the button ("only you can open it") or remove it?
+- MONEY-1: move variable pay out of the monthly take-home and show it separately as "plus up to ₹X/yr"?
+- MONEY-10 / SEC-8: should every money surface use `computeHeadlineTotal`, so the Benefits drawer, PDF, Compare and salary bar agree?
+- FLOW-4: when the same letter is resubmitted with a different role/city/experience, re-analyse it, or tell the user it was already analysed?
+- SEC-10: build the data-export and account-delete UI now?
+
+### New findings: bug hunt 2026-10-18
+
+Four read-only investigations of the branch: core flow (upload to results), money figures on the
+results page, auth/sessions/quota, and secondary screens. No source was changed by the hunts.
+Nothing here was verified in a real browser or against real Postgres. **Reproduced** means the
+behaviour was driven through the real code with mocks (throwaway tests, since deleted);
+**Code-read** means it was not run. Duplicates found by more than one hunt are merged onto one row
+with both IDs; the other table has a pointer row. Items tagged **[visible]** are the ones most
+likely to make a user think the product is broken. Source reports: `.agents/tasks/hunt-core-flow.md`,
+`hunt-auth-quota.md`, `hunt-money-figures.md`, `hunt-secondary-screens.md`.
+
+**Fix in progress:** FLOW-2 and FLOW-1 / AUTH-2 are being fixed now (batch 1). Not committed yet.
+
+#### Core flow (upload, extraction, worker, processing, results)
+
+| ID | Severity | Bug | Where | Evidence |
+|---|---|---|---|---|
+| FLOW-1 / AUTH-2 | Major | **[visible]** Once the 15-minute access token expires, routes that also serve guests treat a signed-in user as a guest instead of returning 401, so the frontend never refreshes. An upload is saved as a 24-hour guest offer that never appears on the dashboard and is then deleted; it is charged to the browser's guest allowance (a signed-in user can get the guest 429 copy); drawer features return 404 on it. A results tab left open past 15 minutes turns into "Something went wrong" on refetch. Fix in progress (batch 1). | `backend/src/middleware/authenticate.ts:22-43` (only sets `tokenInvalid`); `offer.routes.ts:111`, `offer.service.ts:55,137,145`; `quota.routes.ts:21`; `analysis.routes.ts:17,43`; `offer-guard.ts:28-36`; `user.service.ts:74`; `cleanup.worker.ts:70` | Reproduced (backend: Fastify inject with the real `authenticate`, offer, quota and analysis routes, DB mocked). Frontend effect code-read. |
+| FLOW-2 | Major | **[visible]** When attempt 1 of 3 fails, the worker writes `FAILED` and never sets the offer back to `PROCESSING` for the retry. The processing page stops polling and shows "Analysis Failed" while the retry often succeeds. A guest who presses Try Again can hit the daily 429, because the slot is refunded only on the final attempt. Fix in progress (batch 1). | `backend/src/workers/analysis.worker.ts:463-467`, `ocr.worker.ts:177-181`, `queues.ts` (`attempts: 3`); `frontend/src/pages/ProcessingPage.tsx:41,95` | Reproduced (backend: real worker, BullMQ/DB/AI mocked; attempt 1 wrote FAILED, attempt 2 wrote COMPLETED). Frontend behaviour pinned by the existing test "stops on FAILED and shows the failure UI". |
+| FLOW-3 / SEC-4 | Medium | **[visible]** Dashboard rows always open the results page. For a QUEUED/PROCESSING/FAILED offer the analysis is 404, so the user sees "Something went wrong" instead of progress or the failure reason. The processing page's give-up screen sends users to the dashboard, which is a login wall for guests. Rows are `<tr onClick>` with no link, tabindex or key handler, so keyboard users cannot open any past offer. | `frontend/src/pages/DashboardPage.tsx:110`; `ResultsPage.tsx:76`; `ProcessingPage.tsx:236,246`; `App.tsx:79`; `backend/src/modules/analysis/analysis.routes.ts:21-27` | Code-read |
+| FLOW-4 | Medium | Resubmitting the same letter with a different role/city/experience/current CTC silently returns the old analysis. Dedup hashes only the text. Needs a decision (see above). | `backend/src/modules/offer/offer.service.ts:65,94`; benchmark lookup in `analysis.worker.ts` | Code-read; behaviour pinned by the existing unit test "a non-FAILED duplicate returns early without reserving" |
+| FLOW-5 | Minor | Minimum text lengths disagree (paste >20, OCR result ≥50, browser PDF ≥100, worker ≥80 chars). A 21-79 character paste is accepted, queued, then fails with a "that file / photo" message. Quota is refunded. | `UploadPage.tsx:163,304`; `lib/pdf-extractor.ts:28`; `backend/src/workers/ocr.worker.ts:122`; `MIN_EXTRACTED_TEXT_CHARS` in `constants.ts` | Code-read |
+| FLOW-6 | Minor | `POST /offers/extract-file` sends PDFs straight to OCR and skips the backend PDF text-layer reader. When pdf.js fails in the browser, a normal PDF fails (Google Vision), gets `OCR_UNAVAILABLE` (mock provider), or is billed per page (Azure). | `lib/pdf-extractor.ts:99`; `UploadPage.tsx:158`; `offer.service.ts:302` (`extractTextFromFile`) | Code-read |
+| FLOW-7 | Minor | If autofill fails after text extraction succeeded, the page says "Extraction failed — try pasting the text manually" though the form is shown and can be submitted. Other upload errors all say "check your connection" and drop the server message (e.g. 503 queue unavailable, 400). | `UploadPage.tsx:113,259,261` | Code-read |
+| FLOW-8 | Minor | Autofill asks the model for "Current CTC" from an offer letter, so "Current CTC (optional)" is likely pre-filled with the offered CTC and passed to the analysis prompt. | `backend/src/providers/ai/base.ai.ts:488`; `UploadPage.tsx:221`; `analysis.prompt.ts` | Code-read (model output not observed) |
+
+#### Auth, sessions and quota
+
+| ID | Severity | Bug | Where | Evidence |
+|---|---|---|---|---|
+| AUTH-1 | Major (security) | Google login checks the access token only through the userinfo endpoint, with no audience check, so a token issued to any other app can be replayed to log in as its owner (account takeover). It also links Google to an existing password account without checking `email_verified`, and does not compare `sub` with a stored `googleId`. | `backend/src/modules/auth/auth.service.ts:76-99` (access-token branch), `:112-128` (linking); `frontend/src/pages/LoginPage.tsx:27`, `SignupPage.tsx:26` (implicit flow) | Code-read (no Google credentials here) |
+| AUTH-2 | Major | See FLOW-1 (same root cause, merged there). | — | — |
+| AUTH-3 | Medium | **[visible]** Any transient error (500, 429, network) on app boot or during a token refresh deletes both tokens and logs the user out. | `frontend/src/store/auth.tsx:38-44` (`fetchUser` catch); `services/api.ts:121-124` (refresh catch → `redirectToLogin`) | Reproduced (frontend vitest with the real `api` and `AuthProvider`) |
+| AUTH-4 | Medium | **[visible]** With two tabs open, both refresh with the same refresh token. The losing tab's 401 clears the session, deleting the new tokens the other tab just stored, so every tab is logged out. Backend rotation is find-then-delete, not atomic. Same symptom as AUTH-3. | `frontend/src/services/api.ts:9,98`; `backend/src/modules/auth/auth.service.ts:142-155` | Reproduced (simulated) |
+| AUTH-5 | Medium (security) | Logout sends no body, the backend rejects it with 400 before `authService.logout` runs, and the error is swallowed. The refresh token stays valid for 7 days after logout. Contradicts a recorded decision (see above). | `frontend/src/store/auth.tsx:81-82`; `backend/src/modules/auth/auth.routes.ts:100-102`, `auth.schema.ts:39-42` | Reproduced (inject against the real `authRoutes`) |
+| AUTH-6 | Medium | The guest cap (1 analysis/day) is per cookie. Dropping the cookie gives a fresh allowance, and `POST /offers` has no route limit, only the global 100/min per IP. Each guest analysis is a paid AI call. | `backend/src/middleware/guest-identifier.ts:86`; `offer.service.ts:54`; `offer.routes.ts:22` | Code-read |
+| AUTH-7 | Minor | The error handler turns Fastify's own 4xx errors (empty or malformed JSON 400, 415, 413) into 500 `INTERNAL_ERROR`. | `backend/src/middleware/error-handler.ts:96-106` | Reproduced (`POST /auth/logout` with JSON content type and no body → 500) |
+
+#### Money figures (results page)
+
+| ID | Severity | Bug | Where | Evidence |
+|---|---|---|---|---|
+| MONEY-1 | Major | Take-home is CTC minus tax minus employee PF, divided by 12. Employer PF, gratuity and variable pay are never removed, so "per month" is overstated by about 6-10% (₹94,000-₹97,000 shown vs about ₹85,600-₹91,600 for ₹12L CTC with ₹6L basic). The "Gross (annual)" tile shows the CTC. Compare uses the most optimistic bound. Needs a decision on variable pay (see above). | `backend/src/modules/takehome/takehome.calculator.ts:216,261-262`; `ResultsPage.tsx:369`; `comparison.service.ts:72` | Reproduced |
+| MONEY-2 | Major | **[visible]** On the AI-estimated benchmark path (the common case), a null percentile becomes 50 and null p-values become 0. The page says "Your offer is at the 50th percentile" over four ₹0 bars, even for a letter with no CTC. | `backend/src/modules/analysis/analysis.zod.ts:136-141`; `analysis.worker.ts:126-127`; `ResultsPage.tsx:206,220-221` | Reproduced (real `ResultsPage` rendered with the parser's output) |
+| MONEY-3 | Major | `extractMoney` takes the first number and a magnitude word from anywhere in the text: "2,000 RSUs worth $40k" → ₹20,00,000, "12% of basic" → ₹12, "₹2,200 per month" → ₹2,200 a year. These feed "Benefits value" and the pie, and can add up to more than the CTC. Detail strings print unformatted numbers. Separate from BEN-5. | `backend/src/modules/benefits/benefits.calculator.ts:198-211` (also `:109,130`); `BenefitsPanel.tsx:93` | Reproduced (`calculateBenefitValues`) |
+| MONEY-4 | Major | The benefits checklist matches short keywords as substrings: "Laptop" counts as paid leave (`pto`), "upfront" as PF, "residence" as health (`esi`), "provision" as health (`vision`), term life as health. A bare letter loses its high-severity "Standard benefits are missing" flag (the model's own flag is suppressed too) and gets a higher Benefits score. | `backend/src/modules/benefits/benefits.checklist.ts:50,58-59,68,143`; `suppress: ['missing_benefit']` in `analysis.worker.ts` | Reproduced (`checkBenefits`) |
+| MONEY-5 | Medium | A CTC-only letter shows take-home as one exact figure: `isExact` is true because both PF bounds are 0, so the range and the PF note are hidden. The Employee PF tile shows only the lower PF bound when there is a range. | `takehome.calculator.ts:273`; `ResultsPage.tsx:373` | Reproduced |
+| MONEY-6 / SEC-1 | Major | Regression from COR-1, commit `4771e5a`. A totalCTC correction re-ranks the percentile by interpolating the 4 stored points, clamped to 25-90 and not rounded. Correcting a below-market CTC down can raise the salary sub-score and overall score (10th → 25th); ₹2 Cr is capped at 90. The results page, score breakdown, Compare and PDF show values like "41.666666666666664th percentile". | `backend/src/modules/correction/correction.service.ts:209-216`; `score.rubric.ts:174`; `ResultsPage.tsx:221` | Reproduced (both hunts, same mocks as `correction.service.test.ts`) |
+| MONEY-7 | Medium | No surcharge marginal relief. ₹100 more than a ₹50,75,000 CTC raises tax by ₹1,12,354; the same cliff exists at ₹1 Cr and ₹2 Cr. Affects only narrow bands above ₹50L. | `takehome.calculator.ts:168-171` | Reproduced (`calculateTax`) |
+| MONEY-8 | Minor | The salary bar's "Your Offer" marker disappears when the offer is above the axis maximum (recharts `ifOverflow: 'discard'`), i.e. for the strongest offers. | `frontend/src/components/charts/SalaryBar.tsx:51` | Code-read (plus recharts source; `SalaryBar.test.tsx` mocks recharts) |
+| MONEY-9 | Minor | Ordinals are hard-coded "th": "1th / 2th / 3th / 22th percentile" in the score note, the results label and the PDF. | `score.rubric.ts:177,182`; `ResultsPage.tsx:221`; `report.service.ts:97` | Reproduced |
+| MONEY-10 / SEC-8 | Minor | Leftover from BEN-1, commit `89e9f6f`. `computeHeadlineTotal` feeds only the Benefits drawer; the PDF, Compare and salary bar read raw `totalCTC`. A base-only letter shows a total in the drawer but "Not extracted" in the PDF and "Not stated" in Compare. The drawer shows "Total compensation ₹0" when the headline is null, and the no-benefits branch still uses `totalCTC` and an un-annualised `baseSalary` (latent). Needs a decision (see above). | `backend/src/modules/benefits/benefits.service.ts:60-61,73`; `BenefitsPanel.tsx:97`; `comparison.service.ts:60`; `report.service.ts:64-66`; `ResultsPage.tsx` (`userSalary`) | Code-read |
+| MONEY-11 | Minor | See SEC-9 (merged there). | — | — |
+
+#### Secondary screens (PDF, share, dashboard, forum, compare, account)
+
+| ID | Severity | Bug | Where | Evidence |
+|---|---|---|---|---|
+| SEC-1 | Major | See MONEY-6 (merged there). | — | — |
+| SEC-2 | Medium | **[visible]** The PDF report prints junk characters for 💡, → and ₹, because the built-in Helvetica font only has WinAnsi glyphs. Every red flag starts with "Ø=Ü¡", every negotiation tip has junk for the arrow, and any ₹ in AI text becomes " ¹". | `backend/src/modules/report/report.service.ts:84,127`; pdfkit 0.17.2 standard fonts | Reproduced (one-off node render, text operators decoded) |
+| SEC-3 | Medium | Share copies the results URL, which only the owner can open. Anyone else gets a 404 shown as a generic "Something went wrong" with a retry that never works. Separate from MIN-7. Needs a decision (see above). | `frontend/src/pages/ResultsPage.tsx:71-72,76`; `analysis.routes.ts:17`; `backend/src/shared/access/offer-access.ts` | Code-read |
+| SEC-4 | Medium | See FLOW-3 (merged there). | — | — |
+| SEC-5 | Medium | The Forum list has no pager. The backend returns 20 posts per page and `page` is never incremented, so posts after the 20th per category cannot be reached. Separate from MIN-10. | `backend/src/modules/forum/forum.service.ts` (`listPosts`); `frontend/src/pages/ForumPage.tsx:26,75` | Code-read |
+| SEC-6 | Medium | COR-1 x NEG-2 interaction: correction does not invalidate the cached negotiation email. After a CTC correction, reopening the Negotiation drawer shows the old email quoting the old salary, and Copy copies it; getting a correct one costs a daily credit. The Benefits drawer is also stale for up to 30 s. | `frontend/src/components/offers/CorrectionsPanel.tsx:94-95`; `NegotiationPanel.tsx:30-34`; `BenefitsPanel.tsx:33` | Code-read |
+| SEC-7 | Minor | If a route chunk fails to load (stale chunk after a deploy, flaky network), "Try again" never recovers because `React.lazy` caches the rejected import. The fallback also has no navbar. | `frontend/src/App.tsx:29-43,62`; `components/common/ErrorBoundary.tsx:48` | Reproduced (vitest; the lazy factory was called once only) |
+| SEC-8 | Minor | See MONEY-10 (merged there). | — | — |
+| SEC-9 / MONEY-11 | Minor | The PDF formats money with `toLocaleString()` and no locale ("1,200,000"), while the page uses en-IN ("12,00,000"). PDF score colour bands differ from the gauge (72 is amber in the PDF, green on the page). | `backend/src/modules/report/report.service.ts:62,65,100,162-166`; `frontend/src/components/charts/ScoreGauge.tsx` | Code-read |
+| SEC-10 | Minor | Data export, account deletion and offer deletion exist only on the backend; no screen reaches them, though `docs/roadmap.md` lists export and deletion as user rights. Account deletion does not purge in-flight `offer_files`. Needs a decision (see above). | `backend/src/modules/user/user.routes.ts`, `user.service.ts:140,183`; `offer.routes.ts:233`; no entry in frontend `ENDPOINTS` | Code-read |
+| SEC-11 | Minor | Dashboard and Compare lists can be up to 30 s stale after a new analysis or a correction, because nothing invalidates their query keys. Compare keeps the previous result table after the selection changes. | `frontend/src/App.tsx:47-52`; `DashboardPage.tsx:21,26`; `ComparePage.tsx:42` | Code-read |
 
 ---
 
@@ -229,6 +304,16 @@ generation, salary service internals, quota service, OCR providers, and rate lim
 5. **SAL-1 and CAR-1 done this session.** (CAR-2 backend concurrent-AI-call still open.)
 6. Review the Take-home, Score breakdown and Benefits checklist sections, then the landing page.
 7. Minor items.
+
+### New order after the 2026-10-18 bug hunt
+
+- (a) **Batch 1 (in progress):** FLOW-2 and FLOW-1 / AUTH-2.
+- (b) **Results-page visible bugs:** MONEY-2, FLOW-3 / SEC-4, MONEY-6 / SEC-1, MONEY-9, MONEY-10.
+- (c) **Sessions:** AUTH-3, AUTH-4, AUTH-5.
+- (d) **PDF:** SEC-2.
+- (e) **AUTH-1** (account takeover via a Google access token with no audience or `email_verified` check). Major security; should not wait long.
+- (f) **Remaining money:** MONEY-1, MONEY-3, MONEY-4, MONEY-5, MONEY-7.
+- (g) The rest.
 
 ## 6. Keeping this file honest
 - IDs are stable; do not renumber. Add new bugs with the next free ID in their group.
