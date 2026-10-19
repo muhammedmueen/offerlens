@@ -191,13 +191,33 @@ export class AuthService {
                     googleId: payload.sub,
                     isEmailVerified: payload.emailVerified,
                 }).returning();
-            } else {
-                // Link Google to an existing email/password account. Safe only because the token's
-                // audience and `email_verified` were checked above: Google has proved this person
-                // controls the address the account was registered with.
+            } else if (user.isEmailVerified) {
+                // Link Google to an existing account whose address was already proved.
                 await db.update(users)
                     .set({ googleId: payload.sub, avatarUrl: user.avatarUrl || payload.picture || null })
                     .where(eq(users.id, user.id));
+            } else {
+                // AUTH-8: Google has proved this person owns the address. Whoever set this
+                // account's password never did (password signup does not verify email), so it may
+                // be an attacker who registered the victim's address first. Remove the password
+                // and revoke every refresh token, in one transaction, so only Google opens it now.
+                //
+                // ponytail: access tokens already issued (15-minute JWTs) cannot be revoked server
+                // side and stay valid until they expire; refresh is gone, so they cannot be renewed.
+                // A refresh racing this transaction (its claim before our delete, its insert after)
+                // can also mint one surviving token, and so can a password login that read the old
+                // hash before our commit and inserts its token after (the bcrypt compare is the
+                // window; the per-email login limit keeps it hard to hit). Either survivor rotates
+                // indefinitely. Upgrade path: a per-user token version checked on every request and
+                // on refresh closes both.
+                const { id } = user;
+                const linked = { googleId: payload.sub, avatarUrl: user.avatarUrl || payload.picture || null };
+                await db.transaction(async (tx) => {
+                    await tx.update(users)
+                        .set({ ...linked, isEmailVerified: true, passwordHash: null })
+                        .where(eq(users.id, id));
+                    await tx.delete(refreshTokens).where(eq(refreshTokens.userId, id));
+                });
             }
         }
 
