@@ -14,7 +14,10 @@ const SECRET = 'test-secret';
 
 vi.mock('@/config/index.js', () => ({ get config() { return { NODE_ENV: 'test', JWT_SECRET: SECRET }; } }));
 
-const { findFirst, create, getAnalysis, findByToken, getOrCreateGuest, tierForRequest, readCounts } = vi.hoisted(() => ({
+const {
+    findFirst, create, getAnalysis, findByToken, getOrCreateGuest, tierForRequest, readCounts,
+    extractMetadataFromText, extractTextFromFile, getById, getRoles, getCities, getExperienceLevels,
+} = vi.hoisted(() => ({
     findFirst: vi.fn(),
     create: vi.fn(),
     getAnalysis: vi.fn(),
@@ -22,10 +25,30 @@ const { findFirst, create, getAnalysis, findByToken, getOrCreateGuest, tierForRe
     getOrCreateGuest: vi.fn(),
     tierForRequest: vi.fn(),
     readCounts: vi.fn(),
+    extractMetadataFromText: vi.fn(),
+    extractTextFromFile: vi.fn(),
+    getById: vi.fn(),
+    getRoles: vi.fn(),
+    getCities: vi.fn(),
+    getExperienceLevels: vi.fn(),
 }));
 
 vi.mock('@/db/index.js', () => ({ db: { query: { offers: { findFirst } } } }));
-vi.mock('@/modules/offer/offer.service.js', () => ({ OfferService: class { create = create; } }));
+vi.mock('@/modules/offer/offer.service.js', () => ({
+    OfferService: class {
+        create = create;
+        extractMetadataFromText = extractMetadataFromText;
+        extractTextFromFile = extractTextFromFile;
+        getById = getById;
+    },
+}));
+vi.mock('@/modules/metadata/metadata.service.js', () => ({
+    MetadataService: class {
+        getRoles = getRoles;
+        getCities = getCities;
+        getExperienceLevels = getExperienceLevels;
+    },
+}));
 vi.mock('@/modules/analysis/analysis.service.js', () => ({ AnalysisService: class { getAnalysis = getAnalysis; } }));
 vi.mock('@/modules/guest/guest.service.js', () => ({
     GuestService: class {
@@ -49,6 +72,7 @@ const { offerRoutes } = await import('@/modules/offer/offer.routes.js');
 const { analysisRoutes } = await import('@/modules/analysis/analysis.routes.js');
 const { quotaRoutes } = await import('@/modules/quota/quota.routes.js');
 const { authRoutes } = await import('@/modules/auth/auth.routes.js');
+const { metadataRoutes } = await import('@/modules/metadata/metadata.routes.js');
 const { AppError } = await import('@/shared/errors/app-error.js');
 const { ERROR_CODES } = await import('@/shared/errors/error-codes.js');
 
@@ -75,6 +99,7 @@ beforeAll(async () => {
         await api.register(authRoutes, { prefix: '/auth' });
         await api.register(offerRoutes, { prefix: '/offers' });
         await api.register(analysisRoutes);
+        await api.register(metadataRoutes, { prefix: '/metadata' });
         await api.register(quotaRoutes);
     }, { prefix: '/api/v1' });
     await app.ready();
@@ -85,7 +110,10 @@ const user = { id: 'u1', email: 'u1@example.com' };
 const tokens = { accessToken: 'a', refreshToken: 'r' };
 beforeEach(() => {
     vi.restoreAllMocks();
-    for (const f of [findFirst, create, getAnalysis, findByToken, getOrCreateGuest, tierForRequest, readCounts]) f.mockReset();
+    for (const f of [
+        findFirst, create, getAnalysis, findByToken, getOrCreateGuest, tierForRequest, readCounts,
+        extractMetadataFromText, extractTextFromFile, getById, getRoles, getCities, getExperienceLevels,
+    ]) f.mockReset();
     create.mockResolvedValue({ id: 'o1', status: 'QUEUED' });
     tierForRequest.mockImplementation(async (req: { userId?: string }) => (req.userId ? PLANS.free : GUEST));
     readCounts.mockResolvedValue({});
@@ -189,6 +217,30 @@ describe('GET /offers/:id/analysis', () => {
     });
 });
 
+describe('every other guest-capable route rejects an expired Bearer', () => {
+    const multipart = { 'content-type': `multipart/form-data; boundary=${BOUNDARY}` };
+    it.each([
+        ['POST', '/api/v1/offers/extract', '/api/v1/offers/extract', { text: 'x' }, {}],
+        ['POST', '/api/v1/offers/extract-file', '/api/v1/offers/extract-file', multipartBody, multipart],
+        ['GET', '/api/v1/metadata/roles', '/api/v1/metadata/roles', undefined, {}],
+        ['GET', '/api/v1/metadata/cities', '/api/v1/metadata/cities', undefined, {}],
+        ['GET', '/api/v1/metadata/experience-levels', '/api/v1/metadata/experience-levels', undefined, {}],
+        ['GET', '/api/v1/offers/:id', `/api/v1/offers/${OFFER_ID}`, undefined, {}],
+        ['GET', '/api/v1/offers/:id/report', `/api/v1/offers/${OFFER_ID}/report`, undefined, {}],
+    ] as const)('%s %s: 401 TOKEN_EXPIRED, no guest work', async (method, pattern, url, payload, headers) => {
+        // An unmatched URL would also get the root-hook 401, so prove the route is real.
+        expect(app.hasRoute({ method, url: pattern })).toBe(true);
+        expectTokenExpired(await app.inject({
+            method, url, headers: { ...headers, authorization: EXPIRED },
+            ...(payload !== undefined ? { payload } : {}),
+        }));
+        for (const f of [
+            findFirst, findByToken, getOrCreateGuest, create, extractMetadataFromText, extractTextFromFile,
+            getById, getRoles, getCities, getExperienceLevels,
+        ]) expect(f).not.toHaveBeenCalled();
+    });
+});
+
 describe('credential endpoints ignore a stale Bearer', () => {
     const post = (path: string, payload: object) => app.inject({
         method: 'POST', url: `/api/v1/auth/${path}`, headers: { authorization: EXPIRED }, payload,
@@ -219,5 +271,18 @@ describe('credential endpoints ignore a stale Bearer', () => {
         const res = await post('logout', { refreshToken: 'r' });
         expect(res.statusCode).toBe(200);
         expect(AuthService.prototype.logout).toHaveBeenCalledWith('r');
+    });
+
+    // AUTH-5: logout is authenticated by the refresh token in its body alone.
+    it('logout with no Bearer at all still revokes the refresh token', async () => {
+        const res = await app.inject({ method: 'POST', url: '/api/v1/auth/logout', payload: { refreshToken: 'r' } });
+        expect(res.statusCode).toBe(200);
+        expect(AuthService.prototype.logout).toHaveBeenCalledWith('r');
+    });
+
+    it('logout with no body is still a 400 and revokes nothing', async () => {
+        const res = await app.inject({ method: 'POST', url: '/api/v1/auth/logout' });
+        expect(res.statusCode).toBe(400);
+        expect(AuthService.prototype.logout).not.toHaveBeenCalled();
     });
 });

@@ -139,20 +139,15 @@ export class AuthService {
     async refreshAccessToken(refreshToken: string): Promise<AuthTokens> {
         const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
 
-        const stored = await db.query.refreshTokens.findFirst({
-            where: eq(refreshTokens.tokenHash, tokenHash),
-        });
+        // AUTH-4: claim the row atomically. Of two concurrent refreshes with the same token only one
+        // gets it back; the other is a 401. An expired row is consumed (deleted) here too, as before.
+        const [stored] = await db.delete(refreshTokens)
+            .where(eq(refreshTokens.tokenHash, tokenHash))
+            .returning();
 
         if (!stored || stored.expiresAt < new Date()) {
-            // Clean up expired token if it exists
-            if (stored) {
-                await db.delete(refreshTokens).where(eq(refreshTokens.id, stored.id));
-            }
             throw new AppError(ERROR_CODES.TOKEN_EXPIRED, 'Refresh token expired or invalid. Please log in again.', 401);
         }
-
-        // Rotate: delete old, create new
-        await db.delete(refreshTokens).where(eq(refreshTokens.id, stored.id));
 
         const user = await db.query.users.findFirst({ where: eq(users.id, stored.userId) });
         if (!user) throw new AppError(ERROR_CODES.NOT_FOUND, 'User not found', 404);
