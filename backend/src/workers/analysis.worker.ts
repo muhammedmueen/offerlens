@@ -167,6 +167,12 @@ export const analysisWorker = new Worker(
         const startedAt = Date.now();
 
         try {
+            // Every attempt, as the OCR worker does: a retry runs on an offer that must read as
+            // in-progress, not as whatever an earlier attempt or a pre-deploy worker left behind.
+            // failureReason cleared too: an attempt that starts after a reap must not carry the
+            // reaper's reason on a row that now reads PROCESSING (or later COMPLETED).
+            await db.update(offers).set({ status: 'PROCESSING', failureReason: null }).where(eq(offers.id, offerId));
+
             // Fetch offer for user context
             const offer = await db.query.offers.findFirst({
                 where: eq(offers.id, offerId),
@@ -458,15 +464,13 @@ export const analysisWorker = new Worker(
                 failureReason = 'AI_ERROR: The AI service encountered an internal error. Please try again.';
             }
 
-            // Only the last attempt is terminal and refunds the analysis quota (task 4.3).
-            // Earlier attempts keep today's per-attempt FAILED write; BullMQ will retry.
+            // Only the last attempt is terminal: it writes FAILED and refunds the analysis quota
+            // (task 4.3). An earlier attempt writes nothing, so the offer stays PROCESSING while
+            // BullMQ retries. ProcessingPage stops on FAILED, so a FAILED here would show
+            // "Analysis Failed" for an offer whose retry then completes (FLOW-2). failureReason
+            // is not recorded either: GET /offers/:id returns it whatever the status.
             if (isFinalAttempt(job)) {
                 await failOfferAndRefund(offerId, failureReason);
-            } else {
-                await db.update(offers).set({
-                    status: 'FAILED',
-                    failureReason: failureReason
-                }).where(eq(offers.id, offerId));
             }
             throw error;
         }
