@@ -75,3 +75,16 @@ export interface DashboardStats {
   averageScore: number | null;
   bestScore: number | null;
 }
+
+/** backend/src/modules/negotiation/negotiation.service.ts: POST /offers/:id/negotiate */
+export interface NegotiationSuggestion {
+  component: string;
+  currentValue: string;
+  suggestedAsk: string;
+  rationale: string;
+  priority: "high" | "medium" | "low";
+}
+
+export type NegotiationScript =
+  | { type: "personalized"; subject: string; body: string; suggestions: NegotiationSuggestion[] }
+  | { type: "template"; subject: string; body: string; note: string; suggestions: NegotiationSuggestion[] };

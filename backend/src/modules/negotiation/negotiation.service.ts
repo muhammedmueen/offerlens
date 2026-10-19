@@ -6,11 +6,20 @@ import { FastifyInstance } from 'fastify';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 import { assertOfferAccess } from '@/shared/access/offer-access.js';
-import { AnalysisResult } from '@/modules/analysis/analysis.types.js';
+import { AnalysisResult, NegotiationSuggestion } from '@/modules/analysis/analysis.types.js';
 import { createAiProvider, type AiProviderSelection } from '@/providers/ai/ai.factory.js';
 import { buildNegotiationTemplate, hasNegotiableDetail } from './negotiation.template.js';
 import type { Tier } from '@/config/plans.js';
 import { release, reserve } from '@/modules/quota/quota.service.js';
+
+/**
+ * The negotiation endpoint's response, discriminated on `type`. `subject` and `body` are ALWAYS
+ * non-empty strings on both arms — the personalized arm because the provider now Zod-validates,
+ * the template arm because the builder always returns both — so the panel can drop its `any`.
+ */
+export type NegotiationScript =
+    | { type: 'personalized'; subject: string; body: string; suggestions: NegotiationSuggestion[] }
+    | { type: 'template'; subject: string; body: string; note: string; suggestions: NegotiationSuggestion[] };
 
 export class NegotiationService {
     constructor(private fastify: FastifyInstance) { }
@@ -21,7 +30,7 @@ export class NegotiationService {
         tier: Tier,
         options?: { tone?: string; focusAreas?: string[] },
         selection: AiProviderSelection = {},
-    ) {
+    ): Promise<NegotiationScript> {
         // Verify offer exists and belongs to user
         const offer = await db.query.offers.findFirst({
             where: eq(offers.id, offerId),
@@ -49,6 +58,7 @@ export class NegotiationService {
             companyName: extractedData?.companyName,
             role: extractedData?.role,
             totalCtc: extractedData?.compensation?.totalCTC,
+            baseSalary: extractedData?.compensation?.baseSalary,
             currency: extractedData?.compensation?.currency,
             focusAreas: options?.focusAreas,
         });
@@ -90,8 +100,9 @@ export class NegotiationService {
 
             return {
                 type: 'personalized' as const,
-                ...script,
-                suggestions,
+                subject: script.subject,
+                body: script.body,
+                suggestions: suggestions || [],
             };
         } catch (error) {
             // No AI script was produced, so the unit goes back.

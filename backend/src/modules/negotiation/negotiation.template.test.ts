@@ -107,13 +107,40 @@ describe('buildNegotiationTemplate', () => {
             focusAreas: ['salary', 'joining_bonus', 'pto'], totalCtc: 1_500_000,
         });
 
-        expect(body).toContain('1. Base salary');
+        // NEG-5: a CTC-only letter labels the figure as CTC, never as "base salary".
+        expect(body).toContain('1. Total compensation');
+        expect(body).toContain('current CTC: ₹15,00,000');
+        expect(body).not.toContain('1. Base salary');
         expect(body).toMatch(/2\. A one-time joining bonus/);
         expect(body).toMatch(/3\. Paid leave/);
     });
 
     it('defaults to salary when no focus area was ticked', () => {
+        // Nothing-known fallback keeps the "Base salary" label with the bracket placeholder.
         expect(buildNegotiationTemplate({}).body).toContain('1. Base salary');
+    });
+
+    it('anchors to base salary when it was extracted, not to a placeholder (NEG-9)', () => {
+        const { body } = buildNegotiationTemplate({
+            baseSalary: { amount: 900_000, period: 'annual' }, totalCtc: null,
+        });
+        expect(body).toContain('current base: ₹9,00,000');
+        expect(body).not.toContain('[OFFERED SALARY]');
+    });
+
+    it('annualises a monthly base when anchoring (reuses annualBasicFrom)', () => {
+        const { body } = buildNegotiationTemplate({
+            baseSalary: { amount: 75_000, period: 'monthly' }, totalCtc: null,
+        });
+        // 75,000 * 12 = 900,000 → ₹9,00,000.
+        expect(body).toContain('current base: ₹9,00,000');
+    });
+
+    it('does not leak prototype keys through a focus area (NEG-8)', () => {
+        const { body } = buildNegotiationTemplate({ focusAreas: ['constructor'] });
+        expect(body).not.toContain('native code');
+        expect(body).not.toContain('function Object');
+        expect(body).toContain('[WHAT YOU WOULD LIKE CHANGED]');
     });
 
     it('passes an unknown focus area through rather than dropping it', () => {
