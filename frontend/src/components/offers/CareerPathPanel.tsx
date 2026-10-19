@@ -5,7 +5,25 @@ import LoadingState from "@/components/common/LoadingState";
 import ErrorState from "@/components/common/ErrorState";
 import CareerTimeline from "@/components/charts/CareerTimeline";
 import CareerProgression from "@/components/offers/CareerProgression";
-import { getQuotaError, quotaExhaustedText } from "@/lib/quota";
+import { getQuotaError, quotaExhaustedText, isRateLimited, RATE_LIMITED_TEXT } from "@/lib/quota";
+
+/**
+ * CAR-1: a permanent client error cannot succeed on retry, so retrying one is wasted time.
+ * True for any 4xx EXCEPT 429 — a 429 is handled by the quota convention below (a daily-limit
+ * 429 already fails via getQuotaError; a plain rate-limit 429 may clear, so it keeps retrying,
+ * matching BenefitsPanel). A missing `response` means network/offline, which is transient.
+ * ponytail: treats every non-429 4xx as permanent (correct for 400/404 here); if the career
+ * endpoint ever returns a retryable 4xx, narrow this to the specific status codes.
+ */
+const isPermanentError = (err: unknown): boolean => {
+  const status = (err as { response?: { status?: number } })?.response?.status;
+  return status !== undefined && status >= 400 && status < 500 && status !== 429;
+};
+
+/** CAR-1: the backend's 400 when the analysis has no role (career.service.ts, INVALID_INPUT). */
+const isRoleNotIdentified = (err: unknown): boolean =>
+  (err as { response?: { status?: number; data?: { error?: { code?: string } } } })?.response?.status === 400 &&
+  (err as { response?: { data?: { error?: { code?: string } } } })?.response?.data?.error?.code === "INVALID_INPUT";
 
 /**
  * Career path drawer.
@@ -19,8 +37,10 @@ const CareerPathPanel: React.FC<{ offerId: string }> = ({ offerId }) => {
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["career-path", offerId],
     queryFn: () => api.get(ENDPOINTS.OFFER_CAREER_PATH(offerId)).then((r) => r.data.data),
-    // A daily-limit 429 will not clear on retry; anything else gets the usual three.
-    retry: (count, err) => !getQuotaError(err) && count < 3,
+    // CAR-1: a permanent client error (e.g. a 400 'role not identified') cannot succeed on
+    // retry, so it fails immediately. A daily-limit 429 likewise won't clear before reset.
+    // Everything else (network / 5xx / rate-limit 429) still gets the usual three.
+    retry: (count, err) => !isPermanentError(err) && !getQuotaError(err) && count < 3,
   });
 
   if (isLoading) return <LoadingState rows={3} />;
@@ -28,6 +48,16 @@ const CareerPathPanel: React.FC<{ offerId: string }> = ({ offerId }) => {
     const quotaError = getQuotaError(error);
     // No retry button for a used-up daily limit: retrying cannot succeed before the reset.
     if (quotaError) return <ErrorState message={quotaExhaustedText(quotaError)} />;
+    if (isRateLimited(error)) return <ErrorState message={RATE_LIMITED_TEXT} onRetry={() => refetch()} />;
+    // CAR-1: the offer has no identifiable role — a meaningful message, and NO retry button,
+    // because refetching would just hit the same permanent 400.
+    if (isRoleNotIdentified(error))
+      return (
+        <ErrorState message="We couldn't map a career path because this offer doesn't name an identifiable role. Try an offer that states the job title." />
+      );
+    // Any other permanent client error: real message, still no dead retry button.
+    if (isPermanentError(error)) return <ErrorState />;
+    // Transient (network / 5xx): keep the retry affordance — a refetch can plausibly succeed.
     return <ErrorState onRetry={() => refetch()} />;
   }
 
