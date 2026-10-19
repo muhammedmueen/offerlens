@@ -5,8 +5,39 @@ import { eq } from 'drizzle-orm';
 import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 import { assertOfferAccess } from '@/shared/access/offer-access.js';
-import { AnalysisResult, Benefit } from '@/modules/analysis/analysis.types.js';
+import { AnalysisResult, Benefit, Compensation } from '@/modules/analysis/analysis.types.js';
 import { calculateBenefitValues } from './benefits.calculator.js';
+
+/** Annualize a base salary stated monthly or annually. Null amount -> null (not 0). */
+function annualizeBase(compensation: Compensation | null | undefined): number | null {
+    const base = compensation?.baseSalary;
+    if (!base || base.amount == null) return null;
+    return base.period === 'monthly' ? base.amount * 12 : base.amount;
+}
+
+/**
+ * The headline total-compensation figure for the with-benefits branch.
+ *
+ * Anchors on totalCTC and never falls below it. For CTC-only letters (baseSalary null)
+ * this returns totalCTC; when an annual base is present it also considers base + variable
+ * pay and takes the larger. Returns null only when neither totalCTC nor an annual base is
+ * available, matching the no-benefits branch.
+ *
+ * ponytail: benefits are NOT summed into the headline. The extraction schema (Benefit:
+ * name/value/details/isStandard) cannot tell an on-top-of-CTC perk from one already baked
+ * into totalCTC, so adding them risks double-counting and would let the total drop below
+ * totalCTC. Upgrade path: a per-benefit `partOfCTC` flag, after which genuinely additive
+ * benefits can be added here.
+ */
+export function computeHeadlineTotal(compensation: Compensation | null | undefined): number | null {
+    const totalCTC = compensation?.totalCTC ?? null;
+    const annualizedBase = annualizeBase(compensation);
+    const variablePay = compensation?.variablePay?.amount || 0;
+    const baseDriven = annualizedBase != null ? annualizedBase + variablePay : null;
+
+    if (totalCTC == null && baseDriven == null) return null;
+    return Math.max(totalCTC ?? 0, baseDriven ?? 0);
+}
 
 export class BenefitsService {
     async calculate(offerId: string, userId: string, overrides?: Record<string, number>) {
@@ -37,12 +68,10 @@ export class BenefitsService {
         const breakdown = calculateBenefitValues(benefits, compensation, overrides);
 
         const benefitsTotal = breakdown.reduce((sum, b) => sum + (b.monetaryValue || 0), 0);
-        const baseSalary = compensation?.baseSalary?.amount || 0;
-        const totalComp = baseSalary + (compensation?.variablePay?.amount || 0) + benefitsTotal;
 
         return {
-            totalCompensation: totalComp,
-            baseSalary,
+            totalCompensation: computeHeadlineTotal(compensation),
+            baseSalary: annualizeBase(compensation),
             benefitsValue: benefitsTotal,
             breakdown,
             currency: compensation?.currency || 'INR',

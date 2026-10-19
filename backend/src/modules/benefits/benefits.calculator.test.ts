@@ -81,13 +81,29 @@ describe('calculateBenefitValues', () => {
         expect(row.monetaryValue).not.toBe(18);
     });
 
-    it('values insurance in rupees, with magnitude words honoured', () => {
+    it('treats an insurance cover figure as coverage, not money (BEN-2, Model A)', () => {
+        // Was the BEN-2 bug: "coverage of ₹5 lakh" became a ₹500,000 monetaryValue and was
+        // summed into benefitsValue. A sum-assured cover is coverage, not pay.
         const [row] = calculateBenefitValues(
             [benefit('Group Health Insurance', 'coverage of ₹5 lakh')],
             comp(1_200_000),
         );
         expect(row.category).toBe('insurance');
-        expect(row.monetaryValue).toBe(500_000);
+        expect(row.monetaryValue).toBeNull();
+        expect(row.isQuantifiable).toBe(false);
+        // The cover amount is reported as descriptive detail, with no misleading premium label.
+        expect(row.details).toMatch(/5,?00,?000/);
+        expect(row.details).not.toMatch(/Annual premium/i);
+    });
+
+    it('does not sum an insurance cover into benefitsValue (BEN-2)', () => {
+        const breakdown = calculateBenefitValues(
+            [benefit('Health insurance', '₹5,00,000')],
+            comp(1_200_000),
+        );
+        const benefitsValue = breakdown.reduce((s, b) => s + (b.monetaryValue || 0), 0);
+        expect(benefitsValue).toBe(0);
+        expect(benefitsValue).not.toBe(500_000);
     });
 
     it('marks equity unquantifiable when no amount is given', () => {

@@ -71,15 +71,24 @@ export function calculateBenefitValues(
         if (name.includes('insurance') || name.includes('health') || name.includes('medical')) {
             const amount = extractMoney(benefit.value || benefit.details || '');
             if (amount) {
+                // BEN-2 (Model A): an insurance figure is a COVER / sum assured — coverage,
+                // not pay — so it is NON-quantifiable and must never be summed into
+                // benefitsValue or the headline. Show the amount as descriptive cover detail.
+                //
+                // ponytail: the Benefit schema (name/value/details/isStandard) cannot tell an
+                // employer-paid PREMIUM (a real CTC cost) from a sum-assured COVER, so every
+                // insurance figure is treated as cover (the safe Model A default). Upgrade
+                // path: add a schema field marking premium vs cover, after which a genuine
+                // premium may become a monetaryValue as an employer cost that is part of CTC.
                 return {
                     name: benefit.name,
                     category: 'insurance',
-                    monetaryValue: amount,
-                    details: `Annual premium: ${amount}`,
-                    isQuantifiable: true,
+                    monetaryValue: null,
+                    details: `Cover: ₹${amount.toLocaleString('en-IN')}`,
+                    isQuantifiable: false,
                 };
             }
-            // Default insurance estimate if no amount given
+            // No amount found: coverage mentioned but not quantifiable.
             return {
                 name: benefit.name,
                 category: 'insurance',

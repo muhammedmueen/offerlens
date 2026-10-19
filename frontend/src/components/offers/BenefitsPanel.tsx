@@ -5,8 +5,10 @@ import { ENDPOINTS } from "@/constants/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import LoadingState from "@/components/common/LoadingState";
+import ErrorState from "@/components/common/ErrorState";
 import BenefitsPie from "@/components/charts/BenefitsPie";
 import { Loader2 } from "lucide-react";
+import { getQuotaError, quotaExhaustedText, isRateLimited, RATE_LIMITED_TEXT } from "@/lib/quota";
 
 interface BenefitRow {
   name: string;
@@ -27,28 +29,47 @@ interface BenefitRow {
 const BenefitsPanel: React.FC<{ offerId: string }> = ({ offerId }) => {
   const [overrides, setOverrides] = useState<Record<string, number>>({});
 
-  const { data, isLoading, refetch, isFetching } = useQuery({
+  const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ["benefits", offerId],
     queryFn: () => api.post(ENDPOINTS.OFFER_BENEFITS(offerId), {}).then((r) => r.data.data),
+    // A daily-limit 429 will not clear on retry; anything else gets the usual three.
+    retry: (count, err) => !getQuotaError(err) && count < 3,
   });
 
   const recalculate = useMutation({
     mutationFn: () => api.post(ENDPOINTS.OFFER_BENEFITS(offerId), { overrides }).then((r) => r.data.data),
-    // Refetch so the displayed totals reflect the server's recalculation rather than
-    // leaving the user looking at stale numbers.
-    onSuccess: () => refetch(),
+    // BEN-4: the recalculate response already contains the full result (totals + breakdown)
+    // computed with the user's overrides. We must NOT refetch the no-override query here —
+    // that plain refetch replaced the recalculated totals with the original ones, so the
+    // headline snapped back while the inputs/pie kept the overrides. The display below reads
+    // from `recalculate.data` once it exists, so success needs no extra work.
   });
 
   if (isLoading) return <LoadingState rows={3} />;
 
-  const breakdown: BenefitRow[] = Array.isArray(data?.breakdown) ? data.breakdown : [];
-  const currency: string = data?.currency ?? "INR";
+  // BEN-3: a failed request is NOT an empty offer. Only show the "no benefits" copy below
+  // when the request SUCCEEDS with an empty breakdown; a query error gets a real error state.
+  if (error) {
+    const quotaError = getQuotaError(error);
+    // No retry button for a used-up daily limit: retrying cannot succeed before the reset.
+    if (quotaError) return <ErrorState message={quotaExhaustedText(quotaError)} />;
+    if (isRateLimited(error)) return <ErrorState message={RATE_LIMITED_TEXT} onRetry={() => refetch()} />;
+    return <ErrorState onRetry={() => refetch()} />;
+  }
+
+  const recalcQuotaError = getQuotaError(recalculate.error);
+  // BEN-4: after a successful recalculate, show its result (totals + breakdown reflect the
+  // user's overrides). Before that, show the original query's result. Single source of truth,
+  // so the headline total no longer reverts out from under the inputs and pie.
+  const view = recalculate.data ?? data;
+  const breakdown: BenefitRow[] = Array.isArray(view?.breakdown) ? view.breakdown : [];
+  const currency: string = view?.currency ?? "INR";
   const fmt = (n: number) => `${currency === "INR" ? "₹" : ""}${n.toLocaleString("en-IN")}`;
 
   if (breakdown.length === 0) {
     return (
       <p className="py-8 text-center text-sm text-muted-foreground">
-        {data?.message ?? "No benefits data found in your offer. Your total comp equals your base CTC."}
+        {view?.message ?? "No benefits data found in your offer. Your total comp equals your base CTC."}
       </p>
     );
   }
@@ -69,13 +90,18 @@ const BenefitsPanel: React.FC<{ offerId: string }> = ({ offerId }) => {
       <div className="grid grid-cols-2 gap-3 text-center">
         <div className="rounded-xl border border-stone-200 bg-white p-3 shadow-sm">
           <p className="text-xs text-muted-foreground">Benefits value</p>
-          <p className="text-lg font-bold text-foreground">{fmt(data?.benefitsValue ?? 0)}</p>
+          <p className="text-lg font-bold text-foreground">{fmt(view?.benefitsValue ?? 0)}</p>
         </div>
         <div className="rounded-xl border border-stone-200 bg-white p-3 shadow-sm">
           <p className="text-xs text-muted-foreground">Total compensation</p>
-          <p className="text-lg font-bold text-foreground">{fmt(data?.totalCompensation ?? 0)}</p>
+          <p className="text-lg font-bold text-foreground">{fmt(view?.totalCompensation ?? 0)}</p>
         </div>
       </div>
+
+      {/* BEN-2 (Model A): make clear benefits are a breakdown of the CTC, not added on top. */}
+      <p className="text-xs text-muted-foreground">
+        Benefits are part of your CTC. Editing them changes the breakdown, not your total.
+      </p>
 
       <div className="space-y-3">
         {breakdown.map((b) => (
@@ -117,6 +143,17 @@ const BenefitsPanel: React.FC<{ offerId: string }> = ({ offerId }) => {
         {recalculate.isPending || isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
         Recalculate with my values
       </Button>
+
+      {/* BEN-3: a failed recalculate previously gave the user no feedback at all. */}
+      {recalculate.error && (
+        <p role="alert" className="text-sm text-destructive">
+          {recalcQuotaError
+            ? quotaExhaustedText(recalcQuotaError)
+            : isRateLimited(recalculate.error)
+              ? RATE_LIMITED_TEXT
+              : "We couldn't recalculate with your values right now. Please try again."}
+        </p>
+      )}
     </div>
   );
 };
