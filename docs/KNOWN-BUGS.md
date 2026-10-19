@@ -54,7 +54,7 @@ How each finding below was established:
 | X1 | Forum category was free text | Fixed list `negotiation`, `career`, `advice`, `general`, validated on the backend, dropdown and filter on the frontend. |
 | X2 | Dashboard score sort put unanalysed offers first, and paging could repeat or skip rows | `NULLS LAST` plus an offer-id tiebreaker. |
 
-**Fixed this session (2026-10-18), committed on `fix/frontend-backend-contract-drift`, not yet merged/deployed, not reviewed in a browser/real Postgres.** Benefits fixes (BEN-1/2/3/4) in commit `89e9f6f`; Corrections fixes (COR-1/2/4) in commit `4771e5a`.
+**Fixed this session (2026-10-18), committed on `fix/frontend-backend-contract-drift`, not yet merged/deployed, not reviewed in a browser/real Postgres.** Benefits fixes (BEN-1/2/3/4) in commit `89e9f6f`; Corrections fixes (COR-1/2/4) in commit `4771e5a`; Salary Explorer fix (SAL-1) in commit `3f4bae5`.
 
 | ID | Bug | What was done |
 |---|---|---|
@@ -64,6 +64,8 @@ How each finding below was established:
 | COR-1 | Corrections saved but never applied (Option A chosen: apply them) | Corrections now overlay onto `analyses.extractedData` in one transaction, so every reader (`getAnalysis`, benefits, career, export) picks them up; reopening shows the corrected value. A `totalCTC` correction triggers a targeted deterministic recompute of `takeHome` (exact) and score/percentile (approximate interpolation against the 4 stored market points; unscored salaries early-return so no sub-score is invented), wrapped in `optionalStage` to fail soft. Frontend invalidates `["analysis", offerId]` on a real change and the toast only claims "applied" when the server reports `changed`. New `correctable-fields.ts` allowlist; 28 new backend + 3 new frontend tests. |
 | COR-2 | Each correction save cleared the career cache, wasting a daily career credit | Career cache dropped only when a changed field is role/location (`CAREER_RELEVANT_FIELDS`); a `totalCTC`/notice/probation correction leaves it intact. |
 | COR-4 | `field` any string, `correctedValue` `z.any()` — table could fill with junk / arbitrary jsonb write | Six-path allowlist in `correctable-fields.ts` validated before any write (rejects non-allowlisted paths incl. prototype pollution), per-field value typing (finite non-negative CTC; string ≤200 chars for text). `correction.schema.ts` `field` tightened to `z.enum` from the shared constant. |
+| BEN-2 | Insurance cover treated as money ("Health insurance ₹5 lakh" recorded as an "Annual premium" of 5,00,000 and summed into compensation) — that is the sum assured, not pay | Insurance branch of `benefits.calculator.ts` now returns `monetaryValue: null` / `isQuantifiable: false` with a `"Cover: ₹X"` detail (misleading "Annual premium" label removed), so cover contributes 0 to `benefitsValue` and never enters `computeHeadlineTotal`. Premium-vs-cover not distinguished (data model can't tell them apart) → every insurance figure treated as cover, the safe Model A default, with a `ponytail:` comment. `BenefitsPanel.tsx` gained the Model A note ("Benefits are part of your CTC. Editing them changes the breakdown, not your total."). Backend benefits module 46 pass; frontend 175 → 177; tsc clean. |
+| SAL-1 | Salary Explorer fired a request on every keystroke after the first search (query key followed live input; `searched` stayed true), tripping the 30/min limit; 1-char values hit the backend 2-char min and showed the misleading "No data for this combination yet" | `SalaryExplorerPage.tsx` splits draft role/city inputs from committed search terms; the `useQuery` key + `enabled` read only the committed terms, so typing no longer fires requests — search runs on explicit submit only. A client-side `MIN_TERM_LENGTH=2` guard (matching `salary.schema.ts`) disables Search and blocks submit for too-short input, so a 1-char value never reaches the backend and the misleading empty-state no longer shows for in-progress/too-short input. Legitimate empty-state preserved. 3 new call-count-based tests; suite 177 → 180, tsc clean. Committed `3f4bae5`. |
 
 **Deploy caveat for COR-1:** migration `backend/drizzle/0009_corrections_unique_field.sql` (unique index on `(offerId, field)` + dedupe + upsert) was hand-authored with no live Postgres. Before deploy it must run against real Postgres (it dedupes existing rows **before** creating the unique index — order matters), and `drizzle/meta/0009_snapshot.json` + the `_journal.json` entry must be regenerated via `drizzle-kit generate` on the DB machine.
 
@@ -121,7 +123,7 @@ quota counts, so it has no visible effect.
 
 | ID | Severity | Bug | Where | Evidence |
 |---|---|---|---|---|
-| SAL-1 | Medium | After the first search, every keystroke in the role or city box fires a request (`searched` stays true and the query key follows the text). Against a 30-per-minute limit this soon shows "Too many requests", and 1-character values hit the backend's 2-character minimum and show the misleading "No data for this combination yet". | `frontend/src/pages/SalaryExplorerPage.tsx` (the `useQuery`) | Code-read |
+_SAL-1 fixed this session — see section 2._
 
 ### Other minor items from the first review
 
@@ -195,7 +197,7 @@ bug. **Not reviewed** = not looked at.
 | Compare | **Fixed** | B5 (names). Result table logic not verified. |
 | Forum list and post | **Fixed** | B1, B2, X1. MIN-9 open. |
 | Feature requests | **Fixed** | B6, B7, B8, S1. MIN-10 open. |
-| Salary Explorer | **Broken** | SAL-1 |
+| Salary Explorer | **Fixed** | SAL-1 (this session) |
 | Salary contribute form | OK | Has tests |
 | Navbar, protected routes, app routes | OK | |
 | Landing page components (`components/landing/*`) | Not reviewed | |
@@ -226,7 +228,7 @@ generation, salary service internals, quota service, OCR providers, and rate lim
 2. **Deploy the existing branch**: merge it, deploy backend then frontend. S1 is a live privacy leak until then. Note: COR-1's migration 0009 needs a real-Postgres run + snapshot/journal regen before deploy.
 3. **COR-1 done this session** (Option A, applies corrections; COR-2/COR-4 fixed alongside). COR-3 (rate limit) still open.
 4. **Negotiation** NEG-1 (stub script charged), NEG-6, NEG-5 (CTC labelled as base), then NEG-2, NEG-3, NEG-7.
-5. **SAL-1** and **CAR-1**.
+5. **SAL-1 done this session.** **CAR-1** next.
 6. Review the Take-home, Score breakdown and Benefits checklist sections, then the landing page.
 7. Minor items.
 
