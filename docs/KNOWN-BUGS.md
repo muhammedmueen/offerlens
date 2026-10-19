@@ -54,7 +54,7 @@ How each finding below was established:
 | X1 | Forum category was free text | Fixed list `negotiation`, `career`, `advice`, `general`, validated on the backend, dropdown and filter on the frontend. |
 | X2 | Dashboard score sort put unanalysed offers first, and paging could repeat or skip rows | `NULLS LAST` plus an offer-id tiebreaker. |
 
-**Fixed this session (2026-10-18), committed on `fix/frontend-backend-contract-drift`, not yet merged/deployed, not reviewed in a browser/real Postgres.** Benefits fixes (BEN-1/2/3/4) in commit `89e9f6f`; Corrections fixes (COR-1/2/4) in commit `4771e5a`; Salary Explorer fix (SAL-1) in commit `3f4bae5`.
+**Fixed this session (2026-10-18), committed on `fix/frontend-backend-contract-drift`, not yet merged/deployed, not reviewed in a browser/real Postgres.** Benefits fixes (BEN-1/2/3/4) in commit `89e9f6f`; Corrections fixes (COR-1/2/4) in commit `4771e5a`; Salary Explorer fix (SAL-1) in commit `3f4bae5`; Career panel fix (CAR-1) in commit `6aa010f`.
 
 | ID | Bug | What was done |
 |---|---|---|
@@ -66,6 +66,7 @@ How each finding below was established:
 | COR-4 | `field` any string, `correctedValue` `z.any()` — table could fill with junk / arbitrary jsonb write | Six-path allowlist in `correctable-fields.ts` validated before any write (rejects non-allowlisted paths incl. prototype pollution), per-field value typing (finite non-negative CTC; string ≤200 chars for text). `correction.schema.ts` `field` tightened to `z.enum` from the shared constant. |
 | BEN-2 | Insurance cover treated as money ("Health insurance ₹5 lakh" recorded as an "Annual premium" of 5,00,000 and summed into compensation) — that is the sum assured, not pay | Insurance branch of `benefits.calculator.ts` now returns `monetaryValue: null` / `isQuantifiable: false` with a `"Cover: ₹X"` detail (misleading "Annual premium" label removed), so cover contributes 0 to `benefitsValue` and never enters `computeHeadlineTotal`. Premium-vs-cover not distinguished (data model can't tell them apart) → every insurance figure treated as cover, the safe Model A default, with a `ponytail:` comment. `BenefitsPanel.tsx` gained the Model A note ("Benefits are part of your CTC. Editing them changes the breakdown, not your total."). Backend benefits module 46 pass; frontend 175 → 177; tsc clean. |
 | SAL-1 | Salary Explorer fired a request on every keystroke after the first search (query key followed live input; `searched` stayed true), tripping the 30/min limit; 1-char values hit the backend 2-char min and showed the misleading "No data for this combination yet" | `SalaryExplorerPage.tsx` splits draft role/city inputs from committed search terms; the `useQuery` key + `enabled` read only the committed terms, so typing no longer fires requests — search runs on explicit submit only. A client-side `MIN_TERM_LENGTH=2` guard (matching `salary.schema.ts`) disables Search and blocks submit for too-short input, so a 1-char value never reaches the backend and the misleading empty-state no longer shows for in-progress/too-short input. Legitimate empty-state preserved. 3 new call-count-based tests; suite 177 → 180, tsc clean. Committed `3f4bae5`. |
+| CAR-1 | Career Path panel retried permanent errors 3× (e.g. 400 "role not identified in offer"), then showed a generic error with a retry button that could never succeed | `CareerPathPanel.tsx` retry predicate no longer retries permanent 4xx; a 400 "role not identified" (and other 4xx) fails immediately with a meaningful message and NO retry button. Transient errors (network/5xx) keep the retry affordance; 429 follows the shared `getQuotaError`/`isRateLimited` convention (matching BenefitsPanel). 4 new tests (call-count + retry-button presence/absence); suite 180 → 184, tsc clean. Committed `6aa010f`. |
 
 **Deploy caveat for COR-1:** migration `backend/drizzle/0009_corrections_unique_field.sql` (unique index on `(offerId, field)` + dedupe + upsert) was hand-authored with no live Postgres. Before deploy it must run against real Postgres (it dedupes existing rows **before** creating the unique index — order matters), and `drizzle/meta/0009_snapshot.json` + the `_journal.json` entry must be regenerated via `drizzle-kit generate` on the DB machine.
 
@@ -110,8 +111,9 @@ quota counts, so it has no visible effect.
 
 | ID | Severity | Bug | Where | Evidence |
 |---|---|---|---|---|
-| CAR-1 | Medium | Errors that cannot succeed are retried three times (for example 400 "Role not identified in offer"), then shown as a generic error with a useless retry button. | `frontend/src/components/offers/CareerPathPanel.tsx` (`retry` predicate) | Code-read |
 | CAR-2 | Minor | Two simultaneous opens that both miss the cache both call the AI and both charge a credit (no lock). | `backend/src/modules/career/career.service.ts` | Code-read |
+
+_CAR-1 fixed this session — see section 2._
 
 ### Corrections panel (looks like it works, changes nothing)
 
@@ -166,9 +168,9 @@ bug. **Not reviewed** = not looked at.
 | Panel | Frontend | Backend | Status | Open items |
 |---|---|---|---|---|
 | Negotiation | `components/offers/NegotiationPanel.tsx` | `modules/negotiation/*`, `providers/ai/base.ai.ts` | **Broken** | NEG-1 to NEG-10 |
-| Benefits calculator | `components/offers/BenefitsPanel.tsx`, `charts/BenefitsPie.tsx` | `modules/benefits/*` | **Broken** | BEN-2, BEN-5 open. BEN-1, BEN-3, BEN-4 fixed this session (uncommitted). |
-| Career path | `components/offers/CareerPathPanel.tsx`, `CareerProgression.tsx`, `charts/CareerTimeline.tsx` | `modules/career/*`, `providers/ai/career.prompt.ts` | **Broken** (minor) | CAR-1, CAR-2 |
-| Corrections | `components/offers/CorrectionsPanel.tsx` | `modules/correction/*` | **Broken** (minor) | COR-3 open (rate limit). COR-1, COR-2, COR-4 fixed this session (uncommitted). |
+| Benefits calculator | `components/offers/BenefitsPanel.tsx`, `charts/BenefitsPie.tsx` | `modules/benefits/*` | **Broken** (minor) | BEN-5 open. BEN-1, BEN-2, BEN-3, BEN-4 fixed this session. |
+| Career path | `components/offers/CareerPathPanel.tsx`, `CareerProgression.tsx`, `charts/CareerTimeline.tsx` | `modules/career/*`, `providers/ai/career.prompt.ts` | **Broken** (minor) | CAR-2 open. CAR-1 fixed this session. |
+| Corrections | `components/offers/CorrectionsPanel.tsx` | `modules/correction/*` | **Broken** (minor) | COR-3 open (rate limit). COR-1, COR-2, COR-4 fixed this session. |
 
 ### Inline sections of the results page
 
@@ -219,7 +221,7 @@ generation, salary service internals, quota service, OCR providers, and rate lim
 |---|---|
 | Negotiation | Read pass, then a full `/code-review` pass (2026-10-18). NEG-5 and NEG-8 reproduced; NEG-6, 7, 9, 10 code-read. |
 | Benefits | Read pass plus reproductions (BEN-1, 3, 4). BEN-1, BEN-3, BEN-4 fixed this session (implement-and-review workflows). BEN-2, BEN-5 still open. |
-| Career | Read pass. No dedicated `/code-review` pass yet. |
+| Career | Read pass. CAR-1 fixed this session (implement-and-review workflow). CAR-2 (backend concurrent-AI-call) still open. |
 | Corrections | Read pass. COR-1 confirmed by investigation, then fixed Option A this session (design + implement-and-review workflow); COR-2 and COR-4 fixed alongside it. COR-3 still open. |
 
 ## 5. Suggested order of work
@@ -228,7 +230,7 @@ generation, salary service internals, quota service, OCR providers, and rate lim
 2. **Deploy the existing branch**: merge it, deploy backend then frontend. S1 is a live privacy leak until then. Note: COR-1's migration 0009 needs a real-Postgres run + snapshot/journal regen before deploy.
 3. **COR-1 done this session** (Option A, applies corrections; COR-2/COR-4 fixed alongside). COR-3 (rate limit) still open.
 4. **Negotiation** NEG-1 (stub script charged), NEG-6, NEG-5 (CTC labelled as base), then NEG-2, NEG-3, NEG-7.
-5. **SAL-1 done this session.** **CAR-1** next.
+5. **SAL-1 and CAR-1 done this session.** (CAR-2 backend concurrent-AI-call still open.)
 6. Review the Take-home, Score breakdown and Benefits checklist sections, then the landing page.
 7. Minor items.
 
