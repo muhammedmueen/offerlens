@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toSalaryComparison, pickBenchmarkCity, AI_ESTIMATE_DISCLAIMER } from './benchmark-comparison.js';
+import { toSalaryComparison, pickBenchmarkCity, AI_ESTIMATE_DISCLAIMER, hasUsableRange } from './benchmark-comparison.js';
 import type { Benchmark } from './salary.service.js';
 
 const FOUR = ['Full Stack Engineer', 'Backend Engineer', 'Frontend Engineer', 'Mobile Engineer'];
@@ -167,5 +167,18 @@ describe('5.7: toSalaryComparison, crowd pay basis wording', () => {
         expect(old.disclaimer).toContain('Some may be offered, not current, pay.');
         expect(old).not.toHaveProperty('payBasis');
         expect(old).not.toHaveProperty('payMix');
+    });
+});
+
+describe('hasUsableRange (MONEY-2)', () => {
+    it.each([
+        ['a real range', { p25: 1, p50: 2, p75: 3, p90: 4 }, true],
+        ['all null', { p25: null, p50: null, p75: null, p90: null }, false],
+        ['all zero (legacy stored row)', { p25: 0, p50: 0, p75: 0, p90: 0 }, false],
+        ['one null', { p25: 1, p50: 2, p75: 3, p90: null }, false],
+        ['null', null, false],
+        ['undefined', undefined, false],
+    ])('%s -> %s', (_n, r, expected) => {
+        expect(hasUsableRange(r as any)).toBe(expected);
     });
 });

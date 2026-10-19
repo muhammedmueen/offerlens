@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import api from "@/services/api";
 import { ENDPOINTS } from "@/constants/api";
@@ -21,6 +21,7 @@ import ConfidenceBadge, { type ConfidenceLevel } from "@/components/common/Confi
 import Reveal from "@/components/motion/Reveal";
 import { motion, useReducedMotion } from "framer-motion";
 import { flagsContainer, flagItem } from "@/lib/motion";
+import { ordinal } from "@/lib/utils";
 import NegotiationPanel from "@/components/offers/NegotiationPanel";
 import BenefitsPanel from "@/components/offers/BenefitsPanel";
 import CareerPathPanel from "@/components/offers/CareerPathPanel";
@@ -73,6 +74,26 @@ const ResultsPage = () => {
   };
 
   if (isLoading) return <PageShell><div className="container mx-auto max-w-4xl px-4 py-12"><LoadingState rows={5} /></div></PageShell>;
+  // FLOW-3: a 404 is not transient (the analysis is unfinished, failed, or not this user's), so
+  // a retry can never succeed. Point at the processing page, which shows the real status.
+  if ((error as { response?: { status?: number } } | null)?.response?.status === 404) {
+    return (
+      <PageShell>
+        <div className="container mx-auto max-w-4xl px-4 py-16 text-center">
+          <h1 className="text-xl font-bold text-foreground">This analysis isn&apos;t ready or isn&apos;t available</h1>
+          <p className="mt-2 text-muted-foreground">
+            It may still be processing, it may have failed, or the link may belong to a different account.
+          </p>
+          <Link
+            to={`/offers/${id}/processing`}
+            className="mt-6 inline-flex items-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Check its progress
+          </Link>
+        </div>
+      </PageShell>
+    );
+  }
   if (error) return <PageShell><div className="container mx-auto max-w-4xl px-4 py-12"><ErrorState onRetry={() => refetch()} /></div></PageShell>;
   if (!analysis) return null;
 
@@ -83,7 +104,23 @@ const ResultsPage = () => {
   // flat aliases (a.company, a.score, a.negotiationTips) that the server never sent, so
   // the header rendered placeholders and the negotiation section threw on undefined.
   const extracted = a.extractedData ?? {};
-  const market = a.salaryComparison?.marketRange;
+  const sc = a.salaryComparison;
+  const market = sc?.marketRange;
+  // MONEY-2: usable only when all four quartiles are finite and > 0. Hides new all-null AI
+  // estimates and rows stored earlier with four Rs 0 bars (and a baked-in 50th percentile).
+  // ponytail: a partial range (some quartiles missing) is dropped, not drawn. Upgrade path:
+  // draw only the quartiles that are present.
+  const hasUsableRange = (r: any): boolean =>
+    !!r && [r.p25, r.p50, r.p75, r.p90].every((v) => typeof v === "number" && Number.isFinite(v) && v > 0);
+  // The AI estimate's percentile is the model's own guess, not a rank, so it is never shown.
+  // typeof (not truthy) so a genuine 0th percentile still shows.
+  const pct =
+    typeof sc?.offerPercentile === "number" &&
+    Number.isFinite(sc.offerPercentile) &&
+    sc.dataSource !== "ai_estimated" &&
+    !sc.percentileWithheld
+      ? Math.round(sc.offerPercentile)
+      : null;
   const negotiationSuggestions = a.negotiationSuggestions ?? [];
 
   /** Confidence for one field, or null when there is nothing to say about it. */
@@ -203,7 +240,7 @@ const ResultsPage = () => {
         )}
 
         {/* Salary Comparison */}
-        {market && (
+        {hasUsableRange(market) && (
           <Reveal as="section" className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
             <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
               <h2 className="font-semibold text-foreground">Salary Comparison</h2>
@@ -216,11 +253,7 @@ const ResultsPage = () => {
               p90={market.p90}
               userSalary={extracted.compensation?.totalCTC ?? undefined}
               hideOffer={!!a.salaryComparison?.percentileWithheld}
-              label={
-                a.salaryComparison?.offerPercentile
-                  ? `Your offer is at the ${a.salaryComparison.offerPercentile}th percentile`
-                  : undefined
-              }
+              label={pct !== null ? `Your offer is at the ${ordinal(pct)} percentile` : undefined}
             />
             <BenchmarkNotice
               dataSource={a.salaryComparison?.dataSource}

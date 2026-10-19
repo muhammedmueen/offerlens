@@ -1,5 +1,16 @@
-import { describe, it, expect } from 'vitest';
-import { computeHeadlineTotal } from './benefits.service.js';
+import { describe, it, expect, vi } from 'vitest';
+
+let analysisRow: Record<string, unknown> = {};
+vi.mock('@/db/index.js', () => ({
+    db: {
+        query: {
+            offers: { findFirst: async () => ({ id: 'o1', userId: 'u1', guestId: null, status: 'COMPLETED' }) },
+            analyses: { findFirst: async () => analysisRow },
+        },
+    },
+}));
+
+import { computeHeadlineTotal, BenefitsService } from './benefits.service.js';
 import { calculateBenefitValues } from './benefits.calculator.js';
 import type { Benefit, Compensation } from '@/modules/analysis/analysis.types.js';
 
@@ -89,5 +100,35 @@ describe('insurance cover never moves the headline (BEN-2, Model A invariant)', 
         // cover benefit leaves the headline anchored on totalCTC.
         const c = comp({ baseSalary: null, totalCTC: 1_200_000 });
         expect(computeHeadlineTotal(c)).toBe(1_200_000);
+    });
+});
+
+describe('BenefitsService.calculate branches agree (MONEY-10)', () => {
+    const run = async (compensation: Compensation, benefits: Benefit[]) => {
+        analysisRow = { extractedData: { compensation }, benefits };
+        return new BenefitsService().calculate('o1', 'u1');
+    };
+    const oneBenefit: Benefit[] = [{ name: 'Meal card', value: '₹2,000/month', details: null, isStandard: false }];
+
+    it('monthly base, no CTC: both branches annualise the base and use it as the headline', async () => {
+        const c = comp({ baseSalary: { amount: 50_000, period: 'monthly' }, totalCTC: null });
+        for (const benefits of [[], oneBenefit]) {
+            const r = await run(c, benefits);
+            expect(r.totalCompensation).toBe(600_000);
+            expect(r.baseSalary).toBe(600_000);
+        }
+    });
+
+    it('no CTC and no base: the total is null in both branches, never 0', async () => {
+        const c = comp({ baseSalary: null, totalCTC: null });
+        for (const benefits of [[], oneBenefit]) {
+            expect((await run(c, benefits)).totalCompensation).toBeNull();
+        }
+    });
+
+    it('CTC 12L with an annual base of 6L and no benefits: 12L headline, 6L base', async () => {
+        const r = await run(comp({ baseSalary: { amount: 600_000, period: 'annual' }, totalCTC: 1_200_000 }), []);
+        expect(r.totalCompensation).toBe(1_200_000);
+        expect(r.baseSalary).toBe(600_000);
     });
 });

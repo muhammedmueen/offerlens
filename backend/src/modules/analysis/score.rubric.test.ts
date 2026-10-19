@@ -104,6 +104,21 @@ describe('scoreSalary', () => {
         expect(scoreSalary(null, 'crowdsourced').value).toBeNull();
         expect(scoreSalary(Number.NaN, 'crowdsourced').value).toBeNull();
     });
+
+    it('rounds a float percentile into the sub-score (MONEY-6)', () => {
+        expect(scoreSalary(41.666666666666664, 'crowdsourced').value).toBe(42);
+    });
+
+    it.each([[1, '1st'], [2, '2nd'], [3, '3rd'], [11, '11th'], [21, '21st'], [22, '22nd'], [23, '23rd']])(
+        'writes a real ordinal in the note: %i -> %s (MONEY-9)',
+        (p, word) => {
+            expect(scoreSalary(p, 'crowdsourced').note).toContain(`${word} percentile`);
+        },
+    );
+
+    it('uses the ordinal in the survey note too', () => {
+        expect(scoreSalary(22, 'public_survey').note).toContain('22nd percentile of Stack Overflow');
+    });
 });
 
 describe('scoreBenefits', () => {

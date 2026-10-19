@@ -94,7 +94,17 @@ const BenefitsPanel: React.FC<{ offerId: string }> = ({ offerId }) => {
         </div>
         <div className="rounded-xl border border-stone-200 bg-white p-3 shadow-sm">
           <p className="text-xs text-muted-foreground">Total compensation</p>
-          <p className="text-lg font-bold text-foreground">{fmt(view?.totalCompensation ?? 0)}</p>
+          <p className="text-lg font-bold text-foreground">
+            {/* MONEY-10: an unknown total is "not stated", never ₹0. */}
+            {view?.totalCompensation == null ? (
+              <>
+                <span aria-hidden="true">—</span>
+                <span className="sr-only">Not stated</span>
+              </>
+            ) : (
+              fmt(view.totalCompensation)
+            )}
+          </p>
         </div>
       </div>
 

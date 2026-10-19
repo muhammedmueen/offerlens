@@ -192,6 +192,10 @@ describe('CorrectionService.applyCorrections', () => {
         ['ai_estimated', { dataSource: 'ai_estimated', offerPercentile: 50 }],
         ['null percentile', { offerPercentile: null }],
         ['withheld (flat string)', { percentileWithheld: 'no_experience_rows' }],
+        // MONEY-2 interplay: null and legacy all-zero ranges are never re-ranked.
+        ['ai_estimated with null range', { dataSource: 'ai_estimated', offerPercentile: null, marketRange: { p25: null, p50: null, p75: null, p90: null } }],
+        ['legacy ai_estimated 50 with zero range', { dataSource: 'ai_estimated', offerPercentile: 50, marketRange: { p25: 0, p50: 0, p75: 0, p90: 0 } }],
+        ['crowdsourced with a null p90', { marketRange: { p25: 1_000_000, p50: 2_000_000, p75: 3_000_000, p90: null } }],
     ])('leaves score and salaryComparison untouched when stored salary is unscored (%s)', async (_n, salaryOver) => {
         analysesFindFirst.mockResolvedValue(baseAnalysis({
             salaryComparison: {
@@ -209,6 +213,122 @@ describe('CorrectionService.applyCorrections', () => {
         expect(set.score).toBeUndefined();
         expect(set.scoreBreakdown).toBeUndefined();
         expect(set.salaryComparison).toBeUndefined();
+    });
+
+    // MONEY-6 / SEC-1 — rounded, monotonic, never clamped to a band edge
+    describe('re-ranked percentile (MONEY-6)', () => {
+        const percentileFor = async (ctc: number, over: Record<string, unknown> = {}) => {
+            txCalls = [];
+            if (Object.keys(over).length) {
+                analysesFindFirst.mockResolvedValue(baseAnalysis(over));
+            }
+            await svc().applyCorrections('o1', 'u1', [
+                { field: 'extractedData.compensation.totalCTC', correctedValue: ctc },
+            ]);
+            return txCalls.find((c) => c.kind === 'update')?.set;
+        };
+
+        it('interpolates inside the range to an integer (23,33,333 -> 58)', async () => {
+            const set = await percentileFor(2_333_333);
+            expect(set.salaryComparison.offerPercentile).toBe(58);
+            const salary = set.scoreBreakdown.components.find((c: any) => c.key === 'salary');
+            expect(salary.value).toBe(58);
+            expect(Number.isInteger(salary.value)).toBe(true);
+        });
+
+        it('extrapolates below p25 instead of clamping to 25 (3L -> 8)', async () => {
+            const set = await percentileFor(300_000);
+            expect(set.salaryComparison.offerPercentile).toBe(8);
+        });
+
+        it('extrapolates above p90, capped at 99', async () => {
+            expect((await percentileFor(20_000_000)).salaryComparison.offerPercentile).toBe(99);
+            expect((await percentileFor(4_000_000)).salaryComparison.offerPercentile).toBe(90);
+            expect((await percentileFor(3_000_000)).salaryComparison.offerPercentile).toBe(75);
+        });
+
+        it('is monotonic: an integer in [0, 99] that never drops as the CTC rises', async () => {
+            const ctcs = [0, 1, 300_000, 700_000, 800_000, 999_999, 1_000_000, 1_500_000, 2_333_333,
+                3_999_999, 4_000_000, 4_000_001, 6_000_000, 20_000_000, 1e9];
+            let prev = -1;
+            for (const ctc of ctcs) {
+                const p = (await percentileFor(ctc)).salaryComparison.offerPercentile;
+                expect(Number.isInteger(p)).toBe(true);
+                expect(p).toBeGreaterThanOrEqual(0);
+                expect(p).toBeLessThanOrEqual(99);
+                expect(p).toBeGreaterThanOrEqual(prev);
+                prev = p;
+            }
+        });
+
+        it('a down-correction below p25 no longer raises the score (SEC-1: 8L at the 10th)', async () => {
+            const stored = {
+                extractedData: baseExtractedData({
+                    compensation: { currency: 'INR', baseSalary: { amount: 800_000, period: 'annual' }, variablePay: null, equity: null, totalCTC: 800_000, otherComponents: [] },
+                }),
+                salaryComparison: { ...baseAnalysis().salaryComparison, offerPercentile: 10 },
+            };
+            // The score the stored row actually had: the same inputs ranked at the stored 10th.
+            const { calculateScore } = await import('@/modules/analysis/score.rubric.js');
+            const storedScoring = calculateScore({
+                redFlags: [], benefits: [], benefitsChecklist: (await import('@/modules/benefits/benefits.checklist.js')).checkBenefits([]),
+                extractedData: stored.extractedData as any,
+                offerPercentile: 10, salarySource: 'crowdsourced', salaryScope: 'role_city',
+            });
+            const storedSalary = storedScoring.components.find((c: any) => c.key === 'salary')!;
+            expect(storedSalary.value).toBe(10);
+
+            const down = await percentileFor(700_000, stored);
+            // Anchored: the line says 18 (25 * 7/10) but the stored rank is 10, so it stays ≤ 10.
+            expect(down.salaryComparison.offerPercentile).toBe(10);
+            const downSalary = down.scoreBreakdown.components.find((c: any) => c.key === 'salary');
+            expect(downSalary.value).toBeLessThanOrEqual(10);
+            expect(down.score).toBeLessThanOrEqual(storedScoring.score);
+
+            // Far enough down, the line drops below the stored rank and wins (3L -> 7.5 -> 8).
+            expect((await percentileFor(300_000, stored)).salaryComparison.offerPercentile).toBe(8);
+
+            // An up-correction never drops below the stored rank either (9L: line 22.5 -> 23).
+            const up = await percentileFor(900_000, stored);
+            expect(up.salaryComparison.offerPercentile).toBe(23);
+            expect(down.score).toBeLessThanOrEqual(up.score);
+        });
+
+        it('an up-correction that the line under-ranks keeps the stored rank', async () => {
+            // Stored 12L at the 40th (the line would say 30): correcting to 13L must not drop to 33.
+            const set = await percentileFor(1_300_000, {
+                salaryComparison: { ...baseAnalysis().salaryComparison, offerPercentile: 40 },
+            });
+            expect(set.salaryComparison.offerPercentile).toBe(40);
+        });
+
+        it('successive corrections anchor on the worker rank, not the last re-rank (no drift)', async () => {
+            const stored = {
+                extractedData: baseExtractedData({
+                    compensation: { currency: 'INR', baseSalary: { amount: 800_000, period: 'annual' }, variablePay: null, equity: null, totalCTC: 800_000, otherComponents: [] },
+                }),
+                salaryComparison: { ...baseAnalysis().salaryComparison, offerPercentile: 10 },
+            };
+            // Feed each call's write-back in as the next stored row, as the real table would.
+            const chain = async (row: Record<string, unknown>, ctc: number) => ({ ...row, ...(await percentileFor(ctc, row)) });
+
+            const at9 = await chain(stored, 900_000);
+            expect((at9.salaryComparison as any).offerPercentile).toBe(23);
+            expect((at9.salaryComparison as any).rankAnchor).toEqual({ ctc: 800_000, percentile: 10 });
+
+            // Reverting to the letter's CTC restores the worker's rank (was 20 with a drifting anchor).
+            const back = await chain(at9, 800_000);
+            expect((back.salaryComparison as any).offerPercentile).toBe(10);
+            expect((back.salaryComparison as any).rankAnchor).toEqual({ ctc: 800_000, percentile: 10 });
+
+            // 8L -> 9L -> 7L: below the letter's CTC never ranks above the worker's 10th (was 18).
+            const at7 = await chain(at9, 700_000);
+            expect((at7.salaryComparison as any).offerPercentile).toBeLessThanOrEqual(10);
+            // And a third hop keeps the original anchor.
+            const at7Then9 = await chain(at7, 900_000);
+            expect((at7Then9.salaryComparison as any).offerPercentile).toBe(23);
+            expect((at7Then9.salaryComparison as any).rankAnchor).toEqual({ ctc: 800_000, percentile: 10 });
+        });
     });
 
     // §9.7 — recompute failure is soft

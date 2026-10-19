@@ -133,12 +133,14 @@ export const redFlagSchema = z.object({
 
 export const salaryComparisonSchema = z.object({
     marketRange: z.object({
-        p25: nullableNumber.transform((v) => v ?? 0),
-        p50: nullableNumber.transform((v) => v ?? 0),
-        p75: nullableNumber.transform((v) => v ?? 0),
-        p90: nullableNumber.transform((v) => v ?? 0),
-    }).catch({ p25: 0, p50: 0, p75: 0, p90: 0 }),
-    offerPercentile: nullableNumber.transform((v) => v ?? 50),
+        // MONEY-2: a missing figure stays null. Defaulting to 0 drew four Rs 0 bars, and
+        // defaulting the percentile to 50 printed an invented "50th percentile".
+        p25: nullableNumber,
+        p50: nullableNumber,
+        p75: nullableNumber,
+        p90: nullableNumber,
+    }).catch({ p25: null, p50: null, p75: null, p90: null }),
+    offerPercentile: nullableNumber,
     roleUsed: z.string().catch('unknown'),
     roleMatchConfidence: nullableNumber.transform((v) => v ?? 0),
     locationUsed: z.string().catch('unknown'),

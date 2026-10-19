@@ -8,6 +8,8 @@ import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 import { AnalysisResult } from '@/modules/analysis/analysis.types.js';
 import { ATTRIBUTION_TEXT, SO_SURVEY_URL, ODBL_URL } from '@/modules/salary/reference-source.js';
 import { PLFS_CITATION_TEXT, PLFS_URL } from '@/modules/salary/city-adjustment.js';
+import { hasUsableRange } from '@/modules/salary/benchmark-comparison.js';
+import { ordinal } from '@/shared/ordinal.js';
 
 export class ReportService {
     async generatePDF(offerId: string): Promise<PDFKit.PDFDocument> {
@@ -92,12 +94,17 @@ export class ReportService {
             doc.fontSize(10).font('Helvetica').fillColor('#333');
             doc.text(`Role Used: ${salary.roleUsed} (${Math.round(salary.roleMatchConfidence * 100)}% match)`);
             doc.text(`Location: ${salary.locationUsed}`);
-            // Null when the letter states no CTC to rank: omit the line rather than print "nullth".
-            if (typeof salary.offerPercentile === 'number') {
-                doc.text(`Your Offer Percentile: ${salary.offerPercentile}th`);
+            // Omitted when null (no CTC to rank) and for an AI estimate (MONEY-2): the model's
+            // self-reported percentile is not a rank, and stored rows hold an invented 50.
+            if (typeof salary.offerPercentile === 'number' && Number.isFinite(salary.offerPercentile)
+                && salary.dataSource !== 'ai_estimated') {
+                doc.text(`Your Offer Percentile: ${ordinal(Math.round(salary.offerPercentile))}`);
             }
             doc.moveDown(0.3);
-            doc.text(`Market Range: P25=${salary.marketRange.p25.toLocaleString()} | P50=${salary.marketRange.p50.toLocaleString()} | P75=${salary.marketRange.p75.toLocaleString()} | P90=${salary.marketRange.p90.toLocaleString()}`);
+            const range = salary.marketRange;
+            if (hasUsableRange(range)) {
+                doc.text(`Market Range: P25=${range.p25.toLocaleString()} | P50=${range.p50.toLocaleString()} | P75=${range.p75.toLocaleString()} | P90=${range.p90.toLocaleString()}`);
+            }
             if (salary.disclaimer) {
                 doc.fontSize(8).fillColor('#999').text(salary.disclaimer);
             }

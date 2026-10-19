@@ -84,6 +84,27 @@ describe('describeMarketData — absent', () => {
             expect(out).toContain('Do not cite salary benchmarks');
         }
     });
+
+    it('treats an all-null or legacy all-zero range as no data (MONEY-2)', () => {
+        for (const marketRange of [{ p25: null, p50: null, p75: null, p90: null }, { p25: 0, p50: 0, p75: 0, p90: 0 }]) {
+            const out = describeMarketData({ ...ESTIMATED, offerPercentile: 50, marketRange });
+            expect(out).toContain('NONE AVAILABLE');
+            expect(out).not.toContain('null');
+            expect(out).not.toContain('0 to 0');
+        }
+    });
+});
+
+describe('describeMarketData — ordinals (MONEY-9)', () => {
+    it('crowd: a null percentile prints no percentile line and no "?th"', () => {
+        const out = describeMarketData({ ...REAL, offerPercentile: null });
+        expect(out).not.toContain('?th');
+        expect(out).not.toContain('This offer sits at');
+    });
+
+    it('crowd: 23 reads "23rd percentile"', () => {
+        expect(describeMarketData({ ...REAL, offerPercentile: 23 })).toContain('23rd percentile');
+    });
 });
 
 describe('describeMarketData — provenance is never lost', () => {

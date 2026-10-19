@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Routes, Route } from "react-router-dom";
 import type { DashboardStats, UserOffersPage, UserOfferSummary } from "@/types/api";
 
 // Shapes follow backend user.service.ts. The page used to read totalAnalyses / avgScore /
@@ -94,6 +94,13 @@ describe("Dashboard offers table", () => {
     expect(api.get).toHaveBeenCalledWith("/users/me/offers", { params: { page: 2, limit: 20, sort: "createdAt" } });
   });
 
+  it("names an untitled offer's link for screen readers", async () => {
+    pages = { 1: page([offer({ company: null })], 1, 1) };
+    renderPage();
+    const link = await screen.findByRole("link", { name: "Untitled offer" });
+    expect(link.getAttribute("href")).toBe("/offers/o1");
+  });
+
   it("hides the pager when there is only one page", async () => {
     pages = { 1: page([offer({})], 1, 1) };
     renderPage();
@@ -110,5 +117,40 @@ describe("Dashboard offers table", () => {
     await waitFor(() =>
       expect(api.get).toHaveBeenCalledWith("/users/me/offers", { params: { page: 1, limit: 20, sort: "score" } }),
     );
+  });
+});
+
+describe("Dashboard row navigation (FLOW-3)", () => {
+  it("a COMPLETED row links to its results", async () => {
+    pages = { 1: page([offer({})], 1, 1) };
+    renderPage();
+    const link = await screen.findByRole("link", { name: "Acme Corp" });
+    expect(link.getAttribute("href")).toBe("/offers/o1");
+  });
+
+  it.each(["PROCESSING", "QUEUED", "FAILED"] as const)("a %s row links to the processing page", async (status) => {
+    pages = { 1: page([offer({ id: "oX", status })], 1, 1) };
+    renderPage();
+    const link = await screen.findByRole("link", { name: "Acme Corp" });
+    expect(link.getAttribute("href")).toBe("/offers/oX/processing");
+  });
+
+  it("clicking a FAILED row opens the processing page, not a dead results page", async () => {
+    pages = { 1: page([offer({ id: "o9", status: "FAILED" })], 1, 1) };
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={["/dashboard"]}>
+          <Routes>
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/offers/:id/processing" element={<div>processing-page</div>} />
+            <Route path="/offers/:id" element={<div>results-page</div>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    fireEvent.click(await screen.findByText("Backend Engineer")); // a non-link cell: the row click
+    expect(await screen.findByText("processing-page")).toBeTruthy();
+    expect(screen.queryByText("results-page")).toBeNull();
   });
 });

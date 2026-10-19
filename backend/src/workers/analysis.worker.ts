@@ -123,8 +123,9 @@ function normalizeAiResult(raw: any): AnalysisResult {
         extractedData: raw.extractedData || {},
         redFlags,
         salaryComparison: raw.salaryComparison || {
-            marketRange: { p25: 0, p50: 0, p75: 0, p90: 0 },
-            offerPercentile: 50,
+            // MONEY-2: no data is null, never an invented 0 range or 50th percentile.
+            marketRange: { p25: null, p50: null, p75: null, p90: null },
+            offerPercentile: null,
             roleUsed: 'unknown',
             roleMatchConfidence: 0,
             locationUsed: 'unknown',

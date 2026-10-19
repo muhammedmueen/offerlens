@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import api from "@/services/api";
 import { ENDPOINTS, ITEMS_PER_PAGE } from "@/constants/api";
 import PageShell from "@/components/layout/PageShell";
@@ -9,8 +9,13 @@ import ErrorState from "@/components/common/ErrorState";
 import EmptyState from "@/components/common/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Upload, GitCompare, BarChart3, Star, FileText, CheckCircle } from "lucide-react";
-import type { DashboardStats, UserOffersPage } from "@/types/api";
+import type { DashboardStats, UserOffersPage, UserOfferSummary } from "@/types/api";
 import MotionCard from "@/components/common/MotionCard";
+
+// FLOW-3: only a COMPLETED offer has an analysis; anything else 404s on the results page, so
+// QUEUED / PROCESSING / FAILED rows open the processing page, which shows the real status.
+const offerHref = (o: UserOfferSummary) =>
+  o.status === "COMPLETED" ? `/offers/${o.id}` : `/offers/${o.id}/processing`;
 
 const DashboardPage = () => {
   const navigate = useNavigate();
@@ -107,11 +112,26 @@ const DashboardPage = () => {
                     {offers.map((o) => (
                       <tr
                         key={o.id}
-                        onClick={() => navigate(`/offers/${o.id}`)}
+                        onClick={() => navigate(offerHref(o))}
                         className="border-b border-border transition-colors hover:bg-accent/50 cursor-pointer"
                       >
                         <td className="px-4 py-3">{new Date(o.createdAt).toLocaleDateString()}</td>
-                        <td className="px-4 py-3 font-medium text-foreground">{o.company || "—"}</td>
+                        <td className="px-4 py-3 font-medium text-foreground">
+                          {/* FLOW-3 / SEC-4: a real link, so the row is reachable by keyboard and
+                              named for screen readers. The row click above is a mouse shortcut. */}
+                          <Link
+                            to={offerHref(o)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            {o.company || (
+                              <>
+                                <span aria-hidden="true">—</span>
+                                <span className="sr-only">Untitled offer</span>
+                              </>
+                            )}
+                          </Link>
+                        </td>
                         <td className="px-4 py-3">{o.role || "—"}</td>
                         <td className="px-4 py-3">{o.score ?? "—"}</td>
                         <td className="px-4 py-3">

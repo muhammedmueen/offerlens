@@ -176,6 +176,21 @@ describe("BenefitsPanel Model A note + insurance cover display (BEN-2)", () => {
   });
 });
 
+describe("BenefitsPanel unknown total (MONEY-10)", () => {
+  it("shows a dash read as 'Not stated', never ₹0, when the total is null", async () => {
+    vi.mocked(api.post).mockResolvedValue({
+      data: { data: { ...WITH_BENEFITS.data.data, totalCompensation: null } },
+    });
+    renderPanel();
+
+    const label = await screen.findByText("Total compensation");
+    const value = label.nextElementSibling as HTMLElement;
+    expect(value.textContent).toBe("—Not stated");
+    expect(screen.getByText("Not stated").className).toContain("sr-only");
+    expect(screen.queryByText("₹0")).toBeNull();
+  });
+});
+
 describe("BenefitsPanel recalculate failure (BEN-3)", () => {
   it("a failed recalculate surfaces an alert", async () => {
     // First call (initial query) succeeds; the recalculate POST then fails.

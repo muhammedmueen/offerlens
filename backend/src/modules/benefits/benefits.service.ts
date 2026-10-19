@@ -57,8 +57,9 @@ export class BenefitsService {
 
         if (!benefits || benefits.length === 0) {
             return {
-                totalCompensation: compensation?.totalCTC || null,
-                baseSalary: compensation?.baseSalary?.amount || null,
+                // MONEY-10: same headline and annualised base as the with-benefits branch below.
+                totalCompensation: computeHeadlineTotal(compensation),
+                baseSalary: annualizeBase(compensation),
                 benefitsValue: null,
                 breakdown: [],
                 message: 'No benefits data found in your offer. Your total comp equals your base CTC.',
