@@ -287,10 +287,13 @@ const ResultsPage = () => {
           )}
         </Reveal>
 
-        {/* Negotiation Tips */}
-        {negotiationSuggestions.length > 0 && (
-          <Reveal as="section" className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
-            <h2 className="font-semibold mb-4 text-foreground">Negotiation Tips</h2>
+        {/* Negotiation.
+            NEG-3: the generate affordance must show even with no tips — a thin-data offer still
+            gets the backend's template email — so the button lives outside the tips length
+            guard while the tips list stays gated on having something to list. */}
+        <Reveal as="section" className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
+          <h2 className="font-semibold mb-4 text-foreground">Negotiation Tips</h2>
+          {negotiationSuggestions.length > 0 ? (
             <ul className="space-y-3">
               {negotiationSuggestions.map((t: any, i: number) => (
                 <li key={i} className="text-sm">
@@ -310,16 +313,20 @@ const ResultsPage = () => {
                 </li>
               ))}
             </ul>
-            <Button
-              variant="outline"
-              className="mt-4 cursor-pointer rounded-md"
-              onClick={() => requireAuth("Negotiation Scripts", "negotiate")}
-            >
-              {!isAuthenticated && <Lock className="mr-1 h-3 w-3" />}
-              Generate Negotiation Email
-            </Button>
-          </Reveal>
-        )}
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              We found no specific tips for this offer, but you can still generate a negotiation email.
+            </p>
+          )}
+          <Button
+            variant="outline"
+            className="mt-4 cursor-pointer rounded-md"
+            onClick={() => requireAuth("Negotiation Scripts", "negotiate")}
+          >
+            {!isAuthenticated && <Lock className="mr-1 h-3 w-3" />}
+            Generate Negotiation Email
+          </Button>
+        </Reveal>
 
         {/* Take-Home.
             Computed from published FY 2026-27 slabs by the backend, not guessed by the model.
