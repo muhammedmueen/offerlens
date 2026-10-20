@@ -22,7 +22,9 @@ const FONT_BOLD = fileURLToPath(new URL('../../../assets/fonts/DejaVuSans-Bold.t
 // which no embedded font renders. Ceiling: any other character DejaVu lacks (Devanagari, CJK, ...)
 // still prints as an empty box. Upgrade path: test each code point against the embedded font's
 // glyph coverage (fontkit hasGlyphForCodePoint) or register a fallback font.
-const UNRENDERABLE = /[\p{Emoji_Presentation}\u200D\uFE0E\uFE0F\u20E3]|(?=\p{Extended_Pictographic})[^\0-\uFFFF]/gu;
+// The joiner / selector / keycap marks are separate alternatives, not class members:
+// eslint no-misleading-character-class rejects combining characters inside [...].
+const UNRENDERABLE = /\p{Emoji_Presentation}|\u200D|\uFE0E|\uFE0F|\u20E3|(?=\p{Extended_Pictographic})[^\0-\uFFFF]/gu;
 
 /** Deep-copies AI-provided data with every string stripped of characters the PDF font cannot draw. */
 export function sanitiseForPdf<T>(value: T): T {
