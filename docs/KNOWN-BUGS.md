@@ -14,12 +14,12 @@ Last updated: 2026-10-18 · BEN-1 and COR-1/COR-2/COR-4 fixed this session (unco
 | Item | State |
 |---|---|
 | Branch | `fix/frontend-backend-contract-drift` (pushed to origin) |
-| Commits with the fixes | Contract-drift batch `2e170c5`; this session: Benefits `89e9f6f`, Corrections `4771e5a` (doc commit follows) |
-| Pull request | **Not opened.** `gh` is not installed on this machine. Open it at https://github.com/muhammedmueen/offerlens/pull/new/fix/frontend-backend-contract-drift |
+| Commits with the fixes | Contract-drift batch `2e170c5`, then about 30 fix and doc commits (see section 2 for each hash). Branch head `28a2b1e` is pushed. |
+| Pull request | **Not opened from the assistant** (`gh` is not installed and the repo is private). Open it at https://github.com/muhammedmueen/offerlens/pull/new/fix/frontend-backend-contract-drift. `origin/main` is already an ancestor of the branch, so it merges cleanly. CI runs backend, frontend and migration jobs on the PR. |
 | Merged to `main` | No |
-| Deployed | No. **Deploy the backend before the frontend** (the dashboard reads new backend fields). Also run COR-1 migration `0009` against real Postgres + regenerate the drizzle snapshot/journal before deploy. |
+| Deployed | No. **Deploy the backend before the frontend** (the dashboard reads new backend fields). Migration `0009` is registered in the drizzle journal (`07d9685`); take a backup before running it. Before the first deploy, also test one real Google login (AUTH-1). |
 | This doc | Committed (see doc commit below) |
-| Tests at last run | Frontend 177 passing. Backend ~1009 passing, 3 skipped (the Postgres-only quota tests); 5 unrelated suites flake on 5s timeouts under full-suite load but pass in isolation. |
+| Tests at last run | Frontend 27 test files passing (264+ tests). Backend about 1200 passing, 3 skipped (the Postgres-only quota tests); a handful of unrelated suites (rate-limiter, auth.login-limits, usage-ledger, cache, pdf-text and similar) can fail on 5s timeouts under full-suite load but pass in isolation. |
 
 How to run the tests: `npx vitest run` inside `frontend/` and inside `backend/`. Type-check:
 `npx tsc --noEmit -p tsconfig.app.json` (frontend) and `npx tsc --noEmit -p .` (backend).
