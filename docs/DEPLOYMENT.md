@@ -110,7 +110,7 @@ Do these in order. Steps 2 to 8 run from a checkout; step 9 can instead use the 
    ```
 3. **Configure.** `cp .env.example .env` and set at least `NODE_ENV=production`, `DATABASE_URL`, `REDIS_URL`, `CORS_ORIGIN`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, `COOKIE_SECRET`, the AI key for `AI_PROVIDER`, and `STORAGE_PATH`. Do not reuse the old service-account key (see section 7).
 4. **Set `TRUST_PROXY`** (section 7) if the API sits behind any proxy or load balancer. With this guide's single host nginx, set `TRUST_PROXY=1` in `.env`. No code edit, no rebuild.
-5. **Migrate.** `npm run db:migrate` applies migrations `0000` to `0008`. Never use `db:push`.
+5. **Migrate.** `npm run db:migrate` applies migrations `0000` to `0009`. Never use `db:push`.
 6. **Seed (required, safe to re-run).** `npm run db:seed` fills roles, cities and experience levels. Without it the upload dropdowns are empty.
 7. **Salary reference data (gated, section 6).** `npm run db:load-reference`. Optional for the app to run: without rows, salary is "not scored".
 8. **City pay factors (gated, optional, section 6).** `npm run db:load-city-factors`, after migration `0008`. Safe to skip: every city then gets the national survey figures.
