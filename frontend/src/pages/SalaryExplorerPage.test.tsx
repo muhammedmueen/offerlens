@@ -51,3 +51,65 @@ describe("SalaryExplorerPage benchmark notice", () => {
     expect(await screen.findByRole("radiogroup", { name: "What kind of pay is this?" })).toBeTruthy();
   });
 });
+
+describe("SalaryExplorerPage SAL-1 request gating", () => {
+  const renderPage = () => {
+    get.mockClear(); // module-level spy accrues calls across tests; count assertions below need a clean slate
+    return render(
+      <MemoryRouter>
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <SalaryExplorerPage />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+  };
+
+  it("does not fire a new request on keystrokes after an initial search — only on an explicit Search", async () => {
+    get.mockResolvedValue({ data: { data: { p25: 1, p50: 2, p75: 3, p90: 4, count: 15, dataSource: "crowdsourced", disclaimer: "x" } } });
+    renderPage();
+
+    fireEvent.change(screen.getByPlaceholderText(/Role/), { target: { value: "Backend Engineer" } });
+    fireEvent.change(screen.getByPlaceholderText(/City/), { target: { value: "Pune" } });
+    fireEvent.click(screen.getByRole("button", { name: /Search/ }));
+
+    await screen.findByTestId("salary-bar");
+    expect(get).toHaveBeenCalledTimes(1);
+
+    // Typing after the search changes only the draft input — no request must fire.
+    fireEvent.change(screen.getByPlaceholderText(/Role/), { target: { value: "Backend Engineers" } });
+    fireEvent.change(screen.getByPlaceholderText(/City/), { target: { value: "Pune City" } });
+    expect(get).toHaveBeenCalledTimes(1);
+
+    // Only an explicit Search commits the new terms and fires exactly one more request.
+    fireEvent.click(screen.getByRole("button", { name: /Search/ }));
+    await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+  });
+
+  it("does not fire a request or show the empty-state for a too-short (1-char) term", async () => {
+    get.mockResolvedValue({ data: { data: null } });
+    renderPage();
+
+    fireEvent.change(screen.getByPlaceholderText(/Role/), { target: { value: "A" } });
+    fireEvent.change(screen.getByPlaceholderText(/City/), { target: { value: "B" } });
+
+    // Below the backend 2-char minimum: the Search button is disabled.
+    expect((screen.getByRole("button", { name: /Search/ }) as HTMLButtonElement).disabled).toBe(true);
+
+    // Clicking anyway must not fire and must not show the misleading empty-state.
+    fireEvent.click(screen.getByRole("button", { name: /Search/ }));
+    expect(get).not.toHaveBeenCalled();
+    expect(screen.queryByText(/No data for this combination yet/)).toBeNull();
+  });
+
+  it("shows the empty-state only when a valid submitted search returns empty", async () => {
+    get.mockResolvedValue({ data: { data: null } });
+    renderPage();
+
+    fireEvent.change(screen.getByPlaceholderText(/Role/), { target: { value: "Backend Engineer" } });
+    fireEvent.change(screen.getByPlaceholderText(/City/), { target: { value: "Pune" } });
+    fireEvent.click(screen.getByRole("button", { name: /Search/ }));
+
+    expect(await screen.findByText(/No data for this combination yet/)).toBeTruthy();
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+});

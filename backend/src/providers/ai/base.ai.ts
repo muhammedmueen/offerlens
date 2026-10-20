@@ -1,4 +1,5 @@
 import type { Schema } from '@google/generative-ai';
+import { z } from 'zod';
 import { AiProvider, OfferContext, NegotiationInput } from './ai.provider.js';
 import { AnalysisResult } from '@/modules/analysis/analysis.types.js';
 import {
@@ -90,6 +91,18 @@ export function parseJsonLoose(text: string): unknown {
         .trim();
     return JSON.parse(cleaned);
 }
+
+/**
+ * The AI negotiation response contract: a non-empty subject and body. `.trim().min(1)` rejects
+ * empty and whitespace-only strings, and a payload missing either key (e.g. `{ email: "..." }`)
+ * fails because the required fields are absent. `.parse` throwing a `ZodError` is deliberate —
+ * it lands in `call`'s second catch as `response_rejected` and propagates, so a garbage response
+ * becomes a thrown failure the service turns into a (free) template, never a charged stub.
+ */
+export const negotiationScriptSchema = z.object({
+    subject: z.string().trim().min(1),
+    body: z.string().trim().min(1),
+});
 
 /**
  * A response that came back but was unusable. Carries the ledger error code and a short,
@@ -556,23 +569,24 @@ export abstract class BaseAiProvider implements AiProvider {
             The body should be the email content, ready to send (with placeholders for name if needed).
         `;
 
-        try {
-            const { result } = await this.withFallback(
-                this.resolveModel('negotiation'),
-                (modelName) => this.call(
-                    'negotiation',
-                    { model: modelName, prompt, temperature: 0.7, maxOutputTokens: 4096 },
-                    (completion) => parseJsonLoose(completion.text) as { subject: string; body: string },
-                ),
-                'negotiation script generation',
-            );
-            return result;
-        } catch (error) {
-            console.error(`[${this.name} AI] Negotiation script generation failed:`, error);
-            return {
-                subject: `Negotiation regarding ${sanitisePromptField(input.role) || 'your'} offer`,
-                body: 'Dear Hiring Manager,\n\nI am writing to discuss... [AI generation failed, please use template]',
-            };
-        }
+        // No try/catch swallow: a failed `complete`, non-JSON text, or a response that fails the
+        // schema all THROW out of here. The service reserves a quota unit before calling this and
+        // releases it in its catch, so a failure is not left charged, and the mislabelled
+        // `personalized` stub is gone — the caller falls back to the labelled template instead.
+        //
+        // ponytail: NEG-6 does not reuse analysis's one-retry-with-errors-fed-back loop. Ceiling:
+        // a single transient bad-JSON response fails straight to the template instead of retrying
+        // the same model once. Upgrade path: wrap the accept body in the `generateValidated`
+        // for-attempt pattern if telemetry shows meaningful retryable negotiation rejections.
+        const { result } = await this.withFallback(
+            this.resolveModel('negotiation'),
+            (modelName) => this.call(
+                'negotiation',
+                { model: modelName, prompt, temperature: 0.7, maxOutputTokens: 4096 },
+                (completion) => negotiationScriptSchema.parse(parseJsonLoose(completion.text)),
+            ),
+            'negotiation script generation',
+        );
+        return result;
     }
 }

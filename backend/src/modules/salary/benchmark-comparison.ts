@@ -63,6 +63,17 @@ function crowdDisclaimer(b: Benchmark): string {
     return `Based on ${n} crowdsourced, unverified submission${one ? '' : 's'} for this role and city. Some may be offered, not current, pay.`;
 }
 
+type RangeLike = { p25?: number | null; p50?: number | null; p75?: number | null; p90?: number | null };
+
+/**
+ * True only when all four quartiles are finite and > 0 (MONEY-2). An AI estimate with no range
+ * is all-null; rows stored before MONEY-2 have it baked in as all-zero. Neither is a range.
+ */
+export function hasUsableRange(r: RangeLike | null | undefined): r is { p25: number; p50: number; p75: number; p90: number } {
+    if (!r || typeof r !== 'object') return false;
+    return [r.p25, r.p50, r.p75, r.p90].every((v) => typeof v === 'number' && Number.isFinite(v) && v > 0);
+}
+
 export function toSalaryComparison(b: Benchmark): SalaryComparison {
     const common = {
         marketRange: b.marketRange,

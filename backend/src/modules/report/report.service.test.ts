@@ -76,9 +76,42 @@ describe('ReportService salary section', () => {
         expect(texts).not.toContain(ATTRIBUTION_TEXT);
     });
 
-    it('prints no attribution for an AI estimate', async () => {
+    it('prints no attribution and no percentile for an AI estimate', async () => {
         analysisRow = analysisWith({ dataSource: 'ai_estimated', offerPercentile: 50 });
         await new ReportService().generatePDF('o1');
         expect(texts).not.toContain(ATTRIBUTION_TEXT);
+        expect(texts.some((t) => t.includes('Your Offer Percentile'))).toBe(false);
+    });
+
+    it('an AI estimate with a null range and percentile does not throw and prints no range (MONEY-2)', async () => {
+        analysisRow = analysisWith({
+            dataSource: 'ai_estimated', offerPercentile: null,
+            marketRange: { p25: null, p50: null, p75: null, p90: null },
+        });
+        await expect(new ReportService().generatePDF('o1')).resolves.toBeTruthy();
+        expect(texts.some((t) => t.includes('Market Range'))).toBe(false);
+        expect(texts.some((t) => /null|NaN/.test(t))).toBe(false);
+    });
+
+    it('a legacy stored row (ai_estimated, 50, all-zero range) prints neither percentile nor range', async () => {
+        analysisRow = analysisWith({
+            dataSource: 'ai_estimated', offerPercentile: 50,
+            marketRange: { p25: 0, p50: 0, p75: 0, p90: 0 },
+        });
+        await new ReportService().generatePDF('o1');
+        expect(texts.some((t) => t.includes('Your Offer Percentile'))).toBe(false);
+        expect(texts.some((t) => t.includes('Market Range'))).toBe(false);
+    });
+
+    it('prints a real ordinal, rounded (MONEY-9)', async () => {
+        analysisRow = analysisWith({ dataSource: 'crowdsourced', offerPercentile: 22 });
+        await new ReportService().generatePDF('o1');
+        expect(texts).toContain('Your Offer Percentile: 22nd');
+
+        texts.length = 0;
+        analysisRow = analysisWith({ dataSource: 'crowdsourced', offerPercentile: 41.666666666666664 });
+        await new ReportService().generatePDF('o1');
+        expect(texts).toContain('Your Offer Percentile: 42nd');
+        expect(texts.some((t) => t.startsWith('Market Range: P25=1'))).toBe(true);
     });
 });

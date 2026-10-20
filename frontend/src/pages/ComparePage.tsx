@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import api from "@/services/api";
 import { ENDPOINTS } from "@/constants/api";
+import type { UserOffersPage } from "@/types/api";
 import PageShell from "@/components/layout/PageShell";
 import LoadingState from "@/components/common/LoadingState";
 import ErrorState from "@/components/common/ErrorState";
@@ -39,14 +40,14 @@ const ComparePage = () => {
 
   const { data: offersData, isLoading, error } = useQuery({
     queryKey: ["user-offers-compare"],
-    queryFn: () => api.get(ENDPOINTS.USER_OFFERS, { params: { limit: 100 } }).then((r) => r.data.data),
+    queryFn: () => api.get(ENDPOINTS.USER_OFFERS, { params: { limit: 100 } }).then((r) => r.data.data as UserOffersPage),
   });
 
   const compareMutation = useMutation({
     mutationFn: () => api.post(ENDPOINTS.OFFERS_COMPARE, { offerIds: selectedIds }).then((r) => r.data.data),
   });
 
-  const offers = (offersData?.offers || offersData || []).filter((o: any) => o.status === "COMPLETED");
+  const offers = (offersData?.offers ?? []).filter((o) => o.status === "COMPLETED");
 
   const toggle = (id: string) => {
     setSelectedIds((prev) => {
@@ -77,7 +78,7 @@ const ComparePage = () => {
         <div className="space-y-2">
           <p className="text-sm text-muted-foreground">Select 2–3 completed offers to compare</p>
           <div className="grid gap-2 md:grid-cols-2">
-            {offers.map((o: any) => (
+            {offers.map((o) => (
               <label
                 key={o.id}
                 className={`flex items-center gap-3 rounded-lg border p-4 transition-all cursor-pointer ${selectedIds.includes(o.id) ? "border-primary bg-primary/5" : "border-border bg-card hover:border-primary/30"}`}

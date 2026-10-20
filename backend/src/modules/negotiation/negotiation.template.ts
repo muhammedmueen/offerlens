@@ -1,4 +1,5 @@
 import type { AnalysisResult } from '@/modules/analysis/analysis.types.js';
+import { annualBasicFrom } from '@/modules/takehome/takehome.calculator.js';
 
 /**
  * The non-AI half of the negotiation feature (plan task 21).
@@ -30,6 +31,7 @@ export interface TemplateInput {
     companyName?: string | null;
     role?: string | null;
     totalCtc?: number | null;
+    baseSalary?: { amount: number | null; period: 'monthly' | 'annual' } | null;
     currency?: string | null;
     focusAreas?: string[];
 }
@@ -83,37 +85,55 @@ const TONE_OPENERS: Record<string, string> = {
  * not a fact we can extract. Unknown areas are passed through as a generic line rather than
  * dropped, so a new checkbox on the frontend cannot silently produce a shorter email.
  */
-function discussionPoints(focusAreas: string[], offered: string | null): string[] {
-    const points: Record<string, string> = {
-        salary: offered
-            ? `Base salary: [YOUR TARGET FIGURE] (current offer: ${offered})`
-            : 'Base salary: [YOUR TARGET FIGURE] (current offer: [OFFERED SALARY])',
+function discussionPoints(focusAreas: string[], salaryLine: string): string[] {
+    // Object.create(null) + Object.hasOwn: the map has no prototype, so points['constructor']
+    // is undefined and a prototype key can never resolve to the native function source. Defence
+    // in depth — the HTTP enum in negotiation.schema.ts already rejects non-enum values, but the
+    // template is a public export that is also called internally.
+    const points: Record<string, string> = Object.assign(Object.create(null), {
+        salary: salaryLine,
         joining_bonus: 'A one-time joining bonus, to offset [WHAT YOU ARE LEAVING BEHIND '
             + '— unvested equity, an upcoming bonus, relocation costs]',
         benefits: 'Benefits: [WHICH ONE — insurance cover, provident fund treatment, '
             + 'a learning budget]',
         equity: 'Equity: [HOW MUCH, AND THE VESTING SCHEDULE YOU WOULD LIKE]',
         pto: 'Paid leave: [NUMBER OF DAYS YOU ARE ASKING FOR]',
-    };
+    });
 
     const chosen = focusAreas.length > 0 ? focusAreas : ['salary'];
 
-    return chosen.map((area) => points[area]
-        ?? `${area.replace(/_/g, ' ')}: [WHAT YOU WOULD LIKE CHANGED]`);
+    // ponytail: unknown areas render a generic fall-through line rather than throwing. Ceiling:
+    // a typo or stale enum value shows "<area>: [WHAT YOU WOULD LIKE CHANGED]" instead of a
+    // tailored line. Upgrade path: none needed — the HTTP enum is the real gate; this keeps a
+    // future frontend checkbox from silently shortening the email before the backend catches up.
+    return chosen.map((area) => (Object.hasOwn(points, area)
+        ? points[area]
+        : `${area.replace(/_/g, ' ')}: [WHAT YOU WOULD LIKE CHANGED]`));
 }
 
 export function buildNegotiationTemplate(input: TemplateInput): { subject: string; body: string } {
     const company = input.companyName?.trim() || null;
     const role = input.role?.trim() || null;
-    const offered = isUsableAmount(input.totalCtc)
+
+    // Anchor to base when it was extracted, otherwise label the CTC figure as CTC — never call a
+    // CTC figure "base salary" (NEG-5), and don't drop a base-only letter to [OFFERED SALARY]
+    // (NEG-9). annualBasicFrom already normalises monthly→annual and nulls zero/non-finite.
+    const annualBasic = annualBasicFrom(input.baseSalary);
+    const basicText = annualBasic !== null ? formatMoney(annualBasic, input.currency) : null;
+    const ctcText = isUsableAmount(input.totalCtc)
         ? formatMoney(input.totalCtc as number, input.currency)
         : null;
+    const salaryLine = basicText
+        ? `Base salary: [YOUR TARGET FIGURE] (current base: ${basicText})`
+        : ctcText
+            ? `Total compensation: [YOUR TARGET FIGURE] (current CTC: ${ctcText})`
+            : 'Base salary: [YOUR TARGET FIGURE] (current offer: [OFFERED SALARY])';
 
     const companyText = company ?? '[COMPANY NAME]';
     const roleText = role ?? '[POSITION]';
     const opener = TONE_OPENERS[input.tone ?? 'professional'] ?? TONE_OPENERS.professional;
 
-    const points = discussionPoints(input.focusAreas ?? [], offered)
+    const points = discussionPoints(input.focusAreas ?? [], salaryLine)
         .map((point, i) => `${i + 1}. ${point}`)
         .join('\n');
 

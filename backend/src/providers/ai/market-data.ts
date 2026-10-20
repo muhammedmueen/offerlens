@@ -1,4 +1,6 @@
 import { isCityAdjustedScope } from '@/modules/salary/city-adjustment.js';
+import { hasUsableRange } from '@/modules/salary/benchmark-comparison.js';
+import { ordinal } from '@/shared/ordinal.js';
 
 /**
  * Render market data for the negotiation prompt, with its provenance attached
@@ -20,7 +22,7 @@ import { isCityAdjustedScope } from '@/modules/salary/city-adjustment.js';
 export function describeMarketData(marketData: unknown): string {
     const md = marketData as {
         dataSource?: string;
-        marketRange?: { p25?: number; p50?: number; p75?: number; p90?: number };
+        marketRange?: { p25?: number | null; p50?: number | null; p75?: number | null; p90?: number | null };
         offerPercentile?: number | null;
         disclaimer?: string | null;
         roleUsed?: string;
@@ -28,7 +30,8 @@ export function describeMarketData(marketData: unknown): string {
         benchmarkScope?: string;
     } | null | undefined;
 
-    if (!md || !md.marketRange) {
+    // An all-null (MONEY-2) or legacy all-zero range is no data, not "0 to 0".
+    if (!md || !hasUsableRange(md.marketRange)) {
         return [
             'Market Data: NONE AVAILABLE.',
             'Do not cite salary benchmarks, percentiles, or "market rates" as fact. Build the',
@@ -47,7 +50,9 @@ export function describeMarketData(marketData: unknown): string {
             `  Median:          ${range.p50}`,
             `  75th percentile: ${range.p75}`,
             `  90th percentile: ${range.p90}`,
-            `  This offer sits at roughly the ${md.offerPercentile ?? '?'}th percentile.`,
+            typeof md.offerPercentile === 'number'
+                ? `  This offer sits at roughly the ${ordinal(Math.round(md.offerPercentile))} percentile.`
+                : '',
             md.disclaimer ? `  Provenance: ${md.disclaimer}` : '',
             'You MAY cite these figures in the email as market data, because they come from',
             'real submissions. Reference the percentile position directly — it is the',
@@ -69,7 +74,7 @@ export function describeMarketData(marketData: unknown): string {
             `  75th percentile: ${range.p75}`,
             `  90th percentile: ${range.p90}`,
             typeof md.offerPercentile === 'number'
-                ? `  This offer sits at roughly the ${md.offerPercentile}th percentile of survey respondents.`
+                ? `  This offer sits at roughly the ${ordinal(Math.round(md.offerPercentile))} percentile of survey respondents.`
                 : '',
             md.disclaimer ? `  Provenance: ${md.disclaimer}` : '',
             adjusted

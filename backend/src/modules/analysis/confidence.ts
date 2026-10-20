@@ -1,5 +1,5 @@
 import type { AnalysisResult, RedFlag } from './analysis.types.js';
-import type { TakeHomeResult } from '@/modules/takehome/takehome.calculator.js';
+import { takeHomeKind, type TakeHomeResult } from '@/modules/takehome/takehome.calculator.js';
 import { normalise, detectRedFlags } from './redflag.rules.js';
 
 /**
@@ -254,16 +254,23 @@ export function assessConfidence(input: ConfidenceInput): ConfidenceReport {
 
     // ── Take-home: ours, so the uncertainty is in the inputs, not the sum ──
     if (input.takeHome) {
-        fields.takeHome = input.takeHome.isExact
+        const kind = takeHomeKind(input.takeHome);
+        fields.takeHome = kind === 'exact'
             ? {
                 level: 'high',
                 reason: 'Calculated from published tax slabs. Exact, given what the letter states.',
             }
-            : {
-                level: 'medium',
-                reason: 'Tax is calculated from published slabs, but PF depends on your employer\'s '
-                    + 'policy, which the letter does not state — hence a range.',
-            };
+            : kind === 'range'
+                ? {
+                    level: 'medium',
+                    reason: 'Tax is calculated from published slabs, but PF depends on your employer\'s '
+                        + 'policy, which the letter does not state — hence a range.',
+                }
+                : {
+                    level: 'low',
+                    reason: 'An upper bound: the letter does not state basic pay, so employer PF, '
+                        + 'gratuity and employee PF cannot be deducted. Actual take-home will be lower.',
+                };
     }
 
     // ── Benefits: model-extracted list, deterministic verdict ──

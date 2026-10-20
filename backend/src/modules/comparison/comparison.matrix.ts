@@ -1,4 +1,5 @@
 import { COMPONENT_WEIGHTS, type ScoreComponentKey, type ScoreComponent } from '@/modules/analysis/score.rubric.js';
+import type { TakeHomeKind } from '@/modules/takehome/takehome.calculator.js';
 
 /**
  * Turn several analyses into a comparison matrix (plan task 19).
@@ -46,6 +47,10 @@ export interface ComparisonEntry {
     highSeverityCount: number;
     benefitCount: number;
     netMonthlyHigh: number | null;
+    /** Lower bound of the take-home range (PF on full basic). Equals the high figure for 'upper'. */
+    netMonthlyLow: number | null;
+    /** How the take-home may be presented. Null when there is no take-home (no stated CTC). */
+    takeHomeKind: TakeHomeKind | null;
     /** From `analyses.score_breakdown`. Null for rows written before task 10. */
     components: ScoreComponent[] | null;
 }
@@ -212,6 +217,49 @@ function winnerBy(
     return entries[numbers.indexOf(best)].id;
 }
 
+/**
+ * Take-home cell text: exact figure, low-high range, or "up to" for an upper bound (basic pay
+ * unknown). Mirrors the results page so the same offer reads the same way in both places.
+ */
+function takeHomeCell(e: ComparisonEntry): string {
+    if (e.netMonthlyHigh === null || e.takeHomeKind === null) return 'Not stated';
+    const high = formatMoney(e.netMonthlyHigh, e.currency);
+    if (e.takeHomeKind === 'upper') return `up to ${high}`;
+    if (e.takeHomeKind === 'range' && e.netMonthlyLow !== null) {
+        return `${formatMoney(e.netMonthlyLow, e.currency)} – ${high}`;
+    }
+    return high;
+}
+
+const isKnownBasis = (e: ComparisonEntry): boolean =>
+    (e.takeHomeKind === 'exact' || e.takeHomeKind === 'range')
+    && e.netMonthlyHigh !== null && e.netMonthlyLow !== null;
+
+/**
+ * A take-home winner exists only when every offer has a stated basic (exact or range), and then
+ * only if one offer wins on BOTH ends of the range, i.e. it dominates. An upper bound is not a
+ * figure, so any 'upper' or missing entry, or a mix of upper and known, declares no winner.
+ */
+function takeHomeWinner(entries: ComparisonEntry[]): string | null {
+    if (!entries.every(isKnownBasis)) return null;
+    const byHigh = winnerBy(entries, (e) => e.netMonthlyHigh);
+    return byHigh !== null && byHigh === winnerBy(entries, (e) => e.netMonthlyLow) ? byHigh : null;
+}
+
+function takeHomeNoteFor(entries: ComparisonEntry[]): string | null {
+    if (entries.some((e) => e.netMonthlyHigh === null || e.takeHomeKind === null)) {
+        return 'Needs a stated CTC.';
+    }
+    if (entries.some((e) => e.takeHomeKind === 'upper')) {
+        return 'Shown as "up to" because at least one letter does not state basic pay, so employer PF, '
+            + 'gratuity and employee PF cannot be deducted. No winner is declared.';
+    }
+    if (takeHomeWinner(entries) === null && entries.some((e) => e.takeHomeKind === 'range')) {
+        return 'The ranges overlap, so no winner is declared.';
+    }
+    return null;
+}
+
 export function buildComparison(entries: ComparisonEntry[], now = new Date()): ComparisonResult {
     const keys = commonComponentKeys(entries);
     const excluded = ALL_KEYS.filter((k) => !keys.includes(k));
@@ -301,13 +349,12 @@ export function buildComparison(entries: ComparisonEntry[], now = new Date()): C
         }),
     });
 
+    const takeHomeNote = takeHomeNoteFor(entries);
     rows.push({
-        metric: 'Take-home per month (upper estimate)',
-        values: entries.map((e) => formatMoney(e.netMonthlyHigh, e.currency)),
-        winnerId: winnerBy(entries, (e) => e.netMonthlyHigh),
-        ...(entries.some((e) => e.netMonthlyHigh === null) && {
-            note: 'Needs a stated CTC. Shown as a range on the results page; the upper end is used here.',
-        }),
+        metric: 'Take-home per month',
+        values: entries.map(takeHomeCell),
+        winnerId: takeHomeWinner(entries),
+        ...(takeHomeNote && { note: takeHomeNote }),
     });
 
     // "Red flags found", not "Red flags": that is the component row's label, and two rows sharing

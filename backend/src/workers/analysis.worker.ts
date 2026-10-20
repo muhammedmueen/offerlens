@@ -12,7 +12,7 @@ import { SalaryService, type Benchmark } from '@/modules/salary/salary.service.j
 import { toSalaryComparison, pickBenchmarkCity, AI_ESTIMATE_DISCLAIMER } from '@/modules/salary/benchmark-comparison.js';
 import { detectRedFlags, mergeRedFlags } from '@/modules/analysis/redflag.rules.js';
 import { formatUsage } from '@/providers/ai/usage.js';
-import { calculateTakeHome, annualBasicFrom } from '@/modules/takehome/takehome.calculator.js';
+import { calculateTakeHome, annualBasicFrom, annualVariableFrom } from '@/modules/takehome/takehome.calculator.js';
 import { checkBenefits, bareBenefitsFlag } from '@/modules/benefits/benefits.checklist.js';
 import { calculateScore } from '@/modules/analysis/score.rubric.js';
 import { optionalStage } from '@/shared/stage.js';
@@ -123,8 +123,9 @@ function normalizeAiResult(raw: any): AnalysisResult {
         extractedData: raw.extractedData || {},
         redFlags,
         salaryComparison: raw.salaryComparison || {
-            marketRange: { p25: 0, p50: 0, p75: 0, p90: 0 },
-            offerPercentile: 50,
+            // MONEY-2: no data is null, never an invented 0 range or 50th percentile.
+            marketRange: { p25: null, p50: null, p75: null, p90: null },
+            offerPercentile: null,
             roleUsed: 'unknown',
             roleMatchConfidence: 0,
             locationUsed: 'unknown',
@@ -167,6 +168,12 @@ export const analysisWorker = new Worker(
         const startedAt = Date.now();
 
         try {
+            // Every attempt, as the OCR worker does: a retry runs on an offer that must read as
+            // in-progress, not as whatever an earlier attempt or a pre-deploy worker left behind.
+            // failureReason cleared too: an attempt that starts after a reap must not carry the
+            // reaper's reason on a row that now reads PROCESSING (or later COMPLETED).
+            await db.update(offers).set({ status: 'PROCESSING', failureReason: null }).where(eq(offers.id, offerId));
+
             // Fetch offer for user context
             const offer = await db.query.offers.findFirst({
                 where: eq(offers.id, offerId),
@@ -330,8 +337,9 @@ export const analysisWorker = new Worker(
             // output to say which. Tax is arithmetic, so it is arithmetic now.
             //
             // `annualBasicFrom` returns null when the letter never stated basic, which is most
-            // of them. The calculator then excludes PF and says so in its assumptions rather
-            // than inventing a basic-to-CTC ratio.
+            // of them. The calculator then returns an UPPER BOUND (no PF or gratuity deducted) and
+            // says so in its assumptions rather than inventing a basic-to-CTC ratio. Variable pay
+            // is taxed but kept out of the monthly figure.
             //
             // Optional stage (task 15): null on failure, which is the same value it returns for
             // a letter with no CTC, so the UI section is already guarded for it.
@@ -340,14 +348,15 @@ export const analysisWorker = new Worker(
                 () => calculateTakeHome({
                     totalCtc: result.extractedData?.compensation?.totalCTC ?? null,
                     annualBasic: annualBasicFrom(result.extractedData?.compensation?.baseSalary),
+                    annualVariable: annualVariableFrom(result.extractedData?.compensation?.variablePay),
                 }),
                 null,
             );
 
             if (takeHome) {
                 console.log(
-                    `[Analysis] Take-home: ₹${takeHome.netMonthly.high.toLocaleString('en-IN')}/mo`
-                    + (takeHome.isExact ? '' : ` to ₹${takeHome.netMonthly.low.toLocaleString('en-IN')}/mo`)
+                    `[Analysis] Take-home: ${takeHome.isUpperBound ? 'up to ' : ''}₹${takeHome.netMonthly.high.toLocaleString('en-IN')}/mo`
+                    + (takeHome.isExact || takeHome.isUpperBound ? '' : ` to ₹${takeHome.netMonthly.low.toLocaleString('en-IN')}/mo`)
                     + `  (tax ₹${takeHome.tax.totalTax.toLocaleString('en-IN')}, `
                     + `effective ${(takeHome.tax.effectiveRate * 100).toFixed(1)}%)`,
                 );
@@ -458,15 +467,13 @@ export const analysisWorker = new Worker(
                 failureReason = 'AI_ERROR: The AI service encountered an internal error. Please try again.';
             }
 
-            // Only the last attempt is terminal and refunds the analysis quota (task 4.3).
-            // Earlier attempts keep today's per-attempt FAILED write; BullMQ will retry.
+            // Only the last attempt is terminal: it writes FAILED and refunds the analysis quota
+            // (task 4.3). An earlier attempt writes nothing, so the offer stays PROCESSING while
+            // BullMQ retries. ProcessingPage stops on FAILED, so a FAILED here would show
+            // "Analysis Failed" for an offer whose retry then completes (FLOW-2). failureReason
+            // is not recorded either: GET /offers/:id returns it whatever the status.
             if (isFinalAttempt(job)) {
                 await failOfferAndRefund(offerId, failureReason);
-            } else {
-                await db.update(offers).set({
-                    status: 'FAILED',
-                    failureReason: failureReason
-                }).where(eq(offers.id, offerId));
             }
             throw error;
         }

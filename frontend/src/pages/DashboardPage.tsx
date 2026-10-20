@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import api from "@/services/api";
 import { ENDPOINTS, ITEMS_PER_PAGE } from "@/constants/api";
 import PageShell from "@/components/layout/PageShell";
@@ -8,8 +8,14 @@ import LoadingState from "@/components/common/LoadingState";
 import ErrorState from "@/components/common/ErrorState";
 import EmptyState from "@/components/common/EmptyState";
 import { Button } from "@/components/ui/button";
-import { Upload, GitCompare, BarChart3, Star, FileText, TrendingUp } from "lucide-react";
+import { Upload, GitCompare, BarChart3, Star, FileText, CheckCircle } from "lucide-react";
+import type { DashboardStats, UserOffersPage, UserOfferSummary } from "@/types/api";
 import MotionCard from "@/components/common/MotionCard";
+
+// FLOW-3: only a COMPLETED offer has an analysis; anything else 404s on the results page, so
+// QUEUED / PROCESSING / FAILED rows open the processing page, which shows the real status.
+const offerHref = (o: UserOfferSummary) =>
+  o.status === "COMPLETED" ? `/offers/${o.id}` : `/offers/${o.id}/processing`;
 
 const DashboardPage = () => {
   const navigate = useNavigate();
@@ -18,25 +24,25 @@ const DashboardPage = () => {
 
   const { data: dashStats, isLoading: statsLoading } = useQuery({
     queryKey: ["dashboard-stats"],
-    queryFn: () => api.get(ENDPOINTS.USER_DASHBOARD).then((r) => r.data.data),
+    queryFn: () => api.get(ENDPOINTS.USER_DASHBOARD).then((r) => r.data.data as DashboardStats),
   });
 
   const { data: offersData, isLoading: offersLoading, error: offersError, refetch } = useQuery({
     queryKey: ["user-offers", page, sort],
-    queryFn: () => api.get(ENDPOINTS.USER_OFFERS, { params: { page, limit: ITEMS_PER_PAGE, sort } }).then((r) => r.data.data),
+    queryFn: () => api.get(ENDPOINTS.USER_OFFERS, { params: { page, limit: ITEMS_PER_PAGE, sort } }).then((r) => r.data.data as UserOffersPage),
   });
 
   const stats = dashStats
     ? [
-        { label: "Total Analyses", value: dashStats.totalAnalyses ?? 0, icon: FileText },
-        { label: "Avg Score", value: dashStats.avgScore ?? "—", icon: BarChart3 },
+        { label: "Total Offers", value: dashStats.totalOffers ?? 0, icon: FileText },
+        { label: "Analysed", value: dashStats.completedAnalyses ?? 0, icon: CheckCircle },
+        { label: "Avg Score", value: dashStats.averageScore ?? "—", icon: BarChart3 },
         { label: "Best Score", value: dashStats.bestScore ?? "—", icon: Star },
-        { label: "Active Offers", value: dashStats.activeOffers ?? 0, icon: TrendingUp },
       ]
     : [];
 
-  const offers = offersData?.offers || offersData || [];
-  const totalPages = offersData?.totalPages || 1;
+  const offers = offersData?.offers ?? [];
+  const totalPages = offersData?.pagination.totalPages ?? 1;
 
   return (
     <PageShell>
@@ -76,7 +82,7 @@ const DashboardPage = () => {
             <h2 className="font-semibold text-foreground">Offer History</h2>
             <div className="flex gap-2">
               {["createdAt", "score"].map((s) => (
-                <Button key={s} variant={sort === s ? "secondary" : "ghost"} size="sm" onClick={() => setSort(s)} className="cursor-pointer text-xs capitalize rounded-lg">
+                <Button key={s} variant={sort === s ? "secondary" : "ghost"} size="sm" onClick={() => { setSort(s); setPage(1); }} className="cursor-pointer text-xs capitalize rounded-lg">
                   {s === "createdAt" ? "Date" : "Score"}
                 </Button>
               ))}
@@ -103,14 +109,29 @@ const DashboardPage = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {offers.map((o: any) => (
+                    {offers.map((o) => (
                       <tr
                         key={o.id}
-                        onClick={() => navigate(`/offers/${o.id}`)}
+                        onClick={() => navigate(offerHref(o))}
                         className="border-b border-border transition-colors hover:bg-accent/50 cursor-pointer"
                       >
                         <td className="px-4 py-3">{new Date(o.createdAt).toLocaleDateString()}</td>
-                        <td className="px-4 py-3 font-medium text-foreground">{o.company || "—"}</td>
+                        <td className="px-4 py-3 font-medium text-foreground">
+                          {/* FLOW-3 / SEC-4: a real link, so the row is reachable by keyboard and
+                              named for screen readers. The row click above is a mouse shortcut. */}
+                          <Link
+                            to={offerHref(o)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            {o.company || (
+                              <>
+                                <span aria-hidden="true">—</span>
+                                <span className="sr-only">Untitled offer</span>
+                              </>
+                            )}
+                          </Link>
+                        </td>
                         <td className="px-4 py-3">{o.role || "—"}</td>
                         <td className="px-4 py-3">{o.score ?? "—"}</td>
                         <td className="px-4 py-3">

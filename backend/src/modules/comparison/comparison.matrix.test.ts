@@ -58,6 +58,8 @@ const entry = (
     highSeverityCount: 0,
     benefitCount: 3,
     netMonthlyHigh: 120_000,
+    netMonthlyLow: 120_000,
+    takeHomeKind: 'exact',
     components: componentsFor(values),
     ...over,
 });
@@ -214,12 +216,65 @@ describe('rows', () => {
     it('declares no winner when a value is missing for any offer', () => {
         const partial = buildComparison([
             entry('a', FULL),
-            entry('b', FULL, { totalCTC: null, baseSalary: null, netMonthlyHigh: null }),
+            entry('b', FULL, {
+                totalCTC: null, baseSalary: null, netMonthlyHigh: null, netMonthlyLow: null, takeHomeKind: null,
+            }),
         ]);
 
         expect(partial.rows.find((r) => r.metric === 'Total CTC')!.winnerId).toBeNull();
         expect(partial.rows.find((r) => r.metric === 'Total CTC')!.values[1]).toBe('Not stated');
         expect(partial.rows.find((r) => r.metric === 'Base salary (annual)')!.note).toContain('single CTC figure');
+    });
+});
+
+describe('take-home row', () => {
+    const row = (offers: ComparisonEntry[]) =>
+        buildComparison(offers).rows.find((r) => r.metric === 'Take-home per month')!;
+
+    it('compares exact against exact and crowns the higher figure', () => {
+        const r = row([
+            entry('a', FULL, { netMonthlyHigh: 150_000, netMonthlyLow: 150_000 }),
+            entry('b', FULL, { netMonthlyHigh: 120_000, netMonthlyLow: 120_000 }),
+        ]);
+        expect(r.values).toEqual(['₹1,50,000', '₹1,20,000']);
+        expect(r.winnerId).toBe('a');
+        expect(r.note).toBeUndefined();
+    });
+
+    it('crowns a range only when it dominates at both ends', () => {
+        const dominates = row([
+            entry('a', FULL, { takeHomeKind: 'range', netMonthlyHigh: 150_000, netMonthlyLow: 140_000 }),
+            entry('b', FULL, { takeHomeKind: 'range', netMonthlyHigh: 130_000, netMonthlyLow: 120_000 }),
+        ]);
+        expect(dominates.values[0]).toBe('₹1,40,000 – ₹1,50,000');
+        expect(dominates.winnerId).toBe('a');
+
+        const overlaps = row([
+            entry('a', FULL, { takeHomeKind: 'range', netMonthlyHigh: 150_000, netMonthlyLow: 110_000 }),
+            entry('b', FULL, { takeHomeKind: 'range', netMonthlyHigh: 130_000, netMonthlyLow: 120_000 }),
+        ]);
+        expect(overlaps.winnerId).toBeNull();
+        expect(overlaps.note).toContain('overlap');
+    });
+
+    it('labels an upper bound "up to" and declares no winner', () => {
+        const r = row([
+            entry('a', FULL, { takeHomeKind: 'upper', netMonthlyHigh: 175_000, netMonthlyLow: 175_000 }),
+            entry('b', FULL, { netMonthlyHigh: 90_000, netMonthlyLow: 90_000 }),
+        ]);
+        expect(r.values).toEqual(['up to ₹1,75,000', '₹90,000']);
+        // Mixed bases: a ceiling against a real figure is not a like-for-like comparison.
+        expect(r.winnerId).toBeNull();
+        expect(r.note).toContain('does not state basic pay');
+    });
+
+    it('declares no winner when both are upper bounds', () => {
+        const r = row([
+            entry('a', FULL, { takeHomeKind: 'upper', netMonthlyHigh: 175_000, netMonthlyLow: 175_000 }),
+            entry('b', FULL, { takeHomeKind: 'upper', netMonthlyHigh: 90_000, netMonthlyLow: 90_000 }),
+        ]);
+        expect(r.winnerId).toBeNull();
+        expect(r.values).toEqual(['up to ₹1,75,000', 'up to ₹90,000']);
     });
 });
 
@@ -271,9 +326,9 @@ describe('recommendation', () => {
     it('has nothing to trade off when the winner wins everything', () => {
         const result = buildComparison([
             entry('a', { redFlags: 100, salary: null, benefits: 100, growth: 100, transparency: 100 },
-                { totalCTC: 3_000_000, netMonthlyHigh: 200_000, benefitCount: 6 }),
+                { totalCTC: 3_000_000, netMonthlyHigh: 200_000, netMonthlyLow: 200_000, benefitCount: 6 }),
             entry('b', { redFlags: 20, salary: null, benefits: 20, growth: 20, transparency: 20 },
-                { totalCTC: 1_200_000, netMonthlyHigh: 90_000, benefitCount: 1, redFlagCount: 3 }),
+                { totalCTC: 1_200_000, netMonthlyHigh: 90_000, netMonthlyLow: 90_000, benefitCount: 1, redFlagCount: 3 }),
         ]);
 
         expect(result.recommendation.tradeoffs).toEqual([]);

@@ -10,6 +10,9 @@ import { POLLING_INTERVAL_MS } from "@/constants/api";
 // on error, disables retry for this query, and hard-caps total polling at 5 min.
 
 vi.mock("@/services/api", () => ({ default: { get: vi.fn() } }));
+// useAuth throws without its provider; the flag lets a test render as a guest.
+let authed = true;
+vi.mock("@/store/auth", () => ({ useAuth: () => ({ isAuthenticated: authed }) }));
 vi.mock("@/components/layout/PageShell", () => ({
   default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
@@ -47,6 +50,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   get.mockReset();
   navigate.mockReset();
+  authed = true;
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -105,8 +109,38 @@ describe("ProcessingPage polling", () => {
     expect(
       screen.getByText(/taking longer than expected/i).textContent,
     ).toMatch(/check your dashboard/i);
+    expect(screen.getByRole("button", { name: "Go to Dashboard" })).toBeTruthy();
     // Query is disabled after the cap — no new polls.
     await advance(POLLING_INTERVAL_MS * 5);
     expect(get.mock.calls.length).toBe(callsAtCap);
+  });
+
+  it("FAILED shows the stored failure reason without its prefix", async () => {
+    get.mockResolvedValue({ data: { data: { status: "FAILED", failureReason: "AI_ERROR: The model timed out" } } });
+    renderPage();
+    await advance(0);
+    expect(screen.getByText("The model timed out")).toBeTruthy();
+  });
+});
+
+describe("ProcessingPage give-up for a guest (FLOW-3)", () => {
+  it("offers no dashboard, and Check again resumes polling", async () => {
+    authed = false;
+    get.mockResolvedValue({ data: { data: { status: "PROCESSING" } } });
+    renderPage();
+    await advance(0);
+    await advance(300_000);
+    expect(screen.getByText(/taking longer than expected/i)).toBeTruthy();
+    expect(screen.queryByText(/dashboard/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /dashboard/i })).toBeNull();
+    expect(screen.getByRole("button", { name: "Try Again" })).toBeTruthy();
+
+    const callsAtCap = get.mock.calls.length;
+    await act(async () => {
+      screen.getByRole("button", { name: "Check again" }).click();
+    });
+    await advance(POLLING_INTERVAL_MS);
+    expect(get.mock.calls.length).toBeGreaterThan(callsAtCap);
+    expect(screen.queryByText(/taking longer than expected/i)).toBeNull();
   });
 });

@@ -254,7 +254,7 @@ repo's `backend/`. Point `DATABASE_URL` at the tunnel; use the SAME password you
 $env:DATABASE_URL   = "postgres://offerlens:<POSTGRES_PASSWORD>@127.0.0.1:5433/offerlens"
 $env:JWT_SECRET     = "x" * 40
 $env:JWT_REFRESH_SECRET = "y" * 40
-npm run db:migrate          # applies migrations 0000..0008
+npm run db:migrate          # applies migrations 0000..0009 (0009 = corrections unique index)
 npm run db:seed             # roles, cities, experience levels (required; dropdowns need it)
 npm run db:load-reference   # Stack Overflow salary rows (ODbL) — see the dataset gate below
 ```

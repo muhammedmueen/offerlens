@@ -27,6 +27,19 @@ export const ANALYSIS_TIMEOUT_MS = 60_000; // 60s
  * succeed, which is a worse failure than the one being fixed.
  *
  * Expressed as a multiple so the two stay related — if the per-call budget moves, this does.
+ *
+ * ponytail: the window is measured from createdAt and covers every BullMQ retry (attempts: 3
+ * on both queues, backoff 1s+2s OCR, 2s+4s analysis). Retries now stay PROCESSING (FLOW-2), so
+ * they are reapable. Typical runs fit easily: 3 analysis attempts of 15-30s plus 6s backoff.
+ * Ceiling: the worst case does not fit. Three Azure OCR polls at their 110s bound already take
+ * 333s, and nothing enforces ANALYSIS_TIMEOUT_MS on an AI call, so one ~3 min Gemini attempt
+ * plus a retry also overruns. Such an offer is reaped (FAILED + refund) while a retry is still
+ * running. That retry may still write COMPLETED (see the analysis worker's COMPLETED write), and
+ * a later analysis attempt's PROCESSING write can briefly un-fail it until the next sweep.
+ * Refunds stay exactly-once (releaseOfferQuota claims). Not widened here: ProcessingPage also
+ * gives up at 5 min, so this is a user-facing timeout. Upgrade path: enforce a per-attempt
+ * budget so attempts x budget + backoff < this window, or reap by a per-attempt heartbeat
+ * column instead of createdAt.
  */
 export const STUCK_OFFER_TIMEOUT_MS = 5 * ANALYSIS_TIMEOUT_MS; // 5 min
 

@@ -18,6 +18,12 @@
  * it assumed. A range that contains the truth is worth more than a point estimate that does
  * not, and the previous single figure gave no way to tell the difference.
  *
+ *  3. CTC is not cash. It includes employer PF and a gratuity provision (never on the payslip)
+ *     and often a variable component (not paid monthly). When basic is KNOWN the first two are
+ *     removed before tax; when it is NOT, they cannot be, so the figure is an UPPER BOUND
+ *     (`isUpperBound`), never presented as exact. Variable pay is taxed with the rest of the
+ *     income but kept OUT of the monthly figure and reported separately.
+ *
  * Everything here is pure and unit-tested. A tax calculator that is quietly wrong produces
  * confident numbers people make decisions on.
  */
@@ -70,6 +76,9 @@ export const SURCHARGE_BANDS: Array<{ above: number; rate: number }> = [
 
 export const EPF_EMPLOYEE_RATE = 0.12;
 
+/** Gratuity provision as a share of basic: 15/26/12 = 4.8077%, rounded to the usual 4.81%. */
+export const GRATUITY_RATE = 0.0481;
+
 /**
  * Monthly wage ceiling for MANDATORY EPF coverage.
  *
@@ -92,6 +101,8 @@ export interface TakeHomeInput {
     totalCtc: number | null;
     /** Annual basic pay, or null when the letter does not state it. */
     annualBasic: number | null;
+    /** Annual variable pay included in the CTC, or null. Taxed, but kept out of the monthly figure. */
+    annualVariable?: number | null;
 }
 
 export interface TaxBreakdown {
@@ -120,10 +131,23 @@ export interface TakeHomeResult {
      * which is exactly why this is not silently collapsed into one number.
      */
     employeePf: { statutoryMinimum: number | null; onFullBasic: number | null };
-    /** Monthly take-home. `high` assumes statutory-minimum PF, `low` assumes PF on full basic. */
+    /**
+     * Monthly take-home, excluding variable pay. `high` assumes statutory-minimum PF, `low`
+     * assumes PF on full basic. When `isUpperBound`, `high === low` and both are a CEILING.
+     */
     netMonthly: { high: number; low: number };
-    /** True when both bounds coincide, i.e. there is a single answer. */
+    /** True only when basic is known AND both bounds coincide, i.e. there is a single answer. */
     isExact: boolean;
+    /** True when basic is unknown: employer PF, gratuity and employee PF could not be deducted. */
+    isUpperBound: boolean;
+    /** The offer's CTC. `tax.grossAnnual` is now taxable salary after employer PF and gratuity. */
+    ctcAnnual: number;
+    /** Annual variable pay left out of `netMonthly`, or null. */
+    variableAnnual: number | null;
+    /** Employer PF counted inside the CTC, on the same two bases as `employeePf`. */
+    employerPf: { statutoryMinimum: number | null; onFullBasic: number | null };
+    /** Gratuity provision inside the CTC (4.81% of basic), or null when basic is unknown. */
+    gratuity: number | null;
     /** Every approximation made, in plain language, for display. */
     assumptions: string[];
 }
@@ -172,6 +196,28 @@ export function surchargeFor(totalIncome: number, tax: number): number {
 }
 
 /**
+ * Surcharge with marginal relief at each threshold (MONEY-7).
+ *
+ * Without relief, crossing ₹50L / ₹1Cr / ₹2Cr of taxable income by ₹100 jumped the tax by
+ * lakhs. Relief caps tax + surcharge at: tax at the threshold, plus the surcharge due AT the
+ * threshold (the band-below rate), plus the income above the threshold.
+ *
+ * ponytail: 87A is ignored in `slabTax(band.above)` because it never applies above ₹12L.
+ * `surchargeFor` is kept, unchanged, as the un-relieved building block and for its own tests.
+ */
+export function surchargeWithRelief(taxableIncome: number, incomeTax: number): number {
+    const i = SURCHARGE_BANDS.findIndex((b) => taxableIncome > b.above); // highest-first
+    if (i < 0) return 0;
+
+    const band = SURCHARGE_BANDS[i];
+    const rateBelow = SURCHARGE_BANDS[i + 1]?.rate ?? 0;
+    const cap = slabTax(band.above) * (1 + rateBelow) + (taxableIncome - band.above);
+
+    // cap - incomeTax is never negative: slab tax rises at most 30p per rupee above the threshold.
+    return Math.min(incomeTax * band.rate, cap - incomeTax);
+}
+
+/**
  * Annual income tax on a gross salary, under the new regime.
  *
  * Exported separately from `calculateTakeHome` so the tax arithmetic can be tested against
@@ -182,7 +228,7 @@ export function calculateTax(grossAnnual: number): TaxBreakdown {
 
     const beforeRebate = slabTax(taxableIncome);
     const incomeTax = applyRebate87A(taxableIncome, beforeRebate);
-    const surcharge = surchargeFor(taxableIncome, incomeTax);
+    const surcharge = surchargeWithRelief(taxableIncome, incomeTax);
     const cess = (incomeTax + surcharge) * CESS_RATE;
     const totalTax = Math.round(incomeTax + surcharge + cess);
 
@@ -197,15 +243,78 @@ export function calculateTax(grossAnnual: number): TaxBreakdown {
     };
 }
 
+export type TakeHomeKind = 'exact' | 'range' | 'upper';
+
+/**
+ * How to present a stored or fresh take-home result: one figure, a low-high range, or "up to".
+ *
+ * ponytail: a stored OLD-shape row has no `isUpperBound`. Every old figure also omitted employer
+ * PF / gratuity / variable (MONEY-1), so it overstates even when basic was known. Safest minimal
+ * choice: a missing flag means 'upper' ("up to"), never 'exact'. No backfill of stored rows.
+ */
+export function takeHomeKind(t: { isExact: boolean; isUpperBound?: boolean }): TakeHomeKind {
+    if (typeof t.isUpperBound !== 'boolean' || t.isUpperBound) return 'upper';
+    return t.isExact ? 'exact' : 'range';
+}
+
+const inr = (n: number): string => n.toLocaleString('en-IN');
+
 /**
  * Take-home from an offer's compensation, or null when there is not enough to work with.
  *
  * Returns null on a missing or non-positive CTC rather than reporting zero tax on zero income,
  * which would render as a confident "₹0 per month".
+ *
+ * Per scenario (statutory-minimum PF = `high`, PF on full basic = `low`), with C = CTC, V = annual
+ * variable, B = basic:
+ *   G       = C - employerPf - gratuity           (neither is salary income; both sit in the CTC)
+ *   tax     = calculateTax(G)                     (on fixed + variable together)
+ *   monthly = ((G - V) * (1 - tax / G) - employeePf) / 12
+ * i.e. variable's tax is its share at the AVERAGE rate, and it is excluded from the monthly cash.
+ * With B unknown the PF and gratuity terms are 0, so the result is an upper bound.
  */
 export function calculateTakeHome(input: TakeHomeInput): TakeHomeResult | null {
-    const { totalCtc, annualBasic } = input;
+    const { totalCtc } = input;
     if (!totalCtc || totalCtc <= 0 || !Number.isFinite(totalCtc)) return null;
+
+    // ponytail: basic at or above the CTC is a misextraction; treat it as "not stated" rather
+    // than compute a negative taxable salary.
+    const annualBasic = typeof input.annualBasic === 'number' && Number.isFinite(input.annualBasic)
+        && input.annualBasic > 0 && input.annualBasic < totalCtc
+        ? input.annualBasic
+        : null;
+    // ponytail: likewise a bonus at or above the CTC (which is documented to include it) is ignored.
+    const variable = typeof input.annualVariable === 'number' && Number.isFinite(input.annualVariable)
+        && input.annualVariable > 0 && input.annualVariable < totalCtc
+        ? input.annualVariable
+        : null;
+    const basicKnown = annualBasic !== null;
+
+    let statutoryPf: number | null = null;
+    let fullBasicPf: number | null = null;
+    let gratuity: number | null = null;
+
+    if (annualBasic !== null) {
+        const monthlyBasic = annualBasic / 12;
+        const cappedMonthly = Math.min(monthlyBasic, EPF_WAGE_CEILING_MONTHLY);
+
+        statutoryPf = Math.round(cappedMonthly * EPF_EMPLOYEE_RATE * 12);
+        fullBasicPf = Math.round(monthlyBasic * EPF_EMPLOYEE_RATE * 12);
+        gratuity = Math.round(annualBasic * GRATUITY_RATE);
+    }
+
+    // ponytail: employer PF is assumed equal to employee PF on the same basis (both 12%).
+    const scenario = (pf: number | null) => {
+        const employerPf = pf ?? 0;
+        const taxableSalary = totalCtc - employerPf - (gratuity ?? 0);
+        const tax = calculateTax(taxableSalary);
+        const variableShare = Math.min(variable ?? 0, taxableSalary);
+        const fixedNet = (taxableSalary - variableShare) * (1 - tax.totalTax / taxableSalary) - (pf ?? 0);
+        return { tax, monthlyRaw: Math.max(0, fixedNet) / 12 };
+    };
+
+    const high = scenario(statutoryPf);
+    const low = scenario(fullBasicPf);
 
     const assumptions: string[] = [
         'New tax regime, which is the default and better for most salaried taxpayers. '
@@ -213,35 +322,34 @@ export function calculateTakeHome(input: TakeHomeInput): TakeHomeResult | null {
         + 'your investment details, which an offer letter does not contain.',
     ];
 
-    const tax = calculateTax(totalCtc);
+    if (basicKnown) {
+        assumptions.push(
+            'Employer PF and a gratuity provision (4.81% of basic) are part of your CTC but are '
+            + 'not paid to you or taxed as salary, so they are removed before tax.',
+        );
+    } else {
+        assumptions.push(
+            'Your full CTC is treated as taxable salary because basic pay is not stated. CTC '
+            + 'usually includes employer PF and a gratuity provision, which are not taxed as '
+            + 'salary and never reach your payslip, so tax and take-home are both overstated.',
+        );
+    }
 
-    // Treating CTC as taxable salary OVERSTATES tax: CTC includes employer PF and a gratuity
-    // provision, neither of which is salary income in the year it accrues. Stated rather than
-    // silently corrected, because correcting it needs the component split the letter omitted.
-    assumptions.push(
-        'Your full CTC is treated as taxable salary. CTC usually also includes the employer '
-        + 'PF contribution and a gratuity provision, which are not taxed as salary — so real '
-        + 'tax is likely a little lower than shown.',
-    );
+    if (variable !== null) {
+        assumptions.push(
+            `Up to ₹${inr(variable)} a year of variable pay is taxed with the rest of your income `
+            + 'but shown separately, not in the monthly figure. It is treated as annual and '
+            + 'included in your CTC; its tax is assumed to be in proportion to your average tax rate.',
+        );
+    }
 
-    let statutoryPf: number | null = null;
-    let fullBasicPf: number | null = null;
-
-    if (annualBasic && annualBasic > 0) {
-        const monthlyBasic = annualBasic / 12;
-        const cappedMonthly = Math.min(monthlyBasic, EPF_WAGE_CEILING_MONTHLY);
-
-        statutoryPf = Math.round(cappedMonthly * EPF_EMPLOYEE_RATE * 12);
-        fullBasicPf = Math.round(monthlyBasic * EPF_EMPLOYEE_RATE * 12);
-
+    if (statutoryPf !== null && fullBasicPf !== null) {
         if (statutoryPf === fullBasicPf) {
-            assumptions.push(
-                `Employee PF of 12% of basic pay (₹${statutoryPf.toLocaleString('en-IN')} a year).`,
-            );
+            assumptions.push(`Employee PF of 12% of basic pay (₹${inr(statutoryPf)} a year).`);
         } else {
             assumptions.push(
                 'PF is shown as a range. 12% of basic is mandatory only up to the '
-                + `₹${EPF_WAGE_CEILING_MONTHLY.toLocaleString('en-IN')}/month wage ceiling raised on `
+                + `₹${inr(EPF_WAGE_CEILING_MONTHLY)}/month wage ceiling raised on `
                 + '17 September 2026; above that it is voluntary. Many employers still deduct on '
                 + 'full basic, which lowers take-home — your payslip will show which applies.',
             );
@@ -249,8 +357,9 @@ export function calculateTakeHome(input: TakeHomeInput): TakeHomeResult | null {
     } else {
         assumptions.push(
             'Employee PF is NOT included: it is 12% of basic pay, and this letter does not state '
-            + 'basic separately from the total. Expect your actual take-home to be lower by that '
-            + 'deduction.',
+            + 'basic separately from the total. Employer PF and gratuity are not removed either. '
+            + 'The monthly figure is an upper bound — your actual take-home will be lower by those '
+            + 'deductions, depending on your basic-pay split.',
         );
     }
 
@@ -258,23 +367,40 @@ export function calculateTakeHome(input: TakeHomeInput): TakeHomeResult | null {
         'Excludes professional tax, which is state-specific and at most ₹2,500 a year.',
     );
 
-    const netAnnualHigh = totalCtc - tax.totalTax - (statutoryPf ?? 0);
-    const netAnnualLow = totalCtc - tax.totalTax - (fullBasicPf ?? 0);
-
     return {
         regime: 'new',
         rulesVersion: TAX_RULES_VERSION,
-        tax,
+        // ponytail: the tax tile shows the statutory-PF scenario; the full-basic scenario differs
+        // only by the tax on the extra PF gap.
+        tax: high.tax,
         employeePf: { statutoryMinimum: statutoryPf, onFullBasic: fullBasicPf },
+        employerPf: { statutoryMinimum: statutoryPf, onFullBasic: fullBasicPf },
+        gratuity,
         netMonthly: {
-            high: Math.round(netAnnualHigh / 12),
-            low: Math.round(netAnnualLow / 12),
+            high: Math.round(high.monthlyRaw),
+            low: Math.round(low.monthlyRaw),
         },
-        isExact: netAnnualHigh === netAnnualLow,
+        isExact: basicKnown && high.monthlyRaw === low.monthlyRaw,
+        isUpperBound: !basicKnown,
+        ctcAnnual: Math.round(totalCtc),
+        variableAnnual: variable !== null ? Math.round(variable) : null,
         assumptions,
     };
 }
 
+/**
+ * Annual variable pay from the extracted compensation, or null when absent or not positive.
+ *
+ * ponytail: `variablePay` carries no period field (its schema text is "maximum variable or
+ * bonus amount"), so it is read as annual, as `benefits.service` already does.
+ */
+export function annualVariableFrom(
+    variablePay: { amount?: number | null } | null | undefined,
+): number | null {
+    const amount = variablePay?.amount;
+    if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0) return null;
+    return amount;
+}
 /**
  * Annual basic from the extracted compensation, normalised to a yearly figure.
  *

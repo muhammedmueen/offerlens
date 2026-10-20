@@ -9,7 +9,7 @@
     "main": "dist/src/server.js",
     "scripts": {
         "dev": "tsx watch src/server.ts",
-        "build": "tsc && tsc-alias",
+        "build": "tsc && tsc-alias && node -e \"require('node:fs').cpSync('assets', 'dist/assets', { recursive: true })\"",
         "start": "node dist/src/server.js",
         "start:workers": "node dist/src/workers/index.js",
         "test": "vitest run",

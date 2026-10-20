@@ -77,7 +77,8 @@ export interface RedFlag {
 }
 
 export interface SalaryComparison {
-    marketRange: { p25: number; p50: number; p75: number; p90: number };
+    /** Each figure is null when the AI estimate gave none (MONEY-2). Rows stored earlier may hold 0s. */
+    marketRange: { p25: number | null; p50: number | null; p75: number | null; p90: number | null };
     /** Null when the letter states no CTC to rank (a benchmark range can still be shown). */
     offerPercentile: number | null;
     roleUsed: string;
@@ -97,6 +98,8 @@ export interface SalaryComparison {
     payMix?: { offered: number; current: number; unlabelled: number } | null;
     /** 5.1b, public_survey only: the PLFS city factor the quantiles were scaled by. Absent on national and crowd results. */
     cityAdjustment?: CityAdjustment | null;
+    /** SEC-1, set by the first CTC correction: the worker's own (CTC, rank) point, kept so later re-ranks anchor on it. */
+    rankAnchor?: { ctc: number; percentile: number } | null;
 }
 
 export interface NegotiationSuggestion {

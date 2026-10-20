@@ -7,7 +7,7 @@ import { AppError } from '@/shared/errors/app-error.js';
 import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 import { assertOfferAccess } from '@/shared/access/offer-access.js';
 import { AnalysisResult } from '@/modules/analysis/analysis.types.js';
-import { annualBasicFrom, type TakeHomeResult } from '@/modules/takehome/takehome.calculator.js';
+import { annualBasicFrom, takeHomeKind, type TakeHomeResult } from '@/modules/takehome/takehome.calculator.js';
 import type { ScoreComponent } from '@/modules/analysis/score.rubric.js';
 import { buildComparison, type ComparisonEntry } from './comparison.matrix.js';
 
@@ -70,6 +70,9 @@ export class ComparisonService {
                     : 0,
                 benefitCount: Array.isArray(benefits) ? benefits.length : 0,
                 netMonthlyHigh: takeHome?.netMonthly?.high ?? null,
+                netMonthlyLow: takeHome?.netMonthly?.low ?? null,
+                // Old-shape rows (no `isUpperBound`) come out as 'upper', never 'exact'.
+                takeHomeKind: takeHome?.netMonthly ? takeHomeKind(takeHome) : null,
                 components: breakdown?.components ?? null,
             };
         });

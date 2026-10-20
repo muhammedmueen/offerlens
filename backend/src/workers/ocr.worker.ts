@@ -172,15 +172,12 @@ async function processOcr(job: Job) {
                 console.error(`[OCR] Rate limit hit for offer ${offerId}`);
             }
             
-            // Only the last attempt is terminal and refunds. Earlier attempts keep today's
-            // per-attempt FAILED write; BullMQ will retry and may still succeed.
+            // Only the last attempt is terminal: it writes FAILED and refunds. An earlier attempt
+            // writes nothing, so the offer stays PROCESSING (set at the top) while BullMQ retries;
+            // a FAILED here would end the processing page's poll on an offer that may still
+            // succeed (FLOW-2).
             if (isFinalAttempt(job)) {
                 await failOfferAndRefund(offerId, failureReason);
-            } else {
-                await db.update(offers).set({
-                    status: 'FAILED',
-                    failureReason: failureReason
-                }).where(eq(offers.id, offerId));
             }
             throw error;
         }

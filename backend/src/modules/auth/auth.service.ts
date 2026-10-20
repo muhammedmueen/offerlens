@@ -6,6 +6,7 @@ import { eq, and } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import type { OAuth2Client } from 'google-auth-library';
 import { config } from '@/config/index.js';
 import { ACCESS_TOKEN_EXPIRY, REFRESH_TOKEN_EXPIRY_MS } from '@/config/constants.js';
 import { AppError } from '@/shared/errors/app-error.js';
@@ -13,6 +14,80 @@ import { ERROR_CODES } from '@/shared/errors/error-codes.js';
 import { AuthTokens, AuthResponse, JwtPayload, SignupInput, LoginInput, GoogleAuthInput } from './auth.types.js';
 
 const BCRYPT_ROUNDS = 12;
+
+/** What a verified Google token tells us about its owner. */
+interface GoogleIdentity {
+    sub?: string;
+    email?: string;
+    emailVerified: boolean;
+    name?: string;
+    picture?: string;
+}
+
+// The implicit flow asks for `openid profile email`; tokeninfo reports the email scope by its URL.
+const GOOGLE_EMAIL_SCOPES = new Set(['email', 'https://www.googleapis.com/auth/userinfo.email']);
+
+/** tokeninfo returns `email_verified` as the string "true"; an ID token carries a boolean. */
+const isTrue = (v: unknown) => v === true || v === 'true';
+
+/**
+ * AUTH-1: every rejected Google sign-in gets the same 401, so the response says nothing about
+ * whether an account exists. The reason is logged. Never the token, and never an error message:
+ * google-auth-library puts the raw JWT in some of them ("Invalid token signature: <jwt>").
+ */
+function googleAuthFailed(reason: string, err?: unknown): AppError {
+    const status = (err as { response?: { status?: number } } | undefined)?.response?.status;
+    const cause = err === undefined ? '' : ` (${(err as Error)?.name ?? 'error'}${status ? ` ${status}` : ''})`;
+    console.warn(`[Auth] Google sign-in rejected: ${reason}${cause}`);
+    return new AppError(ERROR_CODES.INVALID_CREDENTIALS, 'Google sign-in failed. Please try again.', 401);
+}
+
+/**
+ * AUTH-1: the access token from the frontend's implicit flow must have been issued to OUR client.
+ * userinfo answers for a token from any app with the email scope, so it alone let any site where
+ * the victim used "Sign in with Google" replay that token here. tokeninfo reports the token's `aud`
+ * (for an access token, the OAuth client it was issued to), which must equal GOOGLE_CLIENT_ID.
+ *
+ * ponytail: two Google round-trips per access-token login (tokeninfo, then userinfo for name and
+ * picture, which tokeninfo lacks). Switching the frontend to the ID-token or auth-code flow would
+ * verify locally against cached certs and drop both.
+ */
+async function verifyGoogleAccessToken(client: OAuth2Client, accessToken: string): Promise<GoogleIdentity> {
+    let info: Awaited<ReturnType<OAuth2Client['getTokenInfo']>>;
+    try {
+        // A 400 here means expired, revoked or not a Google token. Sent as a Bearer header, not a query string.
+        info = await client.getTokenInfo(accessToken);
+    } catch (err) {
+        throw googleAuthFailed('tokeninfo rejected the access token', err);
+    }
+
+    if (info.aud !== config.GOOGLE_CLIENT_ID) {
+        throw googleAuthFailed(`access token was issued to another client (aud ${info.aud})`);
+    }
+    if (!(info.expiry_date > Date.now())) throw googleAuthFailed('access token expired');
+    if (!info.scopes?.some((s) => GOOGLE_EMAIL_SCOPES.has(s))) throw googleAuthFailed('access token lacks the email scope');
+
+    // Audience verified, so userinfo is now safe to ask for the profile.
+    let profile: { name?: string; picture?: string };
+    try {
+        const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+            headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!response.ok) throw Object.assign(new Error('userinfo failed'), { response: { status: response.status } });
+        profile = await response.json() as { name?: string; picture?: string };
+    } catch (err) {
+        throw googleAuthFailed('userinfo rejected the access token', err);
+    }
+
+    // Identity comes from tokeninfo, the response the audience check was made against.
+    return {
+        sub: info.sub,
+        email: info.email,
+        emailVerified: isTrue(info.email_verified),
+        name: profile.name,
+        picture: profile.picture,
+    };
+}
 
 export class AuthService {
     async signup(input: SignupInput): Promise<AuthResponse> {
@@ -70,62 +145,80 @@ export class AuthService {
             throw new AppError(ERROR_CODES.SERVICE_UNAVAILABLE, 'Google OAuth is not configured', 503);
         }
 
-        let payload: { email?: string; name?: string; picture?: string; sub?: string; email_verified?: boolean } | undefined;
+        const client = new OAuth2Client(config.GOOGLE_CLIENT_ID);
+        let payload: GoogleIdentity | undefined;
 
         if (input.idToken) {
-            const client = new OAuth2Client(config.GOOGLE_CLIENT_ID);
-            const ticket = await client.verifyIdToken({
-                idToken: input.idToken,
-                audience: config.GOOGLE_CLIENT_ID,
-            });
-            payload = ticket.getPayload();
-        } else if (input.accessToken) {
-            // Verify access token and get user info
             try {
-                const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-                    headers: { Authorization: `Bearer ${input.accessToken}` },
+                const ticket = await client.verifyIdToken({
+                    idToken: input.idToken,
+                    audience: config.GOOGLE_CLIENT_ID,
                 });
-
-                if (!response.ok) {
-                    throw new Error('Failed to fetch user info');
-                }
-
-                const data = await response.json() as any;
-                payload = {
-                    email: data.email,
-                    name: data.name,
-                    picture: data.picture,
-                    sub: data.sub,
-                    email_verified: data.email_verified,
+                const p = ticket.getPayload();
+                payload = p && {
+                    sub: p.sub, email: p.email, emailVerified: isTrue(p.email_verified), name: p.name, picture: p.picture,
                 };
-            } catch (error) {
-                console.error('Google UserInfo Error:', error);
-                throw new AppError(ERROR_CODES.INVALID_CREDENTIALS, 'Invalid Google access token', 401);
+            } catch (err) {
+                throw googleAuthFailed('ID token failed verification', err);
             }
+        } else if (input.accessToken) {
+            payload = await verifyGoogleAccessToken(client, input.accessToken);
         }
 
-        if (!payload || !payload.email) {
-            throw new AppError(ERROR_CODES.INVALID_CREDENTIALS, 'Invalid Google token', 401);
-        }
+        if (!payload?.email || !payload.sub) throw googleAuthFailed('token has no email or sub');
+        // AUTH-1: an unverified address proves nothing about who owns it, so it may not create,
+        // log into or link any account. Checked before any lookup, so it reveals nothing.
+        if (!payload.emailVerified) throw googleAuthFailed('Google email is not verified');
 
-        // Find or create user
-        let user = await db.query.users.findFirst({
-            where: eq(users.email, payload.email.toLowerCase()),
-        });
+        const email = payload.email.toLowerCase();
+
+        // The Google account id (`sub`) is the identity; email is only used to link a first sign-in.
+        let user = await db.query.users.findFirst({ where: eq(users.googleId, payload.sub) });
 
         if (!user) {
-            [user] = await db.insert(users).values({
-                email: payload.email.toLowerCase(),
-                name: payload.name || null,
-                avatarUrl: payload.picture || null,
-                googleId: payload.sub,
-                isEmailVerified: payload.email_verified || false,
-            }).returning();
-        } else if (!user.googleId) {
-            // Link Google to existing email account
-            await db.update(users)
-                .set({ googleId: payload.sub, avatarUrl: user.avatarUrl || payload.picture || null })
-                .where(eq(users.id, user.id));
+            user = await db.query.users.findFirst({ where: eq(users.email, email) });
+
+            if (user?.googleId) {
+                // Missed by googleId above, so this account is linked to a different Google account.
+                throw googleAuthFailed('email belongs to an account linked to a different Google account');
+            }
+
+            if (!user) {
+                [user] = await db.insert(users).values({
+                    email,
+                    name: payload.name || null,
+                    avatarUrl: payload.picture || null,
+                    googleId: payload.sub,
+                    isEmailVerified: payload.emailVerified,
+                }).returning();
+            } else if (user.isEmailVerified) {
+                // Link Google to an existing account whose address was already proved.
+                await db.update(users)
+                    .set({ googleId: payload.sub, avatarUrl: user.avatarUrl || payload.picture || null })
+                    .where(eq(users.id, user.id));
+            } else {
+                // AUTH-8: Google has proved this person owns the address. Whoever set this
+                // account's password never did (password signup does not verify email), so it may
+                // be an attacker who registered the victim's address first. Remove the password
+                // and revoke every refresh token, in one transaction, so only Google opens it now.
+                //
+                // ponytail: access tokens already issued (15-minute JWTs) cannot be revoked server
+                // side and stay valid until they expire; refresh is gone, so they cannot be renewed.
+                // A refresh racing this transaction (its claim before our delete, its insert after)
+                // can also mint one surviving token, and so can a password login that read the old
+                // hash before our commit and inserts its token after (the bcrypt compare is the
+                // window; the per-email login limit keeps it hard to hit). Either survivor rotates
+                // indefinitely. Upgrade path: a per-user token version checked on every request and
+                // on refresh closes both.
+                const { id } = user;
+                const linked = { googleId: payload.sub, avatarUrl: user.avatarUrl || payload.picture || null };
+                await db.transaction(async (tx) => {
+                    await tx.update(users)
+                        .set({ ...linked, isEmailVerified: true, passwordHash: null })
+                        .where(eq(users.id, id));
+                    await tx.delete(refreshTokens).where(eq(refreshTokens.userId, id));
+                });
+            }
         }
 
         const tokens = await this.generateTokens({ userId: user.id, email: user.email });
@@ -139,20 +232,15 @@ export class AuthService {
     async refreshAccessToken(refreshToken: string): Promise<AuthTokens> {
         const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
 
-        const stored = await db.query.refreshTokens.findFirst({
-            where: eq(refreshTokens.tokenHash, tokenHash),
-        });
+        // AUTH-4: claim the row atomically. Of two concurrent refreshes with the same token only one
+        // gets it back; the other is a 401. An expired row is consumed (deleted) here too, as before.
+        const [stored] = await db.delete(refreshTokens)
+            .where(eq(refreshTokens.tokenHash, tokenHash))
+            .returning();
 
         if (!stored || stored.expiresAt < new Date()) {
-            // Clean up expired token if it exists
-            if (stored) {
-                await db.delete(refreshTokens).where(eq(refreshTokens.id, stored.id));
-            }
             throw new AppError(ERROR_CODES.TOKEN_EXPIRED, 'Refresh token expired or invalid. Please log in again.', 401);
         }
-
-        // Rotate: delete old, create new
-        await db.delete(refreshTokens).where(eq(refreshTokens.id, stored.id));
 
         const user = await db.query.users.findFirst({ where: eq(users.id, stored.userId) });
         if (!user) throw new AppError(ERROR_CODES.NOT_FOUND, 'User not found', 404);

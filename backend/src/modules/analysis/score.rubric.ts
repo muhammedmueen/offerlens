@@ -2,6 +2,7 @@ import type { AnalysisResult, RedFlag } from './analysis.types.js';
 import type { BenefitsChecklist } from '@/modules/benefits/benefits.checklist.js';
 import type { BenchmarkScope, BenchmarkSource } from '@/modules/salary/salary.service.js';
 import { isAllExperienceScope, isCityAdjustedScope } from '@/modules/salary/city-adjustment.js';
+import { ordinal } from '@/shared/ordinal.js';
 
 /**
  * Weighted scoring rubric (Phase 2 task 10, decision 7).
@@ -171,15 +172,15 @@ export function scoreSalary(
     const basis: SalaryBasis = { source, scope: scope ?? (source === 'crowdsourced' ? 'role_city' : 'role_national') };
 
     return {
-        value: clamp(offerPercentile),
+        value: clamp(rank),
         basis,
         note: source === 'public_survey'
-            ? `Offer sits at roughly the ${rank}th percentile of Stack Overflow Developer Survey 2025 respondents `
+            ? `Offer sits at roughly the ${ordinal(rank)} percentile of Stack Overflow Developer Survey 2025 respondents `
                 + (isCityAdjustedScope(basis.scope)
                     ? 'in India, scaled to your city by a PLFS-based factor (an estimate, not offers in your city)'
                     : 'in India (national, not specific to your city)')
                 + (isAllExperienceScope(basis.scope) ? ' across all experience levels' : '')
-            : `Offer sits at roughly the ${rank}th percentile of crowdsourced submissions.`,
+            : `Offer sits at roughly the ${ordinal(rank)} percentile of crowdsourced submissions.`,
     };
 }
 

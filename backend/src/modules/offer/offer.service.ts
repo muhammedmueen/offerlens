@@ -109,8 +109,10 @@ export class OfferService {
         try {
             await db.transaction(async (tx) => {
                 // (a) A FAILED duplicate is replaced. Refund whatever it still holds first —
-                // a no-op if its terminal failure already refunded it — so a retry while a
-                // BullMQ retry is pending is net-correct. Same order as before: then delete.
+                // a no-op if its terminal failure already refunded it. Workers write FAILED only
+                // on the final attempt (FLOW-2), so a BullMQ retry can still be running here only
+                // if the reaper failed the offer first; that retry then fails on the deleted row,
+                // which is acceptable for an offer already past the 5-minute window. Then delete.
                 if (existingOffer && existingOffer.status === 'FAILED') {
                     console.log('[Offer Service] Found failed offer, deleting it to allow retry');
                     await releaseOfferQuota(tx, existingOffer.id);

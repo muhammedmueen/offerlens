@@ -14,19 +14,37 @@ import { Search } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { RATE_LIMITED_TEXT, isRateLimited } from "@/lib/quota";
 
+// Backend GET /salaries/stats requires role and city to be >= 2 chars (salary.schema.ts).
+// Guard here so a 1-char interim value never fires and never shows the empty-state.
+const MIN_TERM_LENGTH = 2;
+
 const SalaryExplorerPage = () => {
   const { toast } = useToast();
+  // Draft = what the user is typing. Submitted = what the query reads. Keeping them
+  // separate is the SAL-1 fix: typing changes only the draft, so the query key/enabled
+  // no longer follow every keystroke and no longer fire a request against the 30/min limit.
   const [role, setRole] = useState("");
   const [city, setCity] = useState("");
+  const [submittedRole, setSubmittedRole] = useState("");
+  const [submittedCity, setSubmittedCity] = useState("");
   const [searched, setSearched] = useState(false);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [formMessage, setFormMessage] = useState("");
 
-  const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ["salary-stats", role, city],
-    queryFn: () => api.get(ENDPOINTS.SALARIES_STATS, { params: { role, city } }).then((r) => r.data.data),
-    enabled: searched && !!role && !!city,
+  const canSearch = role.trim().length >= MIN_TERM_LENGTH && city.trim().length >= MIN_TERM_LENGTH;
+
+  const submit = () => {
+    if (!canSearch) return;
+    setSubmittedRole(role.trim());
+    setSubmittedCity(city.trim());
+    setSearched(true);
+  };
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["salary-stats", submittedRole, submittedCity],
+    queryFn: () => api.get(ENDPOINTS.SALARIES_STATS, { params: { role: submittedRole, city: submittedCity } }).then((r) => r.data.data),
+    enabled: searched && submittedRole.length >= MIN_TERM_LENGTH && submittedCity.length >= MIN_TERM_LENGTH,
   });
 
   // Stats are only usable once enough submissions exist. Below the threshold the API
@@ -40,9 +58,9 @@ const SalaryExplorerPage = () => {
         <h1 className="text-2xl font-bold">Salary Explorer</h1>
 
         <div className="flex flex-col gap-4 sm:flex-row">
-          <Input value={role} onChange={(e) => setRole(e.target.value)} placeholder="Role (e.g. Software Engineer)" className="flex-1" />
-          <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="City (e.g. Bangalore)" className="flex-1" />
-          <Button onClick={() => { setSearched(true); refetch(); }} disabled={!role || !city} className="cursor-pointer">
+          <Input value={role} onChange={(e) => setRole(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") submit(); }} placeholder="Role (e.g. Software Engineer)" className="flex-1" />
+          <Input value={city} onChange={(e) => setCity(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") submit(); }} placeholder="City (e.g. Bangalore)" className="flex-1" />
+          <Button onClick={submit} disabled={!canSearch} className="cursor-pointer">
             <Search className="mr-2 h-4 w-4" /> Search
           </Button>
         </div>

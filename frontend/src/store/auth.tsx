@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
-import api from "@/services/api";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import api, { SESSION_ENDED_EVENT, isSessionRejected } from "@/services/api";
 import { ENDPOINTS } from "@/constants/api";
 import { getGuestOfferIds, clearGuestOffers } from "@/lib/guest-offers";
 
@@ -26,10 +27,20 @@ const AuthContext = createContext<AuthState | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const retryTimer = useRef<ReturnType<typeof setTimeout>>();
+
+  // Local sign-out: UI, retry timer and cached queries (MIN-1: queries are not keyed by user).
+  const endLocalSession = useCallback(() => {
+    clearTimeout(retryTimer.current);
+    setUser(null);
+    setIsLoading(false);
+    queryClient.removeQueries();
+  }, [queryClient]);
 
   const fetchUser = useCallback(async () => {
-    const token = localStorage.getItem("access_token");
-    if (!token) {
+    clearTimeout(retryTimer.current);
+    if (!localStorage.getItem("access_token")) {
       setUser(null);
       setIsLoading(false);
       return;
@@ -37,18 +48,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const { data } = await api.get(ENDPOINTS.USER_ME);
       setUser(data.data);
-    } catch {
-      setUser(null);
-      localStorage.removeItem("access_token");
-      localStorage.removeItem("refresh_token");
-    } finally {
       setIsLoading(false);
+    } catch (err) {
+      if (isSessionRejected(err)) {
+        // Still rejected after the interceptor's refresh: the session is really gone.
+        localStorage.removeItem("access_token");
+        localStorage.removeItem("refresh_token");
+        endLocalSession();
+      } else {
+        // AUTH-3: network, 5xx or 429. Keep the tokens; auth stays unknown (isLoading) and is retried.
+        // ponytail: fixed 5 s retry. Upgrade: exponential backoff plus the `online` event.
+        setIsLoading(true);
+        retryTimer.current = setTimeout(() => void fetchUser(), 5000);
+      }
     }
-  }, []);
+  }, [endLocalSession]);
 
   useEffect(() => {
     fetchUser();
+    return () => clearTimeout(retryTimer.current);
   }, [fetchUser]);
+
+  // api.ts ends a dead session outside React; mirror it so the UI shows "logged out".
+  useEffect(() => {
+    window.addEventListener(SESSION_ENDED_EVENT, endLocalSession);
+    return () => window.removeEventListener(SESSION_ENDED_EVENT, endLocalSession);
+  }, [endLocalSession]);
+
+  // Other tabs (FLOW-1/AUTH-4). Read storage, not the event: this tab may already hold a newer pair.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== null && e.key !== "refresh_token") return;
+      if (!localStorage.getItem("refresh_token")) endLocalSession();
+      else if (e.key === "refresh_token" && e.oldValue === null) void fetchUser(); // logged in elsewhere
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [endLocalSession, fetchUser]);
 
   const login = async (email: string, password: string) => {
     const { data } = await api.post(ENDPOINTS.AUTH_LOGIN, { email, password });
@@ -76,22 +112,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await fetchUser();
   };
 
+  // AUTH-5: revoke the refresh token server-side. Read it before clearing; logout is authenticated by
+  // this body alone (no access token, no refresh flow). Local state is cleared first and the request is
+  // not awaited, so a failing or hung network never blocks logging out.
   const logout = async () => {
-    try {
-      await api.post(ENDPOINTS.AUTH_LOGOUT);
-    } catch {
-      // ignore
-    }
+    const refreshToken = localStorage.getItem("refresh_token");
     localStorage.removeItem("access_token");
     localStorage.removeItem("refresh_token");
-    setUser(null);
+    endLocalSession();
+    if (refreshToken) api.post(ENDPOINTS.AUTH_LOGOUT, { refreshToken }).catch(() => {});
   };
 
   return (
     <AuthContext.Provider
       value={{
         user,
-        isAuthenticated: !!user,
+        // Unknown (boot, or a transient /users/me failure): follow what the interceptor sends (AUTH-3).
+        isAuthenticated: !!user || (isLoading && !!localStorage.getItem("access_token")),
         isLoading,
         login,
         signup,

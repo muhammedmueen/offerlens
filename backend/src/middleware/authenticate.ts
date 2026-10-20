@@ -8,18 +8,28 @@ declare module 'fastify' {
         isAuthenticated: boolean;
         // A Bearer token was present but failed verification (expired/invalid). Distinguishes
         // "bad credentials" (-> 401 so the client refreshes) from "no credentials" (true guest).
+        // `authenticate` rejects it with 401 TOKEN_EXPIRED.
         tokenInvalid?: boolean;
     }
 }
 
 const authService = new AuthService();
 
-/**
- * JWT authentication preHandler hook.
- * Extracts Bearer token, verifies it, sets request.userId and request.isAuthenticated.
- * Does NOT reject unauthenticated requests — routes decide how to handle guests vs users.
- */
-export const authenticate = async (request: FastifyRequest, _reply: FastifyReply) => {
+// These authenticate from the request body (credentials or a refresh token) and never read the
+// Bearer, so a stale header left in the browser must not block signing back in (B9).
+// ponytail: matched by path. A new body-authenticated /auth route must be added here.
+const BODY_AUTHENTICATED_ROUTE = /\/auth\/(login|signup|google|refresh|logout)$/;
+
+const tokenExpired = (reply: FastifyReply) =>
+    reply.status(401).send({
+        success: false,
+        error: {
+            code: 'TOKEN_EXPIRED',
+            message: 'Access token expired or invalid',
+        },
+    });
+
+const readBearer = (request: FastifyRequest) => {
     request.isAuthenticated = false;
     request.tokenInvalid = false;
 
@@ -35,10 +45,26 @@ export const authenticate = async (request: FastifyRequest, _reply: FastifyReply
         request.userEmail = payload.email;
         request.isAuthenticated = true;
     } catch {
-        // A Bearer token was present but invalid/expired. Flag it so requireRegistered can
-        // return 401 (which the frontend interceptor refreshes) rather than 403 GUEST_RESTRICTED.
-        // Still don't throw: a request with NO token stays a true guest (ADR-001).
+        // A Bearer token was present but invalid/expired. The root `authenticate` hook rejects
+        // it; the guards below still report 401 when used on their own. A request with NO
+        // token stays a true guest (ADR-001).
         request.tokenInvalid = true;
+    }
+};
+
+/**
+ * JWT authentication onRequest hook.
+ * Extracts Bearer token, verifies it, sets request.userId and request.isAuthenticated.
+ * A request with no token passes as a guest — routes decide how to handle guests vs users.
+ * A present-but-invalid token gets 401 TOKEN_EXPIRED on every route except the
+ * body-authenticated /auth routes.
+ */
+export const authenticate = async (request: FastifyRequest, reply: FastifyReply) => {
+    readBearer(request);
+    // A Bearer that fails verification is never downgraded to a guest (FLOW-1/AUTH-2): 401 so the
+    // client refreshes and retries. No Bearer at all stays a true guest (ADR-001).
+    if (request.tokenInvalid && !BODY_AUTHENTICATED_ROUTE.test(request.routeOptions.url ?? '')) {
+        return tokenExpired(reply);
     }
 };
 
@@ -47,7 +73,7 @@ export const authenticate = async (request: FastifyRequest, _reply: FastifyReply
  * Returns 401 if no valid token.
  */
 export const requireAuth = async (request: FastifyRequest, reply: FastifyReply) => {
-    await authenticate(request, reply);
+    readBearer(request);
 
     if (!request.isAuthenticated) {
         return reply.status(401).send({
@@ -65,7 +91,7 @@ export const requireAuth = async (request: FastifyRequest, reply: FastifyReply) 
  * Use for premium features that require a registered account.
  */
 export const requireRegistered = async (request: FastifyRequest, reply: FastifyReply) => {
-    await authenticate(request, reply);
+    readBearer(request);
 
     if (request.isAuthenticated) return;
 
@@ -73,13 +99,7 @@ export const requireRegistered = async (request: FastifyRequest, reply: FastifyR
     // retries. No token at all -> 403 GUEST_RESTRICTED (a true guest hitting a members-only
     // feature). 403 must NOT trigger a refresh loop, so the distinction matters.
     if (request.tokenInvalid) {
-        return reply.status(401).send({
-            success: false,
-            error: {
-                code: 'TOKEN_EXPIRED',
-                message: 'Access token expired or invalid',
-            },
-        });
+        return tokenExpired(reply);
     }
 
     return reply.status(403).send({

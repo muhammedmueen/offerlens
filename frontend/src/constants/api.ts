@@ -77,6 +77,9 @@ export const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 // ("Fresher (0-1 yrs)", …). Nothing imported it — the upload form already reads the real
 // list from GET /metadata/experience-levels. Fetch that rather than reintroducing a copy.
 
+// Mirrors FORUM_CATEGORIES in backend/src/modules/forum/forum.schema.ts.
+export const FORUM_CATEGORIES = ["negotiation", "career", "advice", "general"] as const;
+
 export const OFFER_STATUS = {
   QUEUED: "QUEUED",
   PROCESSING: "PROCESSING",

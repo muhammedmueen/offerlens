@@ -9,6 +9,7 @@ import { CheckCircle, Loader2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { EASE } from "@/lib/motion";
+import { useAuth } from "@/store/auth";
 
 const STEPS = ["Uploading", "Reading Document", "Analyzing", "Scoring"];
 
@@ -26,6 +27,7 @@ const MAX_POLL_SECONDS = 300; // 5 min
 const ProcessingPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
   const [elapsed, setElapsed] = useState(0);
   const [gaveUp, setGaveUp] = useState(false);
   // Moment 3: presentational motion only — the scan line + step animations read off the
@@ -233,7 +235,10 @@ const ProcessingPage = () => {
 
         <p className="font-mono text-sm text-stone-500" role="status" aria-live="polite">
           {gaveUp
-            ? "This is taking longer than expected — your analysis may still be processing. Refresh in a minute, or check your dashboard."
+            ? isAuthenticated
+              ? "This is taking longer than expected — your analysis may still be processing. Refresh in a minute, or check your dashboard."
+              // FLOW-3: guests have no dashboard (it is a protected route that sends them to login).
+              : "This is taking longer than expected — your analysis may still be processing. Keep this page open and check again in a minute."
             : elapsed > 60
             ? "Still working on it. We'll keep trying."
             : elapsed > 30
@@ -243,9 +248,24 @@ const ProcessingPage = () => {
 
         {gaveUp && (
           <div className="mt-4 flex gap-2">
-            <Button variant="outline" onClick={() => navigate("/dashboard")} className="cursor-pointer">
-              Go to Dashboard
-            </Button>
+            {isAuthenticated ? (
+              <Button variant="outline" onClick={() => navigate("/dashboard")} className="cursor-pointer">
+                Go to Dashboard
+              </Button>
+            ) : (
+              // Re-enables the poll for another 5 minutes: the analysis is probably still running,
+              // and a re-upload could hit the guest limit while this one holds the slot.
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setElapsed(0);
+                  setGaveUp(false);
+                }}
+                className="cursor-pointer"
+              >
+                Check again
+              </Button>
+            )}
             <Button variant="outline" onClick={() => navigate("/upload")} className="cursor-pointer">
               Try Again
             </Button>

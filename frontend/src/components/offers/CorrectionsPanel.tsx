@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/services/api";
 import { ENDPOINTS } from "@/constants/api";
 import { Button } from "@/components/ui/button";
@@ -45,6 +45,7 @@ const readPath = (obj: unknown, path: string): unknown =>
  */
 const CorrectionsPanel: React.FC<{ offerId: string }> = ({ offerId }) => {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [values, setValues] = useState<Record<string, string>>({});
   const [original, setOriginal] = useState<Record<string, string>>({});
 
@@ -84,10 +85,19 @@ const CorrectionsPanel: React.FC<{ offerId: string }> = ({ offerId }) => {
       return api.patch(ENDPOINTS.OFFER_CORRECTIONS(offerId), { corrections }).then((r) => r.data.data);
     },
     onSuccess: (result) => {
+      // The server applied the correction onto the analysis, so re-read it: the drawer re-seeds
+      // from the refreshed analysis (showing the corrected value) and the ResultsPage, which
+      // shares ["analysis", offerId], refreshes its score/benefits/take-home too.
+      // ponytail: we rely on invalidation + one extra GET rather than setQueryData. Ceiling: one
+      // refetch per save. Upgrade path: return the updated analysis from the PATCH and setQueryData.
+      if (result?.changed) {
+        queryClient.invalidateQueries({ queryKey: ["analysis", offerId] });
+        queryClient.invalidateQueries({ queryKey: ["corrections", offerId] });
+      }
       toast({
-        title: result?.changed ? "Corrections saved" : "No changes to save",
+        title: result?.changed ? "Corrections applied" : "No changes to save",
         description: result?.changed
-          ? `${result.correctionsApplied} correction${result.correctionsApplied === 1 ? "" : "s"} recorded. Thank you for improving the analysis.`
+          ? `${result.correctionsApplied} correction${result.correctionsApplied === 1 ? "" : "s"} applied to this analysis.`
           : "The values you submitted match what we already had.",
       });
       setOriginal(values);
