@@ -133,6 +133,21 @@ const ResultsPage = () => {
     return c ? <ConfidenceBadge level={c.level} reason={c.reason} label={label} /> : null;
   };
 
+  // Take-home presentation: one figure, a low-high range, or "up to" (an upper bound).
+  // ponytail: a stored OLD-shape row has no `isUpperBound`, and its figure also omitted employer
+  // PF / gratuity / variable pay, so a missing flag means "up to", never exact. No backfill.
+  const th = a.takeHome;
+  const thKind: "exact" | "range" | "upper" =
+    typeof th?.isUpperBound !== "boolean" || th.isUpperBound ? "upper" : th.isExact ? "exact" : "range";
+  const inr = (n: number) => `₹${n.toLocaleString("en-IN")}`;
+  const thPf = th?.employeePf;
+  const thPfText =
+    typeof thPf?.statutoryMinimum !== "number" || typeof thPf?.onFullBasic !== "number"
+      ? "Depends on your basic pay"
+      : thPf.statutoryMinimum === thPf.onFullBasic
+        ? inr(thPf.statutoryMinimum)
+        : `${inr(thPf.statutoryMinimum)} – ${inr(thPf.onFullBasic)}`;
+
   return (
     <PageShell>
       <div className="container mx-auto max-w-4xl px-4 py-8 pb-28 space-y-8">
@@ -363,8 +378,9 @@ const ResultsPage = () => {
 
         {/* Take-Home.
             Computed from published FY 2026-27 slabs by the backend, not guessed by the model.
-            It reports a RANGE rather than one number when PF is uncertain, and lists what it
-            assumed — both are shown, because a single figure here would be false precision. */}
+            It reports a RANGE when PF is uncertain and "up to" when basic pay is unknown (employer
+            PF and gratuity can't be deducted), and lists what it assumed. Variable pay is shown
+            separately, not in the monthly figure. A single exact-looking figure would be false precision. */}
         {a.takeHome && (
           <Reveal as="section" className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
             <div className="mb-4 flex items-baseline justify-between gap-2">
@@ -380,32 +396,36 @@ const ResultsPage = () => {
             <div className="rounded-xl border border-stone-200 bg-stone-50 p-4 text-center">
               <p className="text-xs text-muted-foreground">Per month</p>
               <p className="text-2xl font-bold text-foreground">
-                {a.takeHome.isExact ? (
-                  <>₹{a.takeHome.netMonthly.high.toLocaleString("en-IN")}</>
-                ) : (
-                  <>
-                    ₹{a.takeHome.netMonthly.low.toLocaleString("en-IN")}
-                    {" – "}
-                    ₹{a.takeHome.netMonthly.high.toLocaleString("en-IN")}
-                  </>
-                )}
+                {thKind === "exact" && inr(th.netMonthly.high)}
+                {thKind === "range" && `${inr(th.netMonthly.low)} – ${inr(th.netMonthly.high)}`}
+                {thKind === "upper" && `up to ${inr(th.netMonthly.high)}`}
               </p>
-              {!a.takeHome.isExact && (
+              {thKind === "range" && (
                 <p className="mt-1 text-xs text-muted-foreground">
                   A range, because PF depends on your employer&apos;s policy
+                </p>
+              )}
+              {/* Visible on purpose, NOT inside the collapsed assumptions: an upper bound that
+                  reads like a figure is the bug this fixes. */}
+              {thKind === "upper" && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {th.isUpperBound === true
+                    ? "Upper bound. Your letter doesn't state basic pay, so employer PF, gratuity and employee PF can't be deducted. Your actual take-home will be lower, depending on your basic-pay split."
+                    : "Upper bound. This older estimate doesn't deduct employer PF, gratuity or variable pay. Your actual take-home will be lower."}
+                </p>
+              )}
+              {typeof th.variableAnnual === "number" && th.variableAnnual > 0 && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  plus up to {inr(th.variableAnnual)} per year variable (not included)
                 </p>
               )}
             </div>
 
             <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
               {[
-                { label: "Gross (annual)", value: a.takeHome.tax.grossAnnual },
-                { label: "Income tax", value: a.takeHome.tax.totalTax },
-                {
-                  label: "Employee PF",
-                  value: a.takeHome.employeePf.statutoryMinimum,
-                  absent: "Not stated",
-                },
+                { label: "CTC (annual)", value: th.ctcAnnual ?? th.tax?.grossAnnual },
+                { label: "Income tax", value: th.tax?.totalTax },
+                { label: "Employee PF", text: thPfText },
                 {
                   label: "Effective tax rate",
                   text: `${(a.takeHome.tax.effectiveRate * 100).toFixed(1)}%`,
@@ -417,7 +437,7 @@ const ResultsPage = () => {
                     {row.text ??
                       (typeof row.value === "number"
                         ? `₹${row.value.toLocaleString("en-IN")}`
-                        : (row.absent ?? "—"))}
+                        : "—")}
                   </dd>
                 </div>
               ))}

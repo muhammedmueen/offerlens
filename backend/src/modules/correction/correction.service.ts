@@ -9,7 +9,7 @@ import { assertOfferAccess } from '@/shared/access/offer-access.js';
 import { cacheDelete } from '@/shared/cache.js';
 import { careerPathCacheKey } from '@/modules/career/career.service.js';
 import { validateCorrection, setNestedValue } from './correctable-fields.js';
-import { calculateTakeHome, annualBasicFrom } from '@/modules/takehome/takehome.calculator.js';
+import { calculateTakeHome, annualBasicFrom, annualVariableFrom } from '@/modules/takehome/takehome.calculator.js';
 import { calculateScore } from '@/modules/analysis/score.rubric.js';
 import { checkBenefits } from '@/modules/benefits/benefits.checklist.js';
 import { optionalStage } from '@/shared/stage.js';
@@ -130,11 +130,13 @@ export class CorrectionService {
         const compensation = extractedData?.compensation;
 
         // takeHome — clean arithmetic. baseSalary is NOT correctable but MUST still be supplied:
-        // a null basic changes PF treatment and widens the range, so dropping it would silently
-        // produce a different number than the worker did for the same basic.
+        // a null basic turns the figure into an upper bound and variablePay is taken out of the
+        // monthly figure, so dropping either would silently produce a different number than the
+        // worker did for the same offer.
         const takeHome = calculateTakeHome({
             totalCtc: compensation?.totalCTC ?? null,
             annualBasic: annualBasicFrom(compensation?.baseSalary),
+            annualVariable: annualVariableFrom(compensation?.variablePay),
         });
 
         const update: AnalysisUpdate = { takeHome };

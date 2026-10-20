@@ -158,7 +158,8 @@ describe('CorrectionService.applyCorrections', () => {
 
         // takeHome recomputed from the corrected CTC (and the seeded baseSalary).
         expect(set.takeHome).toBeTruthy();
-        expect(set.takeHome.tax.grossAnnual).toBe(3_000_000);
+        expect(set.takeHome.ctcAnnual).toBe(3_000_000);
+        expect(set.takeHome.isUpperBound).toBe(false);
         // With baseSalary 1.2M annual, PF is computed — proves annualBasic was supplied.
         expect(set.takeHome.employeePf.statutoryMinimum).not.toBeNull();
 
@@ -185,6 +186,25 @@ describe('CorrectionService.applyCorrections', () => {
         ]).then(() => txCalls.find((c) => c.kind === 'update')?.set);
         // No basic → PF excluded (null), unlike the seeded-basic case above.
         expect(set.takeHome.employeePf.statutoryMinimum).toBeNull();
+        expect(set.takeHome.isUpperBound).toBe(true);
+        expect(set.takeHome.isExact).toBe(false);
+    });
+
+    it('takeHome recompute keeps variable pay out of the monthly figure', async () => {
+        analysesFindFirst.mockResolvedValue(baseAnalysis({
+            extractedData: baseExtractedData({
+                compensation: {
+                    currency: 'INR', baseSalary: { amount: 1_200_000, period: 'annual' },
+                    variablePay: { amount: 300_000, type: 'bonus', details: null },
+                    equity: null, totalCTC: 1_200_000, otherComponents: [],
+                },
+            }),
+        }));
+        const set = await svc().applyCorrections('o1', 'u1', [
+            { field: 'extractedData.compensation.totalCTC', correctedValue: 3_000_000 },
+        ]).then(() => txCalls.find((c) => c.kind === 'update')?.set);
+        expect(set.takeHome.variableAnnual).toBe(300_000);
+        expect(set.takeHome.ctcAnnual).toBe(3_000_000);
     });
 
     // §9.6 (b) — unscored branches leave the score alone

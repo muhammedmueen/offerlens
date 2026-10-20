@@ -12,7 +12,7 @@ import { SalaryService, type Benchmark } from '@/modules/salary/salary.service.j
 import { toSalaryComparison, pickBenchmarkCity, AI_ESTIMATE_DISCLAIMER } from '@/modules/salary/benchmark-comparison.js';
 import { detectRedFlags, mergeRedFlags } from '@/modules/analysis/redflag.rules.js';
 import { formatUsage } from '@/providers/ai/usage.js';
-import { calculateTakeHome, annualBasicFrom } from '@/modules/takehome/takehome.calculator.js';
+import { calculateTakeHome, annualBasicFrom, annualVariableFrom } from '@/modules/takehome/takehome.calculator.js';
 import { checkBenefits, bareBenefitsFlag } from '@/modules/benefits/benefits.checklist.js';
 import { calculateScore } from '@/modules/analysis/score.rubric.js';
 import { optionalStage } from '@/shared/stage.js';
@@ -337,8 +337,9 @@ export const analysisWorker = new Worker(
             // output to say which. Tax is arithmetic, so it is arithmetic now.
             //
             // `annualBasicFrom` returns null when the letter never stated basic, which is most
-            // of them. The calculator then excludes PF and says so in its assumptions rather
-            // than inventing a basic-to-CTC ratio.
+            // of them. The calculator then returns an UPPER BOUND (no PF or gratuity deducted) and
+            // says so in its assumptions rather than inventing a basic-to-CTC ratio. Variable pay
+            // is taxed but kept out of the monthly figure.
             //
             // Optional stage (task 15): null on failure, which is the same value it returns for
             // a letter with no CTC, so the UI section is already guarded for it.
@@ -347,14 +348,15 @@ export const analysisWorker = new Worker(
                 () => calculateTakeHome({
                     totalCtc: result.extractedData?.compensation?.totalCTC ?? null,
                     annualBasic: annualBasicFrom(result.extractedData?.compensation?.baseSalary),
+                    annualVariable: annualVariableFrom(result.extractedData?.compensation?.variablePay),
                 }),
                 null,
             );
 
             if (takeHome) {
                 console.log(
-                    `[Analysis] Take-home: ₹${takeHome.netMonthly.high.toLocaleString('en-IN')}/mo`
-                    + (takeHome.isExact ? '' : ` to ₹${takeHome.netMonthly.low.toLocaleString('en-IN')}/mo`)
+                    `[Analysis] Take-home: ${takeHome.isUpperBound ? 'up to ' : ''}₹${takeHome.netMonthly.high.toLocaleString('en-IN')}/mo`
+                    + (takeHome.isExact || takeHome.isUpperBound ? '' : ` to ₹${takeHome.netMonthly.low.toLocaleString('en-IN')}/mo`)
                     + `  (tax ₹${takeHome.tax.totalTax.toLocaleString('en-IN')}, `
                     + `effective ${(takeHome.tax.effectiveRate * 100).toFixed(1)}%)`,
                 );

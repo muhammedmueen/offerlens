@@ -196,12 +196,22 @@ describe('provenance and derivation', () => {
     });
 
     it('rates an exact take-home high and a ranged one medium', () => {
-        const exact = assessConfidence(input({ takeHome: { isExact: true } as never }));
+        const exact = assessConfidence(input({ takeHome: { isExact: true, isUpperBound: false } as never }));
         expect(exact.fields.takeHome.level).toBe('high');
 
-        const ranged = assessConfidence(input({ takeHome: { isExact: false } as never }));
+        const ranged = assessConfidence(input({ takeHome: { isExact: false, isUpperBound: false } as never }));
         expect(ranged.fields.takeHome.level).toBe('medium');
         expect(ranged.fields.takeHome.reason).toContain('employer');
+    });
+
+    it('rates an upper-bound take-home low, and a legacy row with no flag the same', () => {
+        const upper = assessConfidence(input({ takeHome: { isExact: false, isUpperBound: true } as never }));
+        expect(upper.fields.takeHome.level).toBe('low');
+        expect(upper.fields.takeHome.reason).toContain('upper bound');
+
+        // Old-shape stored row: `isExact: true` but no `isUpperBound`. Never claims exactness.
+        const legacy = assessConfidence(input({ takeHome: { isExact: true } as never }));
+        expect(legacy.fields.takeHome.level).toBe('low');
     });
 
     it('omits take-home entirely when it could not be calculated', () => {
@@ -249,7 +259,7 @@ describe('OCR downgrades everything read from the page', () => {
         // The arithmetic is unaffected by how the text arrived, and its inputs are tagged already.
         const report = assessConfidence(input({
             ocrConfidence: 0.72,
-            takeHome: { isExact: true } as never,
+            takeHome: { isExact: true, isUpperBound: false } as never,
         }));
 
         expect(report.fields.takeHome.level).toBe('high');
