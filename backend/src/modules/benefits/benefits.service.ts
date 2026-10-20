@@ -70,9 +70,14 @@ export class BenefitsService {
 
         const benefitsTotal = breakdown.reduce((sum, b) => sum + (b.monetaryValue || 0), 0);
 
+        // Model A: benefits are part of the CTC. Extracted amounts are already capped to fit
+        // (capAtCtc); only the user's own overrides can push the sum past it. The number is the
+        // user's to set, so it is flagged rather than clamped, and the panel says so.
+        const totalCTC = compensation?.totalCTC ?? null;
         return {
             totalCompensation: computeHeadlineTotal(compensation),
             baseSalary: annualizeBase(compensation),
+            benefitsExceedCtc: totalCTC != null && totalCTC > 0 && benefitsTotal > totalCTC,
             benefitsValue: benefitsTotal,
             breakdown,
             currency: compensation?.currency || 'INR',

@@ -23,23 +23,30 @@ export function calculateBenefitValues(
         ? basic.amount / (basic.period === 'monthly' ? 22 : WORKING_DAYS_PER_YEAR)
         : 0;
 
-    return benefits.map((benefit): BenefitBreakdown => {
+    const currency = compensation?.currency || 'INR';
+    const overridden = new Set<number>();
+
+    const rows = benefits.map((benefit, index): BenefitBreakdown => {
         // Defensive: this is fed AI-derived data. A non-string name threw a 500 here.
         const name = String(benefit?.name ?? '').toLowerCase();
-        const overrideValue = overrides?.[benefit.name];
+        const category = categorize(name);
+        // BEN-5: a `#<row index>` key targets one row, so two benefits sharing a name can carry
+        // different overrides. The plain-name key still works for older clients.
+        const overrideValue = overrides?.[`#${index}`] ?? overrides?.[benefit.name];
 
         if (overrideValue !== undefined) {
+            overridden.add(index);
             return {
                 name: benefit.name,
-                category: categorize(name),
+                category,
                 monetaryValue: overrideValue,
-                details: `User-provided value: ${overrideValue}`,
+                details: `User-provided value: ${overrideValue.toLocaleString('en-IN')}`,
                 isQuantifiable: true,
             };
         }
 
         // PTO / Leave
-        if (name.includes('pto') || name.includes('leave') || name.includes('vacation') || name.includes('holiday')) {
+        if (category === 'pto') {
             const days = extractCount(benefit.value || benefit.details || '');
 
             if (days && dailyRate) {
@@ -68,8 +75,8 @@ export function calculateBenefitValues(
         }
 
         // Insurance / Health
-        if (name.includes('insurance') || name.includes('health') || name.includes('medical')) {
-            const amount = extractMoney(benefit.value || benefit.details || '');
+        if (category === 'insurance') {
+            const amount = extractMoney(benefit.value || benefit.details || '', currency);
             if (amount) {
                 // BEN-2 (Model A): an insurance figure is a COVER / sum assured — coverage,
                 // not pay — so it is NON-quantifiable and must never be summed into
@@ -99,14 +106,14 @@ export function calculateBenefitValues(
         }
 
         // Equity / RSU / ESOP
-        if (name.includes('equity') || name.includes('rsu') || name.includes('esop') || name.includes('stock')) {
-            const amount = extractMoney(benefit.value || benefit.details || '');
+        if (category === 'equity') {
+            const amount = extractMoney(benefit.value || benefit.details || '', currency);
             if (amount) {
                 return {
                     name: benefit.name,
                     category: 'equity',
                     monetaryValue: amount,
-                    details: `Equity value: ${amount}`,
+                    details: `Equity value: ${amount.toLocaleString('en-IN')}`,
                     isQuantifiable: true,
                 };
             }
@@ -120,14 +127,14 @@ export function calculateBenefitValues(
         }
 
         // Retirement / PF / 401k
-        if (name.includes('provident') || name.includes('pf') || name.includes('retirement') || name.includes('401k')) {
-            const amount = extractMoney(benefit.value || benefit.details || '');
+        if (category === 'retirement') {
+            const amount = extractMoney(benefit.value || benefit.details || '', currency);
             if (amount) {
                 return {
                     name: benefit.name,
                     category: 'retirement',
                     monetaryValue: amount,
-                    details: `Annual contribution: ${amount}`,
+                    details: `Annual contribution: ${amount.toLocaleString('en-IN')}`,
                     isQuantifiable: true,
                 };
             }
@@ -152,7 +159,7 @@ export function calculateBenefitValues(
         }
 
         // Generic fallback
-        const amount = extractMoney(benefit.value || benefit.details || '');
+        const amount = extractMoney(benefit.value || benefit.details || '', currency);
         return {
             name: benefit.name,
             category: 'other',
@@ -161,57 +168,135 @@ export function calculateBenefitValues(
             isQuantifiable: amount !== null,
         };
     });
-}
 
-function categorize(name: string): BenefitBreakdown['category'] {
-    if (name.includes('pto') || name.includes('leave') || name.includes('vacation')) return 'pto';
-    if (name.includes('insurance') || name.includes('health') || name.includes('medical')) return 'insurance';
-    if (name.includes('equity') || name.includes('rsu') || name.includes('esop') || name.includes('stock')) return 'equity';
-    if (name.includes('provident') || name.includes('pf') || name.includes('retirement') || name.includes('401k')) return 'retirement';
-    return 'other';
+    return capAtCtc(rows, overridden, compensation?.totalCTC ?? null);
 }
 
 /**
- * Indian magnitude suffixes. Order matters: check longer words before their prefixes so
- * "crore" isn't matched as "cr" with "ore" left over.
+ * Model A guard: benefits are a breakdown OF the CTC, so extracted amounts can never sum to
+ * more than it. When they do, some figure was misread — drop the largest extracted values
+ * (most likely the misparse) to "not valued" until the sum fits. User overrides are never
+ * touched; a user who types a bigger number meant it.
+ *
+ * ponytail: largest-first is a heuristic. It cannot know WHICH row is wrong, only that the
+ * set is impossible. Upgrade path: per-row confidence from the extractor.
  */
-const MAGNITUDES: Array<[pattern: RegExp, multiplier: number]> = [
-    [/\bcrores?\b/i, 10_000_000],
-    [/\blakhs?\b/i, 100_000],
-    [/\blacs?\b/i, 100_000],
-    [/\bcr\b\.?/i, 10_000_000],
-    [/\blpa\b/i, 100_000],
-    [/(\d)\s*l\b/i, 100_000],   // "2.5L" / "18 L"
-    [/(\d)\s*k\b/i, 1_000],     // "25k"
+function capAtCtc(rows: BenefitBreakdown[], overridden: Set<number>, totalCTC: number | null): BenefitBreakdown[] {
+    if (!totalCTC || totalCTC <= 0) return rows;
+
+    // Overrides use up part of the CTC first. If they alone fill it, that is the user's call and
+    // says nothing about the extracted rows, so leave those alone rather than blame the offer.
+    // ponytail: overrides may therefore push benefitsValue past the CTC — accepted, the user typed it.
+    const overrideSum = rows.reduce((s, r, i) => s + (overridden.has(i) ? r.monetaryValue || 0 : 0), 0);
+    const budget = totalCTC - overrideSum;
+    if (budget <= 0) return rows;
+
+    let sum = rows.reduce((s, r, i) => s + (overridden.has(i) ? 0 : r.monetaryValue || 0), 0);
+    const byValueDesc = rows
+        .map((_, i) => i)
+        .filter((i) => !overridden.has(i) && rows[i].monetaryValue)
+        .sort((a, b) => rows[b].monetaryValue! - rows[a].monetaryValue!);
+
+    const out = [...rows];
+    for (const i of byValueDesc) {
+        if (sum <= budget) break;
+        sum -= out[i].monetaryValue!;
+        out[i] = {
+            ...out[i],
+            monetaryValue: null,
+            isQuantifiable: false,
+            details: `Not valued — the amount read from the offer (${rows[i].monetaryValue!.toLocaleString('en-IN')}) `
+                + `does not fit within the total CTC of ${totalCTC.toLocaleString('en-IN')}`
+                + `${overrideSum ? ' after your own values' : ''}. Enter a value to include it.`,
+        };
+    }
+    return out;
+}
+
+/**
+ * Whole-word category matching (BEN-5). Substring matching put "Laptop" under leave ("pto"),
+ * "Health club" under insurance and "Stockholm relocation" under equity.
+ */
+const CATEGORY_PATTERNS: Array<[BenefitBreakdown['category'], RegExp]> = [
+    ['pto', /\b(?:pto|leaves?|vacations?|holidays?)\b/],
+    // "health" alone is insurance, but not when it is a club/gym/fitness perk.
+    ['insurance', /\b(?:insurance|medical|mediclaim|health(?!\s+(?:club|gym|fitness|wellness|membership)))\b/],
+    ['equity', /\b(?:equity|rsus?|esops?|stocks?)\b/],
+    ['retirement', /\b(?:provident|pf|epf|retirement|401\(?k\)?)(?![a-z0-9])/],
 ];
 
-/**
- * Extract a monetary amount from free text, honouring Indian magnitude words.
- *
- * The previous version stripped currency symbols and took the first number with no unit
- * handling, so "₹5 lakh" became 5 and "10 LPA" became 10 — wrong by five orders of
- * magnitude, and it fed straight into `totalCompensation`.
- *
- * Digit-grouped forms ("5,00,000" and "500,000") already worked because commas are
- * stripped, and both still do.
- */
-export function extractMoney(text: string): number | null {
-    if (!text) return null;
-
-    const cleaned = text.replace(/[₹$€£,]/g, '');
-    const match = cleaned.match(/\d+(?:\.\d+)?/);
-    if (!match) return null;
-
-    const base = parseFloat(match[0]);
-    if (!Number.isFinite(base)) return null;
-
-    for (const [pattern, multiplier] of MAGNITUDES) {
-        if (pattern.test(cleaned)) return Math.round(base * multiplier);
-    }
-
-    return base;
+function categorize(name: string): BenefitBreakdown['category'] {
+    return CATEGORY_PATTERNS.find(([, re]) => re.test(name))?.[0] ?? 'other';
 }
 
+/** Indian magnitude words/suffixes -> multiplier. Keys are lower-case. */
+const MAGNITUDE: Record<string, number> = {
+    crore: 10_000_000, crores: 10_000_000, cr: 10_000_000,
+    lakh: 100_000, lakhs: 100_000, lac: 100_000, lacs: 100_000, lpa: 100_000, l: 100_000,
+    thousand: 1_000, k: 1_000,
+};
+
+const CURRENCY_MARKERS: Record<string, string> = {
+    '\u20B9': 'INR', rs: 'INR', 'rs.': 'INR', inr: 'INR',
+    $: 'USD', usd: 'USD', '\u20AC': 'EUR', eur: 'EUR', '\u00A3': 'GBP', gbp: 'GBP',
+};
+
+/**
+ * One number, optionally led by a currency marker and trailed by a magnitude word. The
+ * magnitude is part of the token, so "k"/"lakh" binds only to the number directly beside it.
+ * `(?![a-z\d])` stops "25kg" or "5 lakhx" from half-matching.
+ */
+const MONEY_TOKEN =
+    /(\u20B9|\brs\.?|\binr\b|[$\u20AC\u00A3]|\busd\b|\beur\b|\bgbp\b)?\s*(\d+(?:\.\d+)?)\s*(crores?|cr|lakhs?|lacs?|lpa|thousand|l|k)?(?![a-z\d])/gi;
+
+/** What a bare number is counting, or a rate — not rupees. */
+const NON_MONEY_AFTER =
+    /^\s*(?:%|percent\b|per\s*cent\b|(?:rsus?|options?|shares?|units?|stocks?|esops?|days?|weeks?|months?|years?|yrs?|hours?|hrs?)\b)/i;
+
+const PER_MONTH = /\b(?:per\s+month|monthly|pm|p\.m\.?)(?![a-z])|\/\s*(?:month|mo)\b/i;
+
+/**
+ * Extract an annual monetary amount from free text, honouring Indian magnitude words.
+ *
+ * MONEY-3: this used to take the FIRST number and apply the first magnitude pattern found
+ * ANYWHERE in the string, so "2,000 RSUs worth $40k" became 20,00,000 rupees and "12% of basic"
+ * became 12 rupees. Now each candidate number carries its own magnitude and currency marker;
+ * percentages and counts of RSUs/options/days/etc. are skipped; and an amount marked in the
+ * offer's own currency (default INR) beats a bare number. A figure in a DIFFERENT currency is
+ * never used — null, not a guessed FX rate. "per month"/"monthly"/"pm" multiplies by 12.
+ *
+ * ponytail: no FX conversion, no trailing codes ("5 USD"), and "pm" is read as per-month even
+ * for a time of day. The per-month marker is tested against the WHOLE string, so a field mixing
+ * a monthly and an annual figure ("Rs 2000 per month plus Rs 50k joining") is x12 on the first
+ * pick only because the first currency-marked figure wins; the period is not bound per number.
+ * Upgrade path: carry the figure's own currency in the extraction schema.
+ */
+export function extractMoney(text: string, currency = 'INR'): number | null {
+    if (!text) return null;
+
+    // Strip digit-group commas only ("5,00,000" -> "500000"), leaving list commas alone.
+    const cleaned = text.replace(/(\d),(?=\d)/g, '$1');
+
+    let bare: number | null = null;
+    let bareMagnitude: number | null = null;
+    for (const m of cleaned.matchAll(MONEY_TOKEN)) {
+        const after = cleaned.slice(m.index! + m[0].length);
+        if (!m[3] && NON_MONEY_AFTER.test(after)) continue;
+
+        const value = parseFloat(m[2]) * (m[3] ? MAGNITUDE[m[3].toLowerCase()] : 1);
+        if (!Number.isFinite(value)) continue;
+
+        const marker = m[1] ? CURRENCY_MARKERS[m[1].toLowerCase()] : undefined;
+        if (marker && marker !== currency) continue;   // foreign amount: do not guess
+        if (marker) return Math.round(value * (PER_MONTH.test(cleaned) ? 12 : 1));
+        // Preference: currency-marked > bare with a magnitude word ("2 lakh") > plain bare.
+        if (m[3]) bareMagnitude ??= value;
+        else bare ??= value;
+    }
+
+    const picked = bareMagnitude ?? bare;
+    return picked === null ? null : Math.round(picked * (PER_MONTH.test(cleaned) ? 12 : 1));
+}
 /**
  * Extract a plain count (days, months) with no magnitude scaling.
  *

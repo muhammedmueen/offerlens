@@ -126,6 +126,15 @@ describe('BenefitsService.calculate branches agree (MONEY-10)', () => {
         }
     });
 
+    it('flags benefitsExceedCtc only when overrides push the sum past the CTC', async () => {
+        analysisRow = { extractedData: { compensation: comp({ totalCTC: 1_200_000 }) }, benefits: oneBenefit };
+        const svc = new BenefitsService();
+        expect((await svc.calculate('o1', 'u1')).benefitsExceedCtc).toBe(false);
+        const over = await svc.calculate('o1', 'u1', { '#0': 2_000_000 });
+        expect(over.benefitsExceedCtc).toBe(true);
+        expect(over.totalCompensation).toBe(1_200_000); // headline unchanged (Model A)
+    });
+
     it('CTC 12L with an annual base of 6L and no benefits: 12L headline, 6L base', async () => {
         const r = await run(comp({ baseSalary: { amount: 600_000, period: 'annual' }, totalCTC: 1_200_000 }), []);
         expect(r.totalCompensation).toBe(1_200_000);

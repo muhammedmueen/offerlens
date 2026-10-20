@@ -172,3 +172,34 @@ describe('robustness against AI-derived input', () => {
         expect(CORE_BENEFITS).toHaveLength(3);
     });
 });
+
+describe('keyword matching is whole-word (MONEY-4)', () => {
+    const has = (benefits: Benefit[], key: string) =>
+        checkBenefits(benefits).core.find((e) => e.key === key)?.present;
+
+    it.each([
+        ['Laptop', 'leave'],
+        ['Joining bonus, paid upfront', 'retirement'],
+        ['Relocation, company residence for 30 days', 'health'],
+        ['Provision for gratuity', 'health'],
+        ['Term life insurance', 'health'],
+    ])('%s is not %s', (name, key) => {
+        expect(has([b(name)], key)).toBe(false);
+    });
+
+    it('a letter naming only a laptop and an upfront bonus is bare and flagged', () => {
+        const checklist = checkBenefits([b('Laptop'), b('Joining bonus, paid upfront')]);
+        expect(checklist.corePresent).toBe(0);
+        expect(checklist.isBare).toBe(true);
+        expect(bareBenefitsFlag(checklist, 'full-time')?.title).toBe('Standard benefits are missing');
+    });
+
+    it.each([
+        ['PF', 'retirement'], ['Provident Fund', 'retirement'], ['EPF', 'retirement'], ['NPS', 'retirement'],
+        ['health insurance', 'health'], ['medical cover', 'health'], ['group mediclaim', 'health'],
+        ['Group insurance', 'health'], ['ESI', 'health'], ['ESIC cover', 'health'], ['EPFO contribution', 'retirement'],
+        ['paid time off', 'leave'], ['PTO', 'leave'], ['earned leave', 'leave'],
+    ])('%s still counts as %s', (name, key) => {
+        expect(has([b(name)], key)).toBe(true);
+    });
+});

@@ -204,3 +204,78 @@ describe("BenefitsPanel recalculate failure (BEN-3)", () => {
     expect(screen.getByRole("alert").textContent).toMatch(/couldn't recalculate/i);
   });
 });
+
+describe("BenefitsPanel overrides (BEN-5)", () => {
+  const row = (name: string, monetaryValue: number | null) => ({
+    name, category: "other", monetaryValue, details: "", isQuantifiable: monetaryValue !== null,
+  });
+  const WITH_ROWS = (rows: ReturnType<typeof row>[]) => ({
+    data: { data: { currency: "INR", benefitsValue: 0, totalCompensation: 1200000, breakdown: rows } },
+  });
+  const recalcBody = () => vi.mocked(api.post).mock.calls[1][1] as { overrides: Record<string, number> };
+
+  it("two benefits sharing a name keep independent overrides and no duplicate-key warning", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(api.post).mockResolvedValue(WITH_ROWS([row("Allowance", null), row("Allowance", null)]));
+    renderPanel();
+
+    const inputs = (await screen.findAllByLabelText(/Value for Allowance/i)) as HTMLInputElement[];
+    expect(inputs).toHaveLength(2);
+    fireEvent.change(inputs[1], { target: { value: "7000" } });
+    expect(inputs[0].value).toBe("");
+    expect(inputs[1].value).toBe("7000");
+
+    fireEvent.click(screen.getByRole("button", { name: /Recalculate with my values/i }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2));
+    expect(recalcBody().overrides).toEqual({ "#1": 7000 });
+
+    const duplicateKey = errorSpy.mock.calls.some((c) => String(c[0]).includes("same key"));
+    errorSpy.mockRestore();
+    expect(duplicateKey).toBe(false);
+  });
+
+  it("rejects a negative value", async () => {
+    vi.mocked(api.post).mockResolvedValue(WITH_ROWS([row("Bonus", 5000)]));
+    renderPanel();
+
+    const input = (await screen.findByLabelText(/Value for Bonus/i)) as HTMLInputElement;
+    expect(input.min).toBe("0");
+    fireEvent.change(input, { target: { value: "-300" } });
+    expect(input.value).toBe("5000");
+
+    fireEvent.click(screen.getByRole("button", { name: /Recalculate with my values/i }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2));
+    expect(recalcBody().overrides).toEqual({});
+  });
+
+  it("shows a notice only when the response flags benefits above the CTC", async () => {
+    const body = (flag: boolean) => ({
+      data: { data: { currency: "INR", benefitsValue: 2000000, totalCompensation: 1200000, benefitsExceedCtc: flag, breakdown: [row("Bonus", 5000)] } },
+    });
+    vi.mocked(api.post).mockResolvedValue(body(true));
+    renderPanel();
+    expect(await screen.findByRole("note")).toBeTruthy();
+    cleanup();
+
+    vi.mocked(api.post).mockResolvedValue(body(false));
+    renderPanel();
+    await screen.findByLabelText(/Value for Bonus/i);
+    expect(screen.queryByRole("note")).toBeNull();
+  });
+
+  it("a cleared input means no override (extracted value), not 0", async () => {
+    vi.mocked(api.post).mockResolvedValue(WITH_ROWS([row("Bonus", 5000)]));
+    renderPanel();
+
+    const input = (await screen.findByLabelText(/Value for Bonus/i)) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "9000" } });
+    fireEvent.change(input, { target: { value: "" } });
+    expect(input.value).toBe("");
+    // Still counted as valued at the extracted amount: no "could not be valued" notice.
+    expect(screen.queryByText(/could not be valued/i)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Recalculate with my values/i }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2));
+    expect(recalcBody().overrides).toEqual({});
+  });
+});

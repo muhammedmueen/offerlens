@@ -27,7 +27,16 @@ interface BenefitRow {
  * also read `b.value` for amounts, where the field is `monetaryValue`.
  */
 const BenefitsPanel: React.FC<{ offerId: string }> = ({ offerId }) => {
-  const [overrides, setOverrides] = useState<Record<string, number>>({});
+  // BEN-5: keyed by ROW INDEX, not name (two benefits can share a name), and holding the raw
+  // input text so a cleared box is "" = no override rather than 0.
+  const [overrideText, setOverrideText] = useState<Record<number, string>>({});
+  // Valid overrides only: a finite number >= 0. Empty/invalid text means "use the extracted value".
+  const overrideOf = (i: number): number | undefined => {
+    const raw = overrideText[i];
+    if (raw === undefined || raw.trim() === "") return undefined;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : undefined;
+  };
 
   const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ["benefits", offerId],
@@ -36,8 +45,18 @@ const BenefitsPanel: React.FC<{ offerId: string }> = ({ offerId }) => {
     retry: (count, err) => !getQuotaError(err) && count < 3,
   });
 
+  // `#<row index>` keys target one row on the backend; see benefits.calculator.ts.
+  const overridesPayload = () => {
+    const out: Record<string, number> = {};
+    for (const k of Object.keys(overrideText)) {
+      const v = overrideOf(Number(k));
+      if (v !== undefined) out[`#${k}`] = v;
+    }
+    return out;
+  };
+
   const recalculate = useMutation({
-    mutationFn: () => api.post(ENDPOINTS.OFFER_BENEFITS(offerId), { overrides }).then((r) => r.data.data),
+    mutationFn: () => api.post(ENDPOINTS.OFFER_BENEFITS(offerId), { overrides: overridesPayload() }).then((r) => r.data.data),
     // BEN-4: the recalculate response already contains the full result (totals + breakdown)
     // computed with the user's overrides. We must NOT refetch the no-override query here —
     // that plain refetch replaced the recalculated totals with the original ones, so the
@@ -76,11 +95,11 @@ const BenefitsPanel: React.FC<{ offerId: string }> = ({ offerId }) => {
 
   // Only quantified benefits can go in the chart; the rest are listed but not valued.
   const pieData = breakdown
-    .map((b) => ({ name: b.name, value: overrides[b.name] ?? b.monetaryValue ?? 0 }))
+    .map((b, i) => ({ name: b.name, value: overrideOf(i) ?? b.monetaryValue ?? 0 }))
     .filter((b) => b.value > 0);
 
   const unquantified = breakdown.filter(
-    (b) => (overrides[b.name] ?? b.monetaryValue) === null || (overrides[b.name] ?? b.monetaryValue ?? 0) === 0,
+    (b, i) => (overrideOf(i) ?? b.monetaryValue ?? 0) === 0,
   );
 
   return (
@@ -112,10 +131,16 @@ const BenefitsPanel: React.FC<{ offerId: string }> = ({ offerId }) => {
       <p className="text-xs text-muted-foreground">
         Benefits are part of your CTC. Editing them changes the breakdown, not your total.
       </p>
+      {view?.benefitsExceedCtc && (
+        <p role="note" className="text-xs text-destructive">
+          The values you entered add up to more than your total CTC. Benefits are part of the CTC,
+          so please check them.
+        </p>
+      )}
 
       <div className="space-y-3">
-        {breakdown.map((b) => (
-          <div key={b.name} className="rounded-lg border border-border p-3">
+        {breakdown.map((b, i) => (
+          <div key={i} className="rounded-lg border border-border p-3">
             <div className="flex items-center justify-between gap-4">
               <div className="flex-1">
                 <p className="text-sm text-foreground">{b.name}</p>
@@ -123,12 +148,15 @@ const BenefitsPanel: React.FC<{ offerId: string }> = ({ offerId }) => {
               </div>
               <Input
                 type="number"
+                min={0}
                 className="w-28"
                 aria-label={`Value for ${b.name}`}
-                value={overrides[b.name] ?? b.monetaryValue ?? ""}
-                onChange={(e) =>
-                  setOverrides((p) => ({ ...p, [b.name]: Number(e.target.value) }))
-                }
+                value={overrideText[i] ?? b.monetaryValue ?? ""}
+                onChange={(e) => {
+                  // Reject negatives (typed or spun); "" is allowed and means no override.
+                  if (e.target.value !== "" && !(Number(e.target.value) >= 0)) return;
+                  setOverrideText((p) => ({ ...p, [i]: e.target.value }));
+                }}
                 placeholder={currency === "INR" ? "₹" : currency}
               />
             </div>

@@ -47,7 +47,7 @@ export const CORE_BENEFITS: CoreBenefit[] = [
         // Both "401k" and "401(k)" are listed: `normalise` folds hyphens and apostrophes but
         // keeps parentheses, and it is shared with the rule engine so it is not worth changing
         // there for one keyword.
-        matches: ['provident', 'pf', 'epf', 'retirement', '401k', '401(k)', 'superannuation', 'nps'],
+        matches: ['provident', 'pf', 'epf', 'retirement', '401k', '401(k)', 'superannuation', 'nps', 'epfo'],
         why: 'Employer PF is statutory for most Indian employees and is real deferred pay. '
             + 'An offer that does not mention it may be structuring around it.',
     },
@@ -55,8 +55,11 @@ export const CORE_BENEFITS: CoreBenefit[] = [
         key: 'health',
         label: 'Health or medical insurance',
         matches: [
-            'health', 'medical', 'mediclaim', 'insurance', 'hospitalisation', 'hospitalization',
-            'dental', 'vision', 'esi', 'employee state insurance',
+            // MONEY-4: bare 'insurance' and 'vision' are deliberately absent. "Term life
+            // insurance" is not health cover, and 'vision' matched "provision". Insurance counts
+            // only with a health/medical/group qualifier.
+            'health', 'healthcare', 'medical', 'mediclaim', 'group insurance',
+            'hospitalisation', 'hospitalization', 'dental', 'esi', 'esic', 'employee state insurance',
         ],
         why: 'Group cover is near-universal and expensive to buy individually. Its absence is '
             + 'a real cost you would be absorbing yourself.',
@@ -138,9 +141,21 @@ function haystack(benefits: Benefit[]): string {
         .join(' | ');
 }
 
+/**
+ * Whole-word keyword test (MONEY-4). Plain substring matching read "pto" in "Laptop", "pf" in
+ * "upfront" and "esi" in "residence" as benefits. Every keyword must start at a word boundary;
+ * short ones (<=4 chars: pf, nps, esi, pto, ...) must also end at one, optionally plural.
+ * Longer keywords may carry a suffix ("upskill" -> "upskilling", "holiday" -> "holidays").
+ */
+function hasKeyword(text: string, keyword: string): boolean {
+    const kw = normalise(keyword).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const tail = kw.length <= 4 ? 's?(?![a-z0-9])' : '';
+    return new RegExp(`(?<![a-z0-9])${kw}${tail}`).test(text);
+}
+
 function evaluate(list: CoreBenefit[], text: string): ChecklistEntry[] {
     return list.map((item) => {
-        const present = item.matches.some((keyword) => text.includes(normalise(keyword)));
+        const present = item.matches.some((keyword) => hasKeyword(text, keyword));
         return present
             ? { key: item.key, label: item.label, present: true }
             : { key: item.key, label: item.label, present: false, why: item.why };
