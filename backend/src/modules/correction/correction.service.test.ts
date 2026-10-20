@@ -455,14 +455,28 @@ describe('correctable-fields allowlist + setNestedValue', () => {
 describe('migration 0009', () => {
     // ponytail: this is a text check, not an executed migration. Ceiling: it proves ordering,
     // not that the SQL runs. Upgrade path: real-Postgres verification is a pre-deploy step.
+    // The journal is what `drizzle-kit migrate` reads: a .sql file that is not listed in it is
+    // silently skipped, and the upsert's ON CONFLICT (offer_id, field) then fails in production.
+    const journal = JSON.parse(
+        readFileSync(fileURLToPath(new URL('../../../drizzle/meta/_journal.json', import.meta.url)), 'utf8'),
+    ) as { entries: { idx: number; tag: string }[] };
+    const entry = journal.entries.find((e) => e.tag.startsWith('0009_'));
+
+    it('is registered in the drizzle journal, so db:migrate actually runs it', () => {
+        expect(entry).toBeDefined();
+        expect(entry!.idx).toBe(9);
+    });
+
     it('deletes duplicates before creating the unique index', () => {
         const sql = readFileSync(
-            fileURLToPath(new URL('../../../drizzle/0009_corrections_unique_field.sql', import.meta.url)),
+            fileURLToPath(new URL(`../../../drizzle/${entry!.tag}.sql`, import.meta.url)),
             'utf8',
         );
         const deleteAt = sql.indexOf('DELETE FROM "corrections"');
         const indexAt = sql.indexOf('CREATE UNIQUE INDEX "uq_corrections_offer_field"');
         expect(deleteAt).toBeGreaterThanOrEqual(0);
         expect(indexAt).toBeGreaterThan(deleteAt);
+        // ties on created_at must not leave two survivors, or the index creation would fail
+        expect(sql).toContain('"id" DESC');
     });
 });
