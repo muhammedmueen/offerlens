@@ -11,7 +11,7 @@ import "./index.css";
 const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 
 if (!googleClientId) {
-    console.warn("Missing VITE_GOOGLE_CLIENT_ID in .env file. Google Login will not work.");
+    console.warn("VITE_GOOGLE_CLIENT_ID is not set. The Google sign-in buttons are hidden.");
 }
 
 createRoot(document.getElementById("root")!).render(

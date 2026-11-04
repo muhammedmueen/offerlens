@@ -17,7 +17,24 @@ const submit = async (rejection: unknown) => {
   fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw" } });
   await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Log in" })); });
 };
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllEnvs();
+});
+
+describe("LoginPage Google button", () => {
+  it("is hidden when VITE_GOOGLE_CLIENT_ID is blank, as .env.example says", () => {
+    vi.stubEnv("VITE_GOOGLE_CLIENT_ID", "");
+    render(<MemoryRouter><LoginPage /></MemoryRouter>);
+    expect(screen.queryByRole("button", { name: "Login with Google" })).toBeNull();
+  });
+
+  it("shows when a client id is set", () => {
+    vi.stubEnv("VITE_GOOGLE_CLIENT_ID", "client-id.apps.googleusercontent.com");
+    render(<MemoryRouter><LoginPage /></MemoryRouter>);
+    expect(screen.getByRole("button", { name: "Login with Google" })).toBeTruthy();
+  });
+});
 
 describe("LoginPage errors", () => {
   it("shows the friendly rate-limit text on a 429, from any of the login limits, and not 'Invalid email or password.'", async () => {

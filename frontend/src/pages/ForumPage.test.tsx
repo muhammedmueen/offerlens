@@ -21,7 +21,8 @@ vi.mock("@/services/api", () => ({
     post: vi.fn(async () => ({ data: { data: {} } })),
   },
 }));
-vi.mock("@/store/auth", () => ({ useAuth: () => ({ isAuthenticated: true }) }));
+let authed = true;
+vi.mock("@/store/auth", () => ({ useAuth: () => ({ isAuthenticated: authed }) }));
 // framer-motion's in-view observer needs IntersectionObserver, which jsdom lacks.
 vi.mock("@/components/common/MotionCard", () => ({ default: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 vi.mock("@/components/layout/PageShell", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
@@ -43,7 +44,10 @@ const renderAt = (path: string) => {
   );
 };
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  authed = true;
+});
 afterEach(cleanup);
 
 describe("Forum list", () => {
@@ -81,6 +85,13 @@ describe("Forum post detail", () => {
     expect(await screen.findByText("I got 30% over my current CTC.")).toBeTruthy();
     expect(screen.getByText("Looks fine to me")).toBeTruthy();
     expect(screen.getByText(/Ravi/)).toBeTruthy();
+  });
+
+  it("sends a guest's Log in to /login with this post as the returnUrl", async () => {
+    authed = false;
+    renderAt(`/forum/${POST_ID}`);
+    const link = await screen.findByRole("link", { name: "Log in" });
+    expect(link.getAttribute("href")).toBe(`/login?returnUrl=%2Fforum%2F${POST_ID}`);
   });
 
   it("posts a comment as `content`", async () => {

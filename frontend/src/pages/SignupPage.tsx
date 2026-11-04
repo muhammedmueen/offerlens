@@ -79,9 +79,12 @@ const SignupPage = () => {
             </Button>
           </form>
 
-          <Button variant="outline" className="w-full cursor-pointer" onClick={() => googleLogin()}>
-            Sign up with Google
-          </Button>
+          {/* Hidden when VITE_GOOGLE_CLIENT_ID is blank, as frontend/.env.example promises. */}
+          {import.meta.env.VITE_GOOGLE_CLIENT_ID && (
+            <Button variant="outline" className="w-full cursor-pointer" onClick={() => googleLogin()}>
+              Sign up with Google
+            </Button>
+          )}
 
           <p className="text-center text-sm text-muted-foreground">
             Already have an account?{" "}

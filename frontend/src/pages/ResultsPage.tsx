@@ -22,6 +22,7 @@ import Reveal from "@/components/motion/Reveal";
 import { motion, useReducedMotion } from "framer-motion";
 import { flagsContainer, flagItem } from "@/lib/motion";
 import { ordinal } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
 import NegotiationPanel from "@/components/offers/NegotiationPanel";
 import BenefitsPanel from "@/components/offers/BenefitsPanel";
 import CareerPathPanel from "@/components/offers/CareerPathPanel";
@@ -37,6 +38,7 @@ const ResultsPage = () => {
   const [authGateFeature, setAuthGateFeature] = useState("");
   const [activeDrawer, setActiveDrawer] = useState<DrawerType>(null);
   const reduce = useReducedMotion() ?? false;
+  const { toast } = useToast();
 
   const { data: analysis, isLoading, error, refetch } = useQuery({
     queryKey: ["analysis", id],
@@ -66,11 +68,18 @@ const ResultsPage = () => {
       a.href = url;
       a.download = `offerlens-report-${id}.pdf`;
       a.click();
-    } catch { /* ignore */ }
+    } catch {
+      toast({ title: "Download failed", description: "Could not download the PDF report. Please try again.", variant: "destructive" });
+    }
   };
 
-  const handleShare = () => {
-    navigator.clipboard.writeText(window.location.href);
+  const handleShare = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      toast({ title: "Link copied", description: "The link to this analysis is on your clipboard." });
+    } catch {
+      toast({ title: "Could not copy link", description: "Copy the address from your browser's address bar instead.", variant: "destructive" });
+    }
   };
 
   if (isLoading) return <PageShell><div className="container mx-auto max-w-4xl px-4 py-12"><LoadingState rows={5} /></div></PageShell>;

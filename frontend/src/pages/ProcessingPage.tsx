@@ -105,9 +105,9 @@ const ProcessingPage = () => {
               </div>
             </div>
 
-            <h2 className="text-xl font-bold mb-3 text-foreground">
+            <h1 className="text-xl font-bold mb-3 text-foreground">
               {isRateLimitError ? "Rate Limit Exceeded" : "Analysis Failed"}
-            </h2>
+            </h1>
 
             <p className="text-muted-foreground mb-6">
               {getErrorMessage(data.failureReason)}
@@ -118,8 +118,13 @@ const ProcessingPage = () => {
                 <p className="font-medium mb-2">💡 Tips to avoid rate limits:</p>
                 <ul className="list-disc list-inside space-y-1 text-muted-foreground">
                   <li>Wait 2-3 minutes before trying again</li>
-                  <li>Switch to a different AI model (e.g., gemini-flash-lite-latest)</li>
-                  <li>Use the model selector in the upload form</li>
+                  {/* The model selector exists only in development builds (UploadPage). */}
+                  {import.meta.env.DEV && (
+                    <>
+                      <li>Switch to a different AI model (e.g., gemini-flash-lite-latest)</li>
+                      <li>Use the model selector in the upload form</li>
+                    </>
+                  )}
                 </ul>
               </div>
             )}
@@ -131,7 +136,7 @@ const ProcessingPage = () => {
               >
                 Try Again
               </Button>
-              {isRateLimitError && (
+              {isRateLimitError && import.meta.env.DEV && (
                 <Button
                   variant="outline"
                   onClick={() => navigate("/upload")}

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, useLocation, Link } from "react-router-dom";
 import api from "@/services/api";
 import { ENDPOINTS, FORUM_CATEGORIES } from "@/constants/api";
 import type { ForumComment, ForumPostDetail, ForumPostSummary } from "@/types/api";
@@ -141,8 +141,8 @@ const ForumListPage = () => {
 export const ForumPostPage = () => {
   const { id } = useParams<{ id: string }>();
   const { isAuthenticated } = useAuth();
+  const { pathname } = useLocation();
   const [comment, setComment] = useState("");
-  const [authGateOpen, setAuthGateOpen] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -190,12 +190,10 @@ export const ForumPostPage = () => {
             </form>
           ) : (
             <p className="text-sm text-muted-foreground">
-              <button onClick={() => setAuthGateOpen(true)} className="text-primary hover:underline cursor-pointer">Log in</button> to comment
+              <Link to={`/login?returnUrl=${encodeURIComponent(pathname)}`} className="text-primary hover:underline cursor-pointer">Log in</Link> to comment
             </p>
           )}
         </div>
-
-        <AuthGateModal open={authGateOpen} onOpenChange={setAuthGateOpen} featureName="commenting" />
       </div>
     </PageShell>
   );

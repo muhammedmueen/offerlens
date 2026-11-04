@@ -54,6 +54,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllEnvs();
   cleanup();
 });
 
@@ -113,6 +114,34 @@ describe("ProcessingPage polling", () => {
     // Query is disabled after the cap — no new polls.
     await advance(POLLING_INTERVAL_MS * 5);
     expect(get.mock.calls.length).toBe(callsAtCap);
+  });
+
+  it("FAILED heading is the page h1", async () => {
+    get.mockResolvedValue({ data: { data: { status: "FAILED", failureReason: "AI_ERROR: boom" } } });
+    renderPage();
+    await advance(0);
+    expect(screen.getByRole("heading", { level: 1, name: "Analysis Failed" })).toBeTruthy();
+  });
+
+  it("rate-limit FAILED in a production build gives no model-selector advice (the selector is dev-only)", async () => {
+    vi.stubEnv("DEV", false);
+    get.mockResolvedValue({ data: { data: { status: "FAILED", failureReason: "RATE_LIMIT: Too many requests" } } });
+    renderPage();
+    await advance(0);
+    expect(screen.getByText("Wait 2-3 minutes before trying again")).toBeTruthy();
+    expect(screen.queryByText(/model selector/i)).toBeNull();
+    expect(screen.queryByText(/different AI model/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Change Model" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Try Again" })).toBeTruthy();
+  });
+
+  it("rate-limit FAILED in a dev build keeps the model-selector advice", async () => {
+    vi.stubEnv("DEV", true);
+    get.mockResolvedValue({ data: { data: { status: "FAILED", failureReason: "RATE_LIMIT: Too many requests" } } });
+    renderPage();
+    await advance(0);
+    expect(screen.getByText("Use the model selector in the upload form")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Change Model" })).toBeTruthy();
   });
 
   it("FAILED shows the stored failure reason without its prefix", async () => {

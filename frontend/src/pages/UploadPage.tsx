@@ -380,8 +380,9 @@ const UploadPage = () => {
             <h2 className="font-semibold text-foreground">Tell us about the role</h2>
 
             <div className="space-y-2">
-              <Label>Role / Title *</Label>
+              <Label htmlFor="upload-role">Role / Title *</Label>
               <Input
+                id="upload-role"
                 value={role || roleSearch}
                 onChange={(e) => { setRoleSearch(e.target.value); setRole(e.target.value); }}
                 placeholder="e.g. Software Engineer"
@@ -399,8 +400,9 @@ const UploadPage = () => {
             </div>
 
             <div className="space-y-2">
-              <Label>City *</Label>
+              <Label htmlFor="upload-city">City *</Label>
               <Input
+                id="upload-city"
                 value={city || citySearch}
                 onChange={(e) => { setCitySearch(e.target.value); setCity(e.target.value); }}
                 placeholder="e.g. Bangalore"
@@ -418,9 +420,9 @@ const UploadPage = () => {
             </div>
 
             <div className="space-y-2">
-              <Label>Experience Level *</Label>
+              <Label htmlFor="upload-experience-level">Experience Level *</Label>
               <Select value={experienceLevel} onValueChange={setExperienceLevel}>
-                <SelectTrigger className="cursor-pointer rounded-lg">
+                <SelectTrigger id="upload-experience-level" className="cursor-pointer rounded-lg">
                   <SelectValue placeholder="Select level" />
                 </SelectTrigger>
                 <SelectContent className="rounded-xl">
@@ -437,8 +439,8 @@ const UploadPage = () => {
             </div>
 
             <div className="space-y-2">
-              <Label>Current CTC (optional)</Label>
-              <Input type="number" value={currentCtc} onChange={(e) => setCurrentCtc(e.target.value)} placeholder="e.g. 1200000" className="rounded-lg" />
+              <Label htmlFor="upload-current-ctc">Current CTC (optional)</Label>
+              <Input id="upload-current-ctc" type="number" value={currentCtc} onChange={(e) => setCurrentCtc(e.target.value)} placeholder="e.g. 1200000" className="rounded-lg" />
             </div>
 
             {import.meta.env.DEV && (
