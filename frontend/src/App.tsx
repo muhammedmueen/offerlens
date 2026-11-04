@@ -70,6 +70,12 @@ const AnimatedRoutes = () => {
     //   dropping to the fallback. So the old page simply holds, then the new page fades in
     //   once — no skeleton flash. The fallback now only appears on the very first paint,
     //   before any route has committed, which is correct.
+    //
+    // The one-cell grid stacks the outgoing and incoming page in the same cell (each
+    // PageTransition sits at col-start-1 row-start-1). AnimatePresence keeps the old page
+    // mounted for its 0.3s exit fade; without the grid the new page would render BELOW it
+    // and jump up when the exit finishes. `grid-cols-1` is minmax(0,1fr), so wide page
+    // content can still shrink instead of overflowing on mobile.
     <ErrorBoundary title="This page failed to load." resetKey={location.pathname}>
     <Suspense
       fallback={
@@ -78,10 +84,11 @@ const AnimatedRoutes = () => {
         </div>
       }
     >
+    <div className="grid grid-cols-1">
     <AnimatePresence>
       <Routes location={location} key={location.pathname}>
-        {/* Core examination flow advances with the `forward` rise (Moment 6); every other
-            route keeps the default `fade`. */}
+        {/* Every route uses the same plain opacity fade (lib/motion pageVariants); the
+            `kind` prop is kept only for a possible future distinction. */}
         <Route path="/" element={<PageTransition><Index /></PageTransition>} />
         <Route path="/upload" element={<PageTransition kind="forward"><UploadPage /></PageTransition>} />
         <Route path="/offers/:id/processing" element={<PageTransition kind="forward"><ProcessingPage /></PageTransition>} />
@@ -97,6 +104,7 @@ const AnimatedRoutes = () => {
         <Route path="*" element={<PageTransition><NotFound /></PageTransition>} />
       </Routes>
     </AnimatePresence>
+    </div>
     </Suspense>
     </ErrorBoundary>
   );
