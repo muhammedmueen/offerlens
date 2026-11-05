@@ -193,6 +193,35 @@ test.describe("returnUrl", () => {
   }
 });
 
+test.describe("already signed in", () => {
+  test("gap: /login and /signup go to the dashboard", async ({ page }) => {
+    await signInNewAccount(page);
+    for (const path of ["/login", "/signup"]) {
+      await page.goto(path);
+      await expect(page).toHaveURL(`${WEB}/dashboard`);
+    }
+  });
+
+  test("gap: /login honours a returnUrl", async ({ page }) => {
+    await signInNewAccount(page);
+    await page.goto("/login?returnUrl=%2Fforum");
+    await expect(page).toHaveURL(`${WEB}/forum`);
+  });
+
+  test("gap: a dead session on /login does not loop", async ({ page }) => {
+    await signInNewAccount(page);
+    await page.evaluate(() => {
+      localStorage.removeItem("refresh_token");
+      localStorage.setItem("access_token", "dead.jwt.value");
+    });
+    await page.goto("/login");
+    await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
+    await page.waitForTimeout(1_000);
+    await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
+    expect(await page.evaluate(() => localStorage.getItem("access_token"))).toBeNull();
+  });
+});
+
 test.describe("session health", () => {
   test("gap: an expired access token refreshes silently", async ({ page }) => {
     await signInNewAccount(page);

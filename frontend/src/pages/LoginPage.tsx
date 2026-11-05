@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, useSearchParams, Link } from "react-router-dom";
+import { Navigate, useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useAuth } from "@/store/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +11,9 @@ import { RATE_LIMITED_AUTH_TEXT, isRateLimited } from "@/lib/quota";
 import { safeReturnUrl } from "@/lib/utils";
 
 const LoginPage = () => {
-  const { login, loginWithGoogle } = useAuth();
+  const { login, loginWithGoogle, isAuthenticated } = useAuth();
+  // Read once on arrival: logging in here flips isAuthenticated, and the handlers do that navigation.
+  const [signedInOnArrival] = useState(isAuthenticated);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const returnUrl = safeReturnUrl(searchParams.get("returnUrl"));
@@ -46,6 +48,8 @@ const LoginPage = () => {
       setLoading(false);
     }
   };
+
+  if (signedInOnArrival) return <Navigate to={returnUrl} replace />;
 
   return (
     <PageShell>
