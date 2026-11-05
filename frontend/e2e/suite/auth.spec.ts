@@ -79,13 +79,8 @@ test.describe("Google sign-in", () => {
     await expect(page.getByRole("button", { name: "Sign up with Google" })).toHaveCount(0);
   });
 
-  // KNOWN BUG, found by this suite. The button is hidden when the client id is blank, but
-  // useGoogleLogin still runs and passes "" to Google's script, which throws as soon as it has
-  // loaded. /login and /signup then fall to "This page failed to load." Delete test.fail() once
-  // the hook only runs when a client id is set. The stub below throws as the real script does.
-  test("a build with no client id survives Google's script loading", async ({ page, expectedConsole }) => {
-    test.fail();
-    expectedConsole.allow(/client_id|ErrorBoundary/);
+  // The stub throws as the real script does when it is handed an empty client id.
+  test("a build with no client id survives Google's script loading", async ({ page }) => {
     await page.route("https://accounts.google.com/gsi/client", (route) =>
       route.fulfill({
         contentType: "text/javascript",
@@ -95,9 +90,15 @@ test.describe("Google sign-in", () => {
         } } } };`,
       }),
     );
-    await page.goto("/login");
-    await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible({ timeout: 3_000 });
-    await expect(page.getByText("This page failed to load.")).toHaveCount(0);
+    for (const [path, heading] of [
+      ["/login", "Welcome back"],
+      ["/signup", "Create your account"],
+    ]) {
+      await page.goto(path);
+      await page.waitForLoadState("networkidle");
+      await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+      await expect(page.getByText("This page failed to load.")).toHaveCount(0);
+    }
   });
 });
 

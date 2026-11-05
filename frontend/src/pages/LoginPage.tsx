@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { useGoogleLogin } from "@react-oauth/google";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useAuth } from "@/store/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import PageShell from "@/components/layout/PageShell";
+import GoogleButton from "@/components/common/GoogleButton";
 import { Loader2 } from "lucide-react";
 import { RATE_LIMITED_AUTH_TEXT, isRateLimited } from "@/lib/quota";
 
@@ -20,22 +20,16 @@ const LoginPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const googleLogin = useGoogleLogin({
-    onSuccess: async (tokenResponse) => {
-      setLoading(true);
-      try {
-        await loginWithGoogle(tokenResponse.access_token);
-        navigate(returnUrl, { replace: true });
-      } catch (err) {
-        setError(isRateLimited(err) ? RATE_LIMITED_AUTH_TEXT : "Google login failed.");
-        setLoading(false);
-      }
-    },
-    onError: () => {
-      setError("Google login failed.");
+  const handleGoogleToken = async (accessToken: string) => {
+    setLoading(true);
+    try {
+      await loginWithGoogle(accessToken);
+      navigate(returnUrl, { replace: true });
+    } catch (err) {
+      setError(isRateLimited(err) ? RATE_LIMITED_AUTH_TEXT : "Google login failed.");
       setLoading(false);
     }
-  });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,9 +73,14 @@ const LoginPage = () => {
 
           {/* Hidden when VITE_GOOGLE_CLIENT_ID is blank, as frontend/.env.example promises. */}
           {import.meta.env.VITE_GOOGLE_CLIENT_ID && (
-            <Button variant="outline" className="w-full cursor-pointer rounded-md" onClick={() => googleLogin()}>
-              Login with Google
-            </Button>
+            <GoogleButton
+              label="Login with Google"
+              onToken={handleGoogleToken}
+              onError={() => {
+                setError("Google login failed.");
+                setLoading(false);
+              }}
+            />
           )}
 
           <p className="text-center text-sm text-muted-foreground">
