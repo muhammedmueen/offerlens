@@ -168,10 +168,8 @@ test.describe("login and logout", () => {
 });
 
 test.describe("returnUrl", () => {
-  for (const hostile of ["https://evil.example/", "//evil.example/", "javascript:alert(document.domain)"]) {
-    test(`gap: logging in never leaves the site for returnUrl=${hostile}`, async ({ page, expectedConsole }) => {
-      // The router treats these as relative paths, so the user lands on the 404 page. Safe, if unfriendly.
-      expectedConsole.allow(/404 Error: User attempted/);
+  for (const hostile of ["https://evil.example/", "//evil.example/", "/\\evil.example/", "javascript:alert(document.domain)"]) {
+    test(`gap: logging in goes to the dashboard for returnUrl=${hostile}`, async ({ page }) => {
       const dialogs: string[] = [];
       page.on("dialog", (d) => {
         dialogs.push(d.message());
@@ -188,27 +186,11 @@ test.describe("returnUrl", () => {
       await page.goto(`/login?returnUrl=${encodeURIComponent(hostile)}`);
       await logIn(page, email);
 
-      await expect.poll(() => page.evaluate(() => localStorage.getItem("access_token"))).toBeTruthy();
-      await page.waitForTimeout(500); // any redirect would fire straight after the token lands
+      await expect(page).toHaveURL(`${WEB}/dashboard`);
       expect(left).toEqual([]);
       expect(dialogs).toEqual([]);
-      expect(new URL(page.url()).origin).toBe(WEB);
     });
   }
-
-  // KNOWN BUG, found by this suite. The router throws on a "//" path, and LoginPage's catch reports
-  // that as a wrong password although the login worked. Crafted links only, and it does not leave
-  // the site. Delete test.fail() once returnUrl is limited to same-site paths.
-  test("a malformed returnUrl does not report a wrong password after a good login", async ({ page }) => {
-    test.fail();
-    const { email } = await signInNewAccount(page);
-    await page.evaluate(() => localStorage.clear());
-    await page.goto(`/login?returnUrl=${encodeURIComponent("//evil.example/")}`);
-    await logIn(page, email);
-
-    await expect.poll(() => page.evaluate(() => localStorage.getItem("access_token"))).toBeTruthy();
-    await expect(page.getByText("Invalid email or password.")).toHaveCount(0, { timeout: 2_000 });
-  });
 });
 
 test.describe("session health", () => {

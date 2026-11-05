@@ -8,12 +8,13 @@ import PageShell from "@/components/layout/PageShell";
 import GoogleButton from "@/components/common/GoogleButton";
 import { Loader2 } from "lucide-react";
 import { RATE_LIMITED_AUTH_TEXT, isRateLimited } from "@/lib/quota";
+import { safeReturnUrl } from "@/lib/utils";
 
 const LoginPage = () => {
   const { login, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const returnUrl = searchParams.get("returnUrl") || "/dashboard";
+  const returnUrl = safeReturnUrl(searchParams.get("returnUrl"));
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
