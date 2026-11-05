@@ -164,19 +164,17 @@ test("§6 every drawer opens from the keyboard and closes on Escape", async ({ p
   }
 });
 
-// KNOWN BUG, found by this suite. The drawers are opened from state with no SheetTrigger, so Radix
-// has nothing to hand focus back to and it falls to <body>: a keyboard user restarts from the top
-// of the page. Delete test.fail() once focus returns to the opener.
 test("§6 closing a drawer hands focus back to its opener", async ({ page }) => {
-  test.fail();
   await openResults(page);
-  const button = page.getByRole("button", { name: "Career", exact: true });
-  await button.focus();
-  await page.keyboard.press("Enter");
-  const drawer = page.getByRole("dialog", { name: "Career Path" });
-  await expect(drawer).toBeVisible();
+  for (const [opener, title] of DRAWERS) {
+    const button = page.getByRole("button", { name: opener, exact: true });
+    await button.focus();
+    await page.keyboard.press("Enter");
+    const drawer = page.getByRole("dialog", { name: title });
+    await expect(drawer).toBeVisible();
 
-  await page.keyboard.press("Escape");
-  await expect(drawer).toBeHidden();
-  await expect(button).toBeFocused({ timeout: 2_000 });
+    await page.keyboard.press("Escape");
+    await expect(drawer).toBeHidden();
+    await expect(button).toBeFocused();
+  }
 });

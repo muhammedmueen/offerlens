@@ -112,6 +112,21 @@ test.describe("structure and keyboard", () => {
   });
 });
 
+test.describe("focus after a dialog opened from state", () => {
+  test("§13 closing the sign-up gate hands focus back", async ({ page }) => {
+    await page.goto("/forum");
+    const newPost = page.getByRole("button", { name: "New Post" });
+    await newPost.focus();
+    await page.keyboard.press("Enter");
+    const gate = page.getByRole("dialog", { name: "Create a Free Account" });
+    await expect(gate).toBeVisible();
+
+    await page.keyboard.press("Escape");
+    await expect(gate).toBeHidden();
+    await expect(newPost).toBeFocused();
+  });
+});
+
 test.describe("page transitions", () => {
   test("§2a a slow route holds the old page: no blank frame, no skeleton", async ({ page }) => {
     await page.goto("/");
