@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import type { Page } from "@playwright/test";
 import {
   test,
@@ -130,18 +131,18 @@ test.describe("honest labelling", () => {
 });
 
 test.describe("actions", () => {
-  // KNOWN BUG, found by this suite. The report route pipes to reply.raw, which skips every header
-  // Fastify set, including CORS and Content-Type. Live is same-origin so it still works there, but
-  // local dev and a separately hosted API get "Download failed". Delete test.fail() once it uses
-  // reply.send(doc).
-  test("§5d PDF downloads when the API is on another origin", async ({ page, expectedConsole }) => {
-    test.fail();
-    expectedConsole.allow(/CORS policy|ERR_FAILED/);
+  // The suite's API is on another origin, so this also proves the route keeps its CORS headers.
+  test("§5d PDF downloads a real PDF", async ({ page }) => {
     const id = await openResults(page);
 
-    const download = page.waitForEvent("download", { timeout: 10_000 });
+    const response = page.waitForResponse((r) => r.url().endsWith(`/offers/${id}/report`));
+    const download = page.waitForEvent("download");
     await page.getByRole("button", { name: "PDF", exact: true }).click();
-    expect((await download).suggestedFilename()).toBe(`offerlens-report-${id}.pdf`);
+
+    expect((await response).headers()["content-type"]).toBe("application/pdf");
+    const file = await download;
+    expect(file.suggestedFilename()).toBe(`offerlens-report-${id}.pdf`);
+    expect(readFileSync(await file.path()).subarray(0, 5).toString()).toBe("%PDF-");
   });
 
   test("§5d a failed PDF download says so", async ({ page, context, expectedConsole }) => {
