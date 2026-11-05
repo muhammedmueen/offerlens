@@ -63,7 +63,7 @@ compared against a previous result. `--save` records `scoredCases` and `comparab
 thin run cannot be mistaken for a full one later.
 
 Requires a key for the selected provider — `GEMINI_API_KEY`, `OPENAI_API_KEY` or
-`ANTHROPIC_API_KEY`. Without one it runs `MockAiProvider`, which returns fixed data — fine for
+`ANTHROPIC_API_KEY`. Without one it runs `MockAiProvider`, which returns sample data — fine for
 checking the harness executes, useless as a measurement. The harness says so in its header when
 that happens.
 

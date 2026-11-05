@@ -51,9 +51,10 @@ export async function analysisRoutes(fastify: FastifyInstance) {
             reply.header('Content-Type', 'application/pdf');
             reply.header('Content-Disposition', `attachment; filename="offer-analysis-${id}.pdf"`);
 
-            doc.pipe(reply.raw);
+            // reply.send, not doc.pipe(reply.raw): raw skips every header set above and by the
+            // plugins, including CORS, so a cross-origin browser could not read the PDF.
             doc.end();
-            return reply; // Fastify handles stream
+            return reply.send(doc);
         }
     });
 }

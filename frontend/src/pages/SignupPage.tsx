@@ -1,16 +1,18 @@
 import { useState } from "react";
-import { useGoogleLogin } from "@react-oauth/google";
-import { useNavigate, Link } from "react-router-dom";
+import { Navigate, useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/store/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import PageShell from "@/components/layout/PageShell";
+import GoogleButton from "@/components/common/GoogleButton";
 import { Loader2 } from "lucide-react";
 import { RATE_LIMITED_AUTH_TEXT, isRateLimited } from "@/lib/quota";
 
 const SignupPage = () => {
-  const { signup, loginWithGoogle } = useAuth();
+  const { signup, loginWithGoogle, isAuthenticated } = useAuth();
+  // Read once on arrival: signing up here flips isAuthenticated before the guest offers are claimed.
+  const [signedInOnArrival] = useState(isAuthenticated);
   const navigate = useNavigate();
 
   const [name, setName] = useState("");
@@ -19,22 +21,16 @@ const SignupPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const googleLogin = useGoogleLogin({
-    onSuccess: async (tokenResponse) => {
-      setLoading(true);
-      try {
-        await loginWithGoogle(tokenResponse.access_token);
-        navigate("/dashboard", { replace: true });
-      } catch (err) {
-        setError(isRateLimited(err) ? RATE_LIMITED_AUTH_TEXT : "Google signup failed.");
-        setLoading(false);
-      }
-    },
-    onError: () => {
-      setError("Google signup failed.");
+  const handleGoogleToken = async (accessToken: string) => {
+    setLoading(true);
+    try {
+      await loginWithGoogle(accessToken);
+      navigate("/dashboard", { replace: true });
+    } catch (err) {
+      setError(isRateLimited(err) ? RATE_LIMITED_AUTH_TEXT : "Google signup failed.");
       setLoading(false);
     }
-  });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,6 +45,8 @@ const SignupPage = () => {
       setLoading(false);
     }
   };
+
+  if (signedInOnArrival) return <Navigate to="/dashboard" replace />;
 
   return (
     <PageShell>
@@ -81,14 +79,19 @@ const SignupPage = () => {
 
           {/* Hidden when VITE_GOOGLE_CLIENT_ID is blank, as frontend/.env.example promises. */}
           {import.meta.env.VITE_GOOGLE_CLIENT_ID && (
-            <Button variant="outline" className="w-full cursor-pointer" onClick={() => googleLogin()}>
-              Sign up with Google
-            </Button>
+            <GoogleButton
+              label="Sign up with Google"
+              onToken={handleGoogleToken}
+              onError={() => {
+                setError("Google signup failed.");
+                setLoading(false);
+              }}
+            />
           )}
 
           <p className="text-center text-sm text-muted-foreground">
             Already have an account?{" "}
-            <Link to="/login" className="text-primary hover:underline cursor-pointer">Log in</Link>
+            <Link to="/login" className="text-primary underline cursor-pointer">Log in</Link>
           </p>
         </div>
       </div>

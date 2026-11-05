@@ -3,10 +3,10 @@
 A human-followable walkthrough of every screen and flow. Click through top to bottom; each
 step lists the exact action and what you should see. Tick the boxes as you go.
 
-This is the **manual** counterpart to the automated smoke spec at
-`frontend/e2e/smoke.spec.ts`. The spec proves the happy path doesn't regress; this guide
-covers what a machine can't easily judge — does it *look* right, does the motion feel calm, are
-the gates and empty states correct, is it usable by keyboard.
+This is the **manual** counterpart to the Playwright suite in `frontend/e2e/`, which automates
+most of the checks below (see the end of this guide for what it leaves to you). This guide covers
+what a machine can't judge — does it *look* right, does the motion feel calm, does it hold up with
+the real AI, on the live site and with a real keyboard.
 
 Quoted text is the exact on-screen wording, copied from `frontend/src`. `{braces}` and `N` mark
 values the app fills in. If the app shows different wording, note it. Browser and OS menu
@@ -47,7 +47,8 @@ Pick one and use it for the whole pass. Don't mix — a local build and the live
   - the NotFound page logs "404 Error: User attempted to access non-existent route:" (§12);
   - an error boundary logs "[ErrorBoundary]" when it trips (§12);
   - a build without a Google client id warns "VITE_GOOGLE_CLIENT_ID is not set. The Google sign-in buttons are hidden." (§7b);
-  - expected 401 and 404 responses show as red network lines;
+  - expected 401 and 404 responses show as red network lines, and a 403 on `/users/me` right after
+    a dead session (§12);
   - the upload page logs a lot of `[Upload]` lines (noisy, not red).
 
   **Any other red error = a failure**, even if the screen looks fine. Note it against the step
@@ -83,9 +84,8 @@ This is the part only a human can judge. Navigate **slowly** and watch the trans
 
 ### 2a. Page transitions — no flicker
 
-This section describes builds that include the flicker fix (branch `qa-pass-motion-port`,
-commit `02ca97e`). **Confirm the deployed asset hash first** (§1). On a build without the fix, a
-skeleton flash is the known bug, not a new one.
+The flicker fix is commit `02ca97e`. **Confirm the deployed asset hash first** (§1). On a build
+older than that, a skeleton flash is the known bug, not a new one.
 
 - [ ] From the landing page, click "Forum" (footer). Watch the moment of navigation.
 - [ ] **Expect**: the current page holds briefly while the next one loads, then the new page
@@ -328,7 +328,8 @@ calculator unavailable", "Career path unavailable", "Corrections unavailable") a
   reads "No changes yet" and is **disabled until you change something**. Change a field → it
   reads "Save 1 correction" → save → toast "Corrections applied" and the results page
   refreshes with the new value.
-- [ ] Each drawer: opens, **Escape** closes it, focus returns sensibly. Keyboard-openable.
+- [ ] Each drawer: opens, **Escape** closes it, focus returns to the button that opened it.
+  Keyboard-openable.
 
 ---
 
@@ -356,6 +357,7 @@ calculator unavailable", "Career path unavailable", "Corrections unavailable") a
   ("Welcome back") with the same credentials → `/dashboard`.
 - [ ] While logged in, **hard-refresh** → still signed in (session survives reload), no bounce
   to login, no flash of logged-out UI.
+- [ ] While logged in, visit `/login` or `/signup`: you land on `/dashboard` instead of the form.
 - [ ] Wrong password shows "Invalid email or password."
 - [ ] Rate limit: many rapid wrong passwords end in "Too many attempts. Please wait a while
   before trying again." — not a 500. This locks that email's login for 15 minutes; use a
@@ -518,48 +520,36 @@ new regressions.
 
 ---
 
-## Running the automated smoke spec (optional, complements this guide)
+## Automated tests
 
-The happy-path flow (signup → analyze → four drawers → compare) is automated in
-`frontend/e2e/smoke.spec.ts`. It needs the full stack already running, a working AI key, and
-the whole repo (it imports `backend/eval/corpus.ts`). It does **not** boot the API/workers for
-you (deliberate — a missing-workers run should fail loudly).
+`frontend/e2e/` has three Playwright runs. Install the browser once: `cd frontend`, then
+`npx playwright install chromium`.
 
-Bash:
+| Command | What it runs | Needs |
+|---------|--------------|-------|
+| `npm run test:e2e` | `e2e/suite/`: everything below, on the real stack with mock AI | Docker. It starts its own containers, API, workers and frontend |
+| `npm run test:e2e:real` | `e2e/smoke.spec.ts`: signup → analyze → four drawers → compare with real AI | The dev stack running (`docs/LOCAL_DEVELOPMENT.md` §6) and an AI key |
+| `npm run test:e2e:live` | `e2e/live.spec.ts`: public pages load on the live site, read-only | Network |
 
-```bash
-# Bring the stack up first (docs/LOCAL_DEVELOPMENT.md §6), then:
-cd frontend
-npx playwright install chromium   # once per machine
-npm run test:e2e
+**Do not point `test:e2e:real` at live.** With `E2E_BASE_URL` set to the live site, the spec signs
+up a real `e2e-<timestamp>@example.com` account and runs two real analyses plus negotiation and
+career calls on production, and its rate-limit flush cannot reach live's Redis.
 
-# Against a different base URL:
-E2E_BASE_URL=http://localhost:8080 npm run test:e2e
-```
+### What `test:e2e` covers, and what is still yours
 
-PowerShell:
+| Guide section | Automated | Still manual |
+|---------------|-----------|--------------|
+| §1 First load | Styled render, console errors on every test | Deployed asset hash |
+| §2 Motion | No blank frame or skeleton on navigation, reduced-motion hero | Whether it feels calm, scroll reveals |
+| §3–§4 Landing, guests | All of it, including claiming guest offers | Visual check |
+| §5 Upload, processing, results | All of it, with failure states stubbed | Real OCR, real AI quality, 5-minute wait in real time |
+| §6 Drawers | All of it, on mock AI | Real AI output |
+| §7 Auth | All but Google, plus token refresh, tab sync, Back after logout, hostile `returnUrl` | The Google flow on live |
+| §8–§11 | All of it. Long lists and limits use stubbed responses | Visual check, chart readability |
+| §12 Errors | All of it, plus invalid offer and forum links | |
+| §13 Accessibility | Axe scan, one h1, labels, focus ring, dialog focus | Screen reader, full keyboard pass |
 
-```powershell
-# Bring the stack up first (docs/LOCAL_DEVELOPMENT.md §6), then:
-cd frontend
-npx playwright install chromium   # once per machine
-npm run test:e2e
+The suite fails any test that logs a console error not listed in §0. A test marked `test.fail()`
+pins a known defect: it starts failing when the defect is fixed, which is the cue to delete the mark.
 
-# Against a different base URL:
-$env:E2E_BASE_URL = "http://localhost:8080"; npm run test:e2e
-```
-
-- **Rate-limit flush, local only.** Before the run, `e2e/global-setup.ts` deletes **every**
-  `fastify-rate-limit-*` key and every `login-email:*` key, via `docker exec` into the local
-  `offerlens-redis` container (override the name with `E2E_REDIS_CONTAINER`, skip with
-  `E2E_SKIP_REDIS_FLUSH=1`). It cannot reach a remote Redis. If the flush fails it only logs a
-  warning starting "[e2e] could not flush rate-limit keys" and the run continues.
-- **Do not point it at live.** With `E2E_BASE_URL` set to the live site, the spec signs up a
-  real `e2e-<timestamp>@example.com` account and runs two real analyses plus negotiation and
-  career calls on production. The flush does nothing for live's Redis (at most it clears your
-  local container), so repeat runs trip the live signup limit.
-- Timeout is 5 minutes per test (two real Gemini analyses). A failure retains a Playwright
-  trace.
-
-Keep the two in sync: when you add a flow to this guide that matters for regressions, consider
-extending `frontend/e2e/smoke.spec.ts`.
+When you add a flow to this guide that matters for regressions, add it to `frontend/e2e/suite/` too.

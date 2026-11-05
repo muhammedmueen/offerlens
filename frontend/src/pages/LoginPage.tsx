@@ -1,41 +1,38 @@
 import { useState } from "react";
-import { useGoogleLogin } from "@react-oauth/google";
-import { useNavigate, useSearchParams, Link } from "react-router-dom";
+import { Navigate, useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useAuth } from "@/store/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import PageShell from "@/components/layout/PageShell";
+import GoogleButton from "@/components/common/GoogleButton";
 import { Loader2 } from "lucide-react";
 import { RATE_LIMITED_AUTH_TEXT, isRateLimited } from "@/lib/quota";
+import { safeReturnUrl } from "@/lib/utils";
 
 const LoginPage = () => {
-  const { login, loginWithGoogle } = useAuth();
+  const { login, loginWithGoogle, isAuthenticated } = useAuth();
+  // Read once on arrival: logging in here flips isAuthenticated, and the handlers do that navigation.
+  const [signedInOnArrival] = useState(isAuthenticated);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const returnUrl = searchParams.get("returnUrl") || "/dashboard";
+  const returnUrl = safeReturnUrl(searchParams.get("returnUrl"));
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const googleLogin = useGoogleLogin({
-    onSuccess: async (tokenResponse) => {
-      setLoading(true);
-      try {
-        await loginWithGoogle(tokenResponse.access_token);
-        navigate(returnUrl, { replace: true });
-      } catch (err) {
-        setError(isRateLimited(err) ? RATE_LIMITED_AUTH_TEXT : "Google login failed.");
-        setLoading(false);
-      }
-    },
-    onError: () => {
-      setError("Google login failed.");
+  const handleGoogleToken = async (accessToken: string) => {
+    setLoading(true);
+    try {
+      await loginWithGoogle(accessToken);
+      navigate(returnUrl, { replace: true });
+    } catch (err) {
+      setError(isRateLimited(err) ? RATE_LIMITED_AUTH_TEXT : "Google login failed.");
       setLoading(false);
     }
-  });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,6 +48,8 @@ const LoginPage = () => {
       setLoading(false);
     }
   };
+
+  if (signedInOnArrival) return <Navigate to={returnUrl} replace />;
 
   return (
     <PageShell>
@@ -79,14 +78,19 @@ const LoginPage = () => {
 
           {/* Hidden when VITE_GOOGLE_CLIENT_ID is blank, as frontend/.env.example promises. */}
           {import.meta.env.VITE_GOOGLE_CLIENT_ID && (
-            <Button variant="outline" className="w-full cursor-pointer rounded-md" onClick={() => googleLogin()}>
-              Login with Google
-            </Button>
+            <GoogleButton
+              label="Login with Google"
+              onToken={handleGoogleToken}
+              onError={() => {
+                setError("Google login failed.");
+                setLoading(false);
+              }}
+            />
           )}
 
           <p className="text-center text-sm text-muted-foreground">
             Don't have an account?{" "}
-            <Link to="/signup" className="text-primary hover:underline cursor-pointer">Sign up</Link>
+            <Link to="/signup" className="text-primary underline cursor-pointer">Sign up</Link>
           </p>
         </div>
       </div>

@@ -328,7 +328,6 @@ const UploadPage = () => {
             <motion.div
               role="button"
               tabIndex={0}
-              aria-label="Drop your offer letter here, or click to browse"
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleFileDrop}
               onClick={() => fileInputRef.current?.click()}
@@ -351,7 +350,7 @@ const UploadPage = () => {
               ) : (
                 <>
                   <Upload className="h-10 w-10 text-stone-500" aria-hidden="true" />
-                  <p className="font-medium text-foreground">Drop your offer letter here</p>
+                  <p className="font-medium text-foreground">Drop your offer letter here<span className="sr-only">, or click to browse</span></p>
                   <p className="font-mono text-xs text-muted-foreground">// pdf, image, or paste the text — up to 10 MB</p>
                 </>
               )}

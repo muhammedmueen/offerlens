@@ -1,0 +1,29 @@
+# Throwaway Postgres and Redis for the E2E suite. Separate containers rather than a second database
+# in the dev ones: backend/src/workers/worker.ts ignores the Redis db index, so a dev worker would
+# otherwise steal E2E jobs. tmpfs, so `down` leaves nothing behind.
+name: offerlens-e2e
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: offerlens-e2e-postgres
+    ports: ['5433:5432']
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: offerlens_e2e
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U postgres -d offerlens_e2e]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+  redis:
+    image: redis:7-alpine
+    container_name: offerlens-e2e-redis
+    ports: ['6380:6379']
+    tmpfs: [/data]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 1s
+      timeout: 3s
+      retries: 30

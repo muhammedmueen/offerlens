@@ -74,7 +74,7 @@ function build(selection: AiProviderSelection): BaseAiProvider | MockAiProvider 
     if (!selection.apiKey && !hasServerKeyFor(requested)) {
         console.warn(
             `[AI] No API key for "${requested}" — using MockAiProvider. `
-            + 'Responses are fixed sample data, not analysis.',
+            + 'Responses are sample data, not analysis.',
         );
         return new MockAiProvider();
     }
