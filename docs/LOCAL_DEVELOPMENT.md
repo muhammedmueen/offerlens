@@ -611,25 +611,28 @@ passes with a 2.4% noise floor; the browser
 integration seam (CORS preflight, credentialed cookies, `HttpOnly`/`SameSite`/`Path`,
 rejection of unlisted origins); the frontend dev server serves and SPA deep routes resolve.
 
-**Browser coverage is one smoke spec.** `frontend/e2e/smoke.spec.ts` drives the §8 walkthrough
-in Chromium. It is not part of `npm test` and no CI job runs it. To run it:
+**Browser coverage is a Playwright suite plus one real-AI smoke spec.** `cd frontend`, then
+`npx playwright install chromium` once.
 
-- Once: `cd frontend && npx playwright install chromium`.
-- The full stack must be up first: Postgres, Redis, API, **workers**, and `npm run dev` (or a
-  built frontend), with a working Gemini key. The mock provider is not enough.
-- `cd frontend && npm run test:e2e`. Set `E2E_BASE_URL` if the frontend is not on `http://localhost:8080`.
-- A Playwright `globalSetup` first flushes the live rate-limit buckets (`fastify-rate-limit-*` and
-  `login-email:*`) via `docker exec offerlens-redis`, so re-running the spec does not trip the
-  signup limit (5/hour per IP) — the manual clear below. Override the container with
-  `E2E_REDIS_CONTAINER`, or set `E2E_SKIP_REDIS_FLUSH=1` and clear the keys yourself if your Redis
-  is remote or named differently.
-- It signs up an `e2e-<timestamp>@example.com` user (delete it afterwards), makes at least 4
-  Gemini calls, and takes about 1 to 4 minutes.
+- `npm run test:e2e` runs `frontend/e2e/suite/`, the main suite. It needs Docker and no keys or running
+  services: `e2e/stack.mjs` starts its own Postgres and Redis containers (ports 5433 and 6380), migrates
+  and seeds them, builds the frontend, and runs the API (8100), workers and frontend (8180) with
+  `AI_PROVIDER=mock`. It never touches your dev database or `frontend/dist`. CI runs it, not blocking yet.
+- To re-run quickly, keep `npm run e2e:stack` going in another terminal; Playwright reuses it. Rebuild by
+  restarting it after frontend or backend changes. `npm run e2e:down` removes the containers.
+- `npm run test:e2e:real` runs `e2e/smoke.spec.ts` with a real AI key. The full dev stack must be up first
+  (Postgres, Redis, API, **workers**, and `npm run dev` or a built frontend). It first flushes the rate-limit
+  buckets (`fastify-rate-limit-*` and `login-email:*`) via `docker exec offerlens-redis`, so re-running does
+  not trip the signup limit (5/hour per IP) — the manual clear below. Override the container with
+  `E2E_REDIS_CONTAINER`, or set `E2E_SKIP_REDIS_FLUSH=1` and clear the keys yourself. It signs up an
+  `e2e-<timestamp>@example.com` user (delete it afterwards), makes at least 4 Gemini calls and takes about
+  1 to 4 minutes. Set `E2E_BASE_URL` if the frontend is not on `http://localhost:8080`.
+- `npm run test:e2e:live` loads public pages on the deployed site, read-only.
 
-Beyond that spec the UI is covered by unit and component tests (jsdom; 11 real files plus one placeholder) and by hand. Rendering
-in other browsers, on a phone and with a screen reader has not been checked by any test.
-§8 exists because a human still needs to click through it. The smoke spec does not exercise
-saving corrections, which is the PATCH call.
+Beyond that the UI is covered by unit and component tests (jsdom; 11 real files plus one placeholder) and by hand. Rendering
+in Firefox, Safari and with a screen reader has not been checked by any test; phone width is a Chromium
+emulation of a few pages.
+§8 exists because a human still needs to click through it.
 
 > [!WARNING]
 > This gap is not theoretical. Every one of the four bugs found in the results-page drawers

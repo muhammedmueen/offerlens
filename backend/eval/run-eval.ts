@@ -13,7 +13,7 @@
  * deliberate: this measures extraction quality in isolation, without a database, a
  * queue, or the worker's normalisation in the way.
  *
- * Needs GEMINI_API_KEY. Without one it exercises MockAiProvider, which returns fixed
+ * Needs GEMINI_API_KEY. Without one it exercises MockAiProvider, which returns sample
  * data — useful for checking the harness runs, useless as a measurement.
  *
  * ── WHY --runs EXISTS ────────────────────────────────────────────────────────

@@ -1,20 +1,34 @@
-import { defineConfig } from "@playwright/test";
+import { defineConfig, devices } from "@playwright/test";
 
-// Smoke spec for the §8 walkthrough. It needs the real stack already running (Postgres, Redis,
-// API, workers, `npm run dev`) and a working AI key: see docs/LOCAL_DEVELOPMENT.md §6.
-// ponytail: no `webServer` block. Booting the API and workers from here would hide the
-// "forgot the workers" failure the walkthrough warns about.
+const WEB_URL = "http://localhost:8180";
+
+// The main E2E suite: the real stack with AI_PROVIDER=mock, booted by e2e/stack.mjs against its own
+// containers. Real Gemini runs live in playwright.real.config.ts, live-site checks in
+// playwright.live.config.ts.
 export default defineConfig({
-  testDir: "./e2e",
-  // Clears the live rate-limit buckets before the run so a repeated spec does not trip authSignup
-  // (5/hour per IP). It never weakens the limit; see e2e/global-setup.ts.
-  globalSetup: "./e2e/global-setup.ts",
-  timeout: 5 * 60_000, // two real Gemini analyses plus two drawer calls
-  expect: { timeout: 10_000 },
+  testDir: "./e2e/suite",
+  fullyParallel: false,
+  // One worker: rate-limit tests would race the flush that the signup fixture does.
   workers: 1,
-  reporter: "list",
+  retries: process.env.CI ? 1 : 0,
+  timeout: 60_000,
+  expect: { timeout: 10_000 },
+  reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: {
-    baseURL: process.env.E2E_BASE_URL ?? "http://localhost:8080",
+    baseURL: WEB_URL,
     trace: "retain-on-failure",
+    screenshot: "only-on-failure",
   },
+  webServer: {
+    command: "node e2e/stack.mjs",
+    url: WEB_URL,
+    timeout: 5 * 60_000,
+    reuseExistingServer: !process.env.CI,
+    stdout: "pipe",
+    stderr: "pipe",
+  },
+  projects: [
+    { name: "chromium", use: { ...devices["Desktop Chrome"] }, grepInvert: /@mobile/ },
+    { name: "mobile", use: { ...devices["Pixel 7"] }, grep: /@mobile/ },
+  ],
 });
