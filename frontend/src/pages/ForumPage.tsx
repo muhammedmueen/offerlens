@@ -190,7 +190,7 @@ export const ForumPostPage = () => {
             </form>
           ) : (
             <p className="text-sm text-muted-foreground">
-              <Link to={`/login?returnUrl=${encodeURIComponent(pathname)}`} className="text-primary hover:underline cursor-pointer">Log in</Link> to comment
+              <Link to={`/login?returnUrl=${encodeURIComponent(pathname)}`} className="text-primary underline cursor-pointer">Log in</Link> to comment
             </p>
           )}
         </div>

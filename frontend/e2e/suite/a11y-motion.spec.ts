@@ -3,29 +3,19 @@ import type { Page } from "@playwright/test";
 import {
   test,
   expect,
+  API,
   CLEAN_LETTER,
   RED_FLAG_LETTER,
   seedOffer,
   signInNewAccount,
+  unique,
 } from "../support/fixtures";
 
 // Guide §2 and §13: the parts a machine can judge. Whether motion feels calm, real contrast in
 // context and screen-reader use stay with the manual guide.
 
-// Real findings, listed so that anything NEW fails the test. Remove a rule here when it is fixed.
-const KNOWN_VIOLATIONS: Record<string, string[]> = {
-  // Landing page: <dt>/<dd> are wrapped in extra divs the <dl> does not allow.
-  "/": ["definition-list", "dlitem"],
-  // The inactive "Upload File"/"Paste Text" tab has low contrast, and the drop zone's aria-label
-  // does not contain its visible text.
-  "/upload": ["color-contrast", "label-content-name-mismatch"],
-  // The "Sign up" / "Log in" inline links differ from the sentence by colour alone.
-  "/login": ["link-in-text-block"],
-  "/signup": ["link-in-text-block"],
-};
-
-async function scan(page: Page, known: string[] = []) {
-  const { violations } = await new AxeBuilder({ page }).disableRules(known).analyze();
+async function scan(page: Page) {
+  const { violations } = await new AxeBuilder({ page }).analyze();
   return violations
     .filter((v) => v.impact === "critical" || v.impact === "serious")
     .map((v) => `${v.id} (${v.nodes.length}): ${v.nodes[0].target.join(" ")}`);
@@ -37,9 +27,25 @@ test.describe("axe scan", () => {
       await page.goto(path);
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
       await page.waitForTimeout(600); // let the entrance fade finish, or axe sees half-opaque text
-      expect(await scan(page, KNOWN_VIOLATIONS[path])).toEqual([]);
+      expect(await scan(page)).toEqual([]);
     });
   }
+
+  test("§13 a forum post has no serious violations, as a guest", async ({ page }) => {
+    const { accessToken } = await signInNewAccount(page);
+    const created = await page.request.post(`${API}/forum/posts`, {
+      headers: { authorization: `Bearer ${accessToken}` },
+      data: { title: unique("E2E axe post"), content: "A post to scan.", category: "general" },
+    });
+    expect(created.ok()).toBe(true);
+    const { id } = (await created.json()).data;
+    await page.evaluate(() => localStorage.clear());
+
+    await page.goto(`/forum/${id}`);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    await page.waitForTimeout(600);
+    expect(await scan(page)).toEqual([]);
+  });
 
   test("§13 the dashboard has no serious violations", async ({ page }) => {
     const account = await signInNewAccount(page);

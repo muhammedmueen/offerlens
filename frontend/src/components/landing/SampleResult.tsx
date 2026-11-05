@@ -79,14 +79,12 @@ const SampleResult = () => (
           {/* Breakdown bars so the band never relies on colour alone. */}
           <dl className="mt-6 space-y-3">
             {breakdown.map(({ label, pct, bar }) => (
-              <div key={label}>
-                <div className="flex items-baseline justify-between text-sm">
-                  <dt className="text-stone-700">{label}</dt>
-                  <dd className="font-mono tabular-nums text-stone-500">{pct}</dd>
-                </div>
-                <div className="mt-1 h-2 overflow-hidden rounded-full bg-stone-100">
-                  <div className={`h-full rounded-full ${bar}`} style={{ width: `${pct}%` }} aria-hidden="true" />
-                </div>
+              <div key={label} className="grid grid-cols-[1fr_auto] items-baseline text-sm">
+                <dt className="text-stone-700">{label}</dt>
+                <dd className="font-mono tabular-nums text-stone-500">{pct}</dd>
+                <dd aria-hidden="true" className="col-span-2 mt-1 h-2 overflow-hidden rounded-full bg-stone-100">
+                  <div className={`h-full rounded-full ${bar}`} style={{ width: `${pct}%` }} />
+                </dd>
               </div>
             ))}
           </dl>
