@@ -89,7 +89,11 @@ test.describe("mobile width", () => {
     await page.getByRole("banner").getByRole("link", { name: "Forum" }).click();
 
     await expect(page).toHaveURL(/\/forum$/);
-    await expect(page.getByRole("button", { name: "Open menu" })).toHaveAttribute("aria-expanded", "false");
+    const menu = page.getByRole("button", { name: "Open menu" });
+    // The heading means the new page has mounted; the outgoing navbar then leaves with the crossfade.
+    await expect(page.getByRole("heading", { level: 1, name: "Forum" })).toBeVisible();
+    await expect(menu).toHaveCount(1);
+    await expect(menu).toHaveAttribute("aria-expanded", "false");
   });
 
   test("§14 results, salaries and upload fit a phone @mobile", async ({ page }) => {

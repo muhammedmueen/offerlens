@@ -328,7 +328,8 @@ calculator unavailable", "Career path unavailable", "Corrections unavailable") a
   reads "No changes yet" and is **disabled until you change something**. Change a field → it
   reads "Save 1 correction" → save → toast "Corrections applied" and the results page
   refreshes with the new value.
-- [ ] Each drawer: opens, **Escape** closes it, focus returns sensibly. Keyboard-openable.
+- [ ] Each drawer: opens, **Escape** closes it, focus returns to the button that opened it.
+  Keyboard-openable.
 
 ---
 
@@ -356,6 +357,7 @@ calculator unavailable", "Career path unavailable", "Corrections unavailable") a
   ("Welcome back") with the same credentials → `/dashboard`.
 - [ ] While logged in, **hard-refresh** → still signed in (session survives reload), no bounce
   to login, no flash of logged-out UI.
+- [ ] While logged in, visit `/login` or `/signup`: you land on `/dashboard` instead of the form.
 - [ ] Wrong password shows "Invalid email or password."
 - [ ] Rate limit: many rapid wrong passwords end in "Too many attempts. Please wait a while
   before trying again." — not a 500. This locks that email's login for 15 minutes; use a
@@ -512,20 +514,6 @@ new regressions.
   the inputs were read, not the estimate itself.
 - **Share links are owner-only.** "Share" copies the URL, but anyone other than the owner gets
   "This analysis isn't ready or isn't available" (§4c).
-- **The "Submit salary data" dialog does not fit shorter screens.** It is about 890px tall (948px on a
-  phone) and does not scroll, so at 1366×768 or on a phone its top and "Send data point" are out of
-  reach (§10). Pinned in `e2e/suite/public-pages.spec.ts`.
-- **A malformed `returnUrl` reports a wrong password.** `/login?returnUrl=//x` logs in, then shows
-  "Invalid email or password." Pinned in `e2e/suite/auth.spec.ts`.
-- **Closing a drawer loses keyboard focus.** After Escape, focus falls to the page body rather than
-  the button that opened the drawer (§6). Pinned in `e2e/suite/drawers.spec.ts`.
-- **PDF download fails when the API is on another origin.** The report route skips its CORS and
-  Content-Type headers. Live is same-origin and unaffected; local dev (§5d) shows "Download failed".
-  Pinned in `e2e/suite/results.spec.ts`.
-- **`/login` and `/signup` crash on a build with no Google client id** once Google's script loads:
-  "This page failed to load." Live has a client id. Pinned in `e2e/suite/auth.spec.ts`.
-- **Axe findings.** Landing `dl` structure, Upload tab contrast and drop-zone label, and Login/Signup
-  inline links marked by colour alone. Listed in `e2e/suite/a11y-motion.spec.ts`.
 - **Account export and delete have no UI.** The backend has account export
   (`GET /account/export`) and account delete (`DELETE /users/me`), and offer delete
   (`DELETE /offers/:id`), but no screen exposes them. They cannot be UI-tested.

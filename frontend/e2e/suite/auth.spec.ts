@@ -208,7 +208,9 @@ test.describe("already signed in", () => {
     await expect(page).toHaveURL(`${WEB}/forum`);
   });
 
-  test("gap: a dead session on /login does not loop", async ({ page }) => {
+  test("gap: a dead session on /login does not loop", async ({ page, expectedConsole }) => {
+    // The session check is retried as a guest, and /users/me answers a guest with 403 by design.
+    expectedConsole.allow(/status of 403 /);
     await signInNewAccount(page);
     await page.evaluate(() => {
       localStorage.removeItem("refresh_token");
