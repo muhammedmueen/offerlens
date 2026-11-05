@@ -45,27 +45,33 @@ test.describe("salary explorer", () => {
     await expect(page.getByRole("dialog", { name: "Submit salary data" })).toBeVisible();
   });
 
-  // KNOWN BUG, found by this suite. The dialog is about 890px tall (948px on a phone), centred, with no
-  // max height or scrolling, so on a shorter screen its top and its Send button are out of reach.
-  // Delete test.fail() once DialogContent scrolls.
+  // The dialog is about 890px tall (948px on a phone), so it has to scroll on anything shorter.
+  const expectWholeDialogReachable = async (page: Page) => {
+    await page.goto("/salaries");
+    await page.getByRole("button", { name: "Submit Your Salary" }).click();
+    const dialog = page.getByRole("dialog", { name: "Submit salary data" });
+    const send = dialog.getByRole("button", { name: "Send data point" });
+    await send.scrollIntoViewIfNeeded();
+    await expect(send).toBeInViewport({ ratio: 1 });
+    const heading = dialog.getByRole("heading", { name: "Submit salary data" });
+    await heading.scrollIntoViewIfNeeded();
+    await expect(heading).toBeInViewport({ ratio: 1 });
+  };
+
   test.describe("on a laptop screen", () => {
     test.use({ viewport: { width: 1366, height: 768 } });
 
-    test("§10 the contribute dialog's Send button can be reached", async ({ page }) => {
-      test.fail();
-      await page.goto("/salaries");
-      await page.getByRole("button", { name: "Submit Your Salary" }).click();
-      const send = page.getByRole("dialog", { name: "Submit salary data" }).getByRole("button", { name: "Send data point" });
-      await expect(send).toBeVisible();
-      await send.scrollIntoViewIfNeeded();
-      await expect(send).toBeInViewport({ ratio: 1, timeout: 2_000 });
+    test("§10 the whole contribute dialog can be reached", async ({ page }) => {
+      await expectWholeDialogReachable(page);
     });
+  });
+
+  test("§10 the whole contribute dialog can be reached on a phone @mobile", async ({ page }) => {
+    await expectWholeDialogReachable(page);
   });
 
   test("§10 contributing validates, sends once, then holds off for an hour", async ({ page, expectedConsole }) => {
     expectedConsole.allow(/status of 429 /);
-    // Tall enough for the whole dialog: see the known bug above.
-    await page.setViewportSize({ width: 1920, height: 1200 });
     await page.goto("/salaries");
     const dialog = page.getByRole("dialog", { name: "Submit salary data" });
     const fill = async (ctc: string) => {
