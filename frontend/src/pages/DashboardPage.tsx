@@ -47,7 +47,7 @@ const DashboardPage = () => {
   return (
     <PageShell>
       <div className="container mx-auto px-4 py-8 space-y-8">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
           <div className="flex gap-2">
             <Button onClick={() => navigate("/upload")} className="cursor-pointer rounded-md">
