@@ -94,7 +94,7 @@ const ForumListPage = () => {
                   <MessageSquare className="h-5 w-5 text-muted-foreground shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-sm truncate">{p.title}</p>
-                    <p className="text-xs text-muted-foreground">{p.authorName || "Anonymous"} · {new Date(p.createdAt).toLocaleDateString()} · {p.commentCount ?? 0} comments</p>
+                    <p className="text-xs text-muted-foreground break-words">{p.authorName || "Anonymous"} · {new Date(p.createdAt).toLocaleDateString()} · {p.commentCount ?? 0} comments</p>
                   </div>
                 </Link>
               </MotionCard>
@@ -165,19 +165,19 @@ export const ForumPostPage = () => {
     <PageShell>
       <div className="container mx-auto max-w-3xl px-4 py-8 space-y-6">
         <div>
-          <h1 className="text-xl font-bold">{post.title}</h1>
-          <p className="text-xs text-muted-foreground">{post.author?.name || "Anonymous"} · {new Date(post.createdAt).toLocaleDateString()}</p>
+          <h1 className="text-xl font-bold break-words">{post.title}</h1>
+          <p className="text-xs text-muted-foreground break-words">{post.author?.name || "Anonymous"} · {new Date(post.createdAt).toLocaleDateString()}</p>
         </div>
         <div className="prose prose-sm max-w-none">
-          <p className="text-sm whitespace-pre-wrap">{post.content}</p>
+          <p className="text-sm whitespace-pre-wrap break-words">{post.content}</p>
         </div>
 
         <div className="space-y-4">
           <h2 className="font-semibold">Comments ({post.comments?.length || 0})</h2>
           {(post.comments || []).map((c: ForumComment) => (
             <div key={c.id} className="rounded-lg border border-border bg-card p-4">
-              <p className="text-xs text-muted-foreground mb-1">{c.authorName || "Anonymous"} · {new Date(c.createdAt).toLocaleDateString()}</p>
-              <p className="text-sm whitespace-pre-wrap">{c.content}</p>
+              <p className="text-xs text-muted-foreground mb-1 break-words">{c.authorName || "Anonymous"} · {new Date(c.createdAt).toLocaleDateString()}</p>
+              <p className="text-sm whitespace-pre-wrap break-words">{c.content}</p>
             </div>
           ))}
 

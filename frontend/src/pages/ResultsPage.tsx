@@ -327,7 +327,7 @@ const ResultsPage = () => {
                       </span>
                       <h3 className="font-medium text-sm text-foreground">{rf.title}</h3>
                     </div>
-                    {rf.matchedText && <p className="font-mono text-xs text-stone-500 italic mb-1">"{rf.matchedText}"</p>}
+                    {rf.matchedText && <p className="font-mono text-xs text-stone-500 italic mb-1 break-words">"{rf.matchedText}"</p>}
                     <p className="text-sm text-stone-700">{rf.explanation}</p>
                     {rf.suggestion && (
                       <p className="mt-2 text-sm text-foreground"><span className="font-medium">Suggestion:</span> {rf.suggestion}</p>
