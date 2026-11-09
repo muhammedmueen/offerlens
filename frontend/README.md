@@ -35,4 +35,4 @@ The application will be available at `http://localhost:8080`.
 
 ### Backend Connection
 
-Ensure the backend server is running on port `8000`. The frontend does not proxy: the browser calls `http://localhost:8000/api/v1` directly (override with `VITE_API_BASE_URL`), so the backend's `CORS_ORIGIN` must match this app's origin. For production builds and hosting, see `docs/DEPLOYMENT.md`.
+Ensure the backend server is running on port `8000`. The frontend does not proxy: the browser calls `http://localhost:8000/api/v1` directly (override with `VITE_API_BASE_URL`), so the backend's `CORS_ORIGIN` must match this app's origin. See `../backend/README.md` to run it. For production builds and hosting, see `../docs/DEPLOYMENT.md`.
